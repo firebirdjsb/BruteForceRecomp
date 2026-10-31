@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.20)
+project(BruteForceRecomp LANGUAGES C CXX)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(MSVC)
+    # Upstream runtime targets explicitly use /O2, which conflicts with the
+    # default MSVC Debug /RTC1 instrumentation. Keep symbols and /Od for our
+    # generated code while allowing those runtime targets to compile.
+    string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+endif()
+set(XBOXRECOMP_DIR "" CACHE PATH "Pinned xboxrecomp checkout")
+set(BF_GENERATED_DIR "" CACHE PATH "Private generated C source directory")
+if(ANDROID)
+    message(FATAL_ERROR "Android is not integrated yet. See platform-references.json for the public Vulkan/SDL2 runtime candidate and README.md for the app-lifecycle and device validation gates.")
+endif()
+if(NOT EXISTS "${XBOXRECOMP_DIR}/CMakeLists.txt" OR NOT EXISTS "${BF_GENERATED_DIR}/recomp_dispatch.c")
+    message(FATAL_ERROR "Run scripts/pipeline.py generate first, then set XBOXRECOMP_DIR and BF_GENERATED_DIR.")
+endif()
+if(NOT EXISTS "${BF_GENERATED_DIR}/native-media-profile.json")
+    message(FATAL_ERROR "Prepare the user-approved native media profile with scripts/prepare_native_media.py before building.")
+endif()
+add_subdirectory("${XBOXRECOMP_DIR}" "${CMAKE_BINARY_DIR}/xboxrecomp")
+file(GLOB BF_GENERATED CONFIGURE_DEPENDS "${BF_GENERATED_DIR}/*.c")
+add_executable(bruteforce_recomp src/main.cpp src/boot_trace.cpp src/file_hash.cpp
+    src/native_media.cpp src/instruction_services.cpp ${BF_GENERATED})
+target_include_directories(bruteforce_recomp PRIVATE
+    "${BF_GENERATED_DIR}" "${BF_GENERATED_DIR}/.."
+    "${XBOXRECOMP_DIR}/templates/runtime" "${XBOXRECOMP_DIR}/include")
+target_link_libraries(bruteforce_recomp PRIVATE xboxrecomp)
+if(MSVC)
+    target_compile_options(bruteforce_recomp PRIVATE /bigobj /fp:strict)
+else()
+    target_compile_options(bruteforce_recomp PRIVATE -fno-fast-math -ffp-contract=off)
+endif()

@@ -1,0 +1,19 @@
+{
+  "ghidra_entries": 13694,
+  "recompiler_candidates": 22307,
+  "shared_entries": 13684,
+  "ghidra_entries_not_discovered": [
+    "0x0002E490",
+    "0x0008D43C",
+    "0x00092F94",
+    "0x00156938",
+    "0x0025B13E",
+    "0x002615FD",
+    "0x002EBFBE",
+    "0x002F1DE5",
+    "0x0037B2FC",
+    "0x0037EE7C"
+  ],
+  "recompiler_entries_not_in_ghidra": 8623,
+  "interpretation": "Address agreement only, not body or semantic equivalence"
+}

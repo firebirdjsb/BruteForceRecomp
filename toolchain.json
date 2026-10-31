@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/sp00nznet/xboxrecomp.git",
+  "commit": "f0f8a461496a4f23d9b0aeaa284b8d70ba7ab82b",
+  "capstone": "5.0.7",
+  "xbe_sha256": "b6ea5d4dd6500ae86c3f5e3e4618bc9b1e3facddcb483170dfee7a787087c721",
+  "title_id": "0x4D53001E",
+  "entry_point": "0x002F5D1F"
+}

@@ -1,0 +1,15 @@
+{
+  "android_first_device": "Samsung Galaxy S24 Ultra, Canadian variant",
+  "requested_by_user": true,
+  "abi": "arm64-v8a",
+  "chipset": "Snapdragon 8 Gen 3 for Galaxy",
+  "chipset_source": "https://news.samsung.com/ca/enter-the-new-era-of-mobile-ai-with-samsung-galaxy-s24-series",
+  "preferred_backend_to_evaluate": "SDL2 + Vulkan from the pinned public platform runtime candidate",
+  "driver_policy": "Test Samsung's installed driver first; evaluate an optional app-local compatible driver only if measured failures require it. No system-driver replacement.",
+  "initial_render_scale": 1.0,
+  "aspect_ratio_policy": "Preserve the guest game's viewport and use letterboxing initially",
+  "timing_policy": "Preserve original-game timing; no unverified high-FPS patch",
+  "android_version": "Not read from the user's device yet",
+  "device_validation": "NOT_RUN",
+  "required_checks": ["Vulkan capabilities and driver version", "rendered menu", "controller navigation", "audio", "mission loading", "gameplay timing", "app-private save and reload", "pause/resume", "rotation", "thermal stability"]
+}

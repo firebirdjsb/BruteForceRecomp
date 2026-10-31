@@ -1,0 +1,16 @@
+{
+  "android_runtime_candidate": {
+    "repository": "https://github.com/xenophobentx/xboxrecomp.git",
+    "branch": "takedawn",
+    "inspected_commit": "ebcbf6ff086bea64b5181741951f0d815db90968",
+    "status": "SOURCE_INSPECTED_NOT_INTEGRATED",
+    "reusable_surfaces": ["SDL2 host", "Vulkan NV2A renderer", "Android host helpers", "ARM64 fault handling"],
+    "required_review": "Separate generic runtime code from title-specific assumptions; check generated register-model compatibility and licenses before integration."
+  },
+  "android_application_reference": {
+    "repository": "https://github.com/xenophobentx/takedawn.git",
+    "inspected_commit": "e75aeb6d8116c13b801735ff2ec1638cb8fbe382",
+    "documentation": "https://github.com/xenophobentx/takedawn/blob/e75aeb6d8116c13b801735ff2ec1638cb8fbe382/docs/android.md",
+    "status": "SOURCE_AND_DOCUMENTATION_INSPECTED_NOT_DEVICE_VERIFIED"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "original_entry": "0x2f801f",
+  "original_end": "0x2f81e8",
+  "original_body_sha256": "f44421e4a03680a1170b1f18f84cb281ad2a3878831cc18e5fda23aa0c15cad2",
+  "original_ret": "0x002F81E7: C3 (ret, no immediate)",
+  "preserved_symbol": "bf_original_media_002F801F",
+  "native_symbol": "sub_002F801F",
+  "user_approved": true,
+  "cache_service": "0x00376C1D: 0F 09; coherent host-memory barrier",
+  "scope": "Local-file validation replaces the DVD identity service; original body retained"
+}
