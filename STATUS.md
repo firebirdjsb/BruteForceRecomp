@@ -1,6 +1,25 @@
-# Verified state — 31 October 2026
+# Verified state — 1 November 2026
 
 This is an experimental recompilation project, **not a playable Windows/Linux/Android release**.
+
+## Current progress
+
+The Windows Debug build visibly renders the real Start/Demos screen. A scripted USB controller-report test also reaches the Campaign Type screen showing Campaign, Quick Campaign, Host Session and Join Session. Both screens were inspected directly. This establishes menu rendering and a controller-report navigation path, not completed gameplay, verified physical-controller support, mouse aim, working networking or audio quality.
+
+Fixed and observed in this batch:
+
+- Prevented the look-behind import scan from overwriting two ordinary instruction words. The bridge now reports **147/147 resolved, 147 bridged, zero stub imports**, rather than 149/147 with two invalid entries. An 11-vector compiled guard test passes.
+- Connected the existing GPU semaphore-release handler to the live D3D semaphore pointer. The original wait remains intact; completion advances from the formerly stuck value 3 to 105/115 and further as real commands are consumed.
+- Recovered measured missing `MU_Init` at `0x0037EE7C` from its authenticated 268-byte body. Generated code remains private; original body SHA-256: `5fa2203370ec405e1dc3ebd5668a8f80fe3b30332ba5d7fde4c68ec8abe54c2c`.
+- Made successful per-read payload tracing opt-in while retaining failure diagnostics. Startup now loads common and splash-screen assets and renders menus during the bounded run.
+- Initialized the guest USB model with its required Windows device-fault handler. Reports advance and scripted buttons navigate menus. The verified USB CLI/STI pair updates guest IF and masks/restores runtime guest IRQL around the original frame-counter snapshot.
+- Added bounded native-PC/D3D-state sampling. Watchdog expiration is labeled `BOUNDED_RUN_ENDED`; expiration alone does not prove a frozen game.
+
+The four offline/native validation tests and compiled import guard test pass. Updated source has been built in Debug; the new Release build was interrupted to prioritize bring-up and is **not claimed verified**. Physical controllers, full native mouse/keyboard support, campaign gameplay, audio quality, every level/character, enhancement UI, cheats and expanded P2P multiplayer remain pending. FEATURE_TARGETS.md records the full requested scope.
+
+All runs used fresh scratch saves. Original ISO/XBE files, existing decompilation work, installed games and permanent saves were not modified. The pinned public runtime remains clean: replacements are generated only inside the private build directory. No production deployment occurred. Reverting this source batch and rebuilding provides rollback.
+
+## Historical baseline from 31 October
 
 **Current result:** the user-approved native file-validation service passes and startup proceeds beyond the DVD check. A verified `WBINVD` site now uses a host-memory barrier. With the public pushbuffer executor enabled, the runtime opens a 640x480 framebuffer window, but the GPU report records zero drawn triangles and zero pixels. Startup stalls during graphics initialization and the 13-second watchdog terminates it. No menu or gameplay has been verified. The DVD failure described below is the preserved baseline, not the current blocker.
 

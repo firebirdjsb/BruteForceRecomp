@@ -6,6 +6,14 @@ Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows,
 
 See [STATUS.md](STATUS.md) for completed builds, the observed DVD-service startup blocker, validation evidence and remaining platform work.
 
+The current Debug build now renders the original Start screen and reaches the Campaign Type menu through scripted controller reports. It is not yet a verified playable release. [FEATURE_TARGETS.md](FEATURE_TARGETS.md) records the requested enhancement menu, full mouse/keyboard and controller support, cheats, HD/widescreen and expanded multiplayer scope.
+
+Startup fixes apply only to hash-checked build copies of the public runtime; its checkout stays clean. The semaphore target is derived from the live D3D device, and the completion word changes only when the renderer consumes an actual semaphore-release command. `BF_TRACE_FILE_IO=1` restores successful-read payload tracing; failures remain visible by default.
+
+For an existing generated directory, run `scripts/recover_entries.py --xbe FILE --toolkit TOOLKIT --functions FUNCTIONS_JSON --output RECOVERED_DIR` and pass `-DBF_RECOVERED_DIR=RECOVERED_DIR` to CMake. The normal `generate` pipeline does this automatically. Recovery verifies the missing callback's original bytes and emits its complete lifted body privately. The public repository holds no recovered game-code body.
+
+Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/V = A/B/X/Y, Enter = Start); `--mouse-keyboard` also enables the existing raw-mouse adapter, with F9 capture toggle. This adapter is a bring-up path, not proof of the requested native mouse/keyboard experience. `--sample-startup` enables bounded Windows main-thread sampling; `--gpu-trace` records submissions. USB and vblank models are enabled by the boot-test launcher. Physical controllers, mouse aim and full gameplay still require validation.
+
 ## Exact input
 
 - Retail North American title `4D53001E`, version 6, XDK 5233.

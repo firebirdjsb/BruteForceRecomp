@@ -16,6 +16,9 @@ def main():
     parser.add_argument('--work-dir', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=15)
     parser.add_argument('--gpu-trace', action='store_true')
+    parser.add_argument('--keyboard', action='store_true', help='Expose the runtime keyboard as controller port 0')
+    parser.add_argument('--mouse-keyboard', action='store_true', help='Exercise the runtime raw-mouse/keyboard adapter; gameplay behavior requires QA')
+    parser.add_argument('--sample-startup', action='store_true', help='Sample the Windows host main thread')
     args = parser.parse_args()
     if not 1 <= args.seconds <= 60:
         parser.error('--seconds must be between 1 and 60')
@@ -29,9 +32,16 @@ def main():
                    RECOMP_UNIMPL_TRAP='1', RECOMP_STUB_LOG='1',
                    BF_TRACE_BOOT='1',
                    RECOMP_PB_EXEC='1', RECOMP_FB_WINDOW='1',
+                   RECOMP_USB='1', RECOMP_VBLANK='1',
                    RECOMP_WATCHDOG_SECS=str(max(1, args.seconds - 2)))
         if args.gpu_trace:
             env['RECOMP_NV2A_TRACE'] = '1'
+        if args.keyboard or args.mouse_keyboard:
+            env['RECOMP_KEYBOARD'] = '1'
+        if args.mouse_keyboard:
+            env['RECOMP_MKB'] = '1'
+        if args.sample_startup:
+            env['BF_SAMPLE_BOOT'] = '1'
         with (scratch / 'boot.log').open('w', encoding='utf-8') as log:
             process = subprocess.Popen([str(args.exe.resolve()), str(game), str(scratch / 'saves')],
                                        cwd=scratch, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -50,7 +60,7 @@ def main():
                   'startup_requested_firmware_return': firmware_exit,
                   'watchdog_expired': watchdog,
                   'status': ('EARLY_FIRMWARE_RETURN' if firmware_exit else
-                             'STARTUP_STALLED' if watchdog or timed_out else
+                             'BOUNDED_RUN_ENDED' if watchdog or timed_out else
                              'UNSUPPORTED_INSTRUCTION' if unsupported else 'DIAGNOSTIC_ONLY'),
                   'manual_gameplay_verified': False, 'log': str(scratch / 'boot.log')}
         (scratch / 'result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')

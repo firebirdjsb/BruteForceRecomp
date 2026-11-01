@@ -49,6 +49,7 @@ def main():
                 raise ValueError('Generate and audit source before building')
             run(['cmake', '-S', ROOT, '-B', work / 'game-build',
                  '-DXBOXRECOMP_DIR=' + str(toolkit),
+                 '-DBF_RECOVERED_DIR=' + str(work / 'recovered'),
                  '-DBF_GENERATED_DIR=' + str(work / 'generated')], work, work / 'game-configure.log')
             run(['cmake', '--build', work / 'game-build', '--config', args.configuration, '--parallel', '4'],
                 work, work / 'game-build.log')
@@ -76,6 +77,8 @@ def main():
             from audit_generated import audit
             from prepare_native_media import prepare
             prepare(xbe, work / 'generated')
+            from recover_entries import recover
+            recover(xbe, toolkit, disasm / 'functions.json', work / 'recovered')
             report = audit(work / 'generated')
             print(f"Translation gaps: {report['unresolved_direct_count']} unresolved direct targets; "
                   f"{report['unsupported_markers']} unsupported instruction markers.")

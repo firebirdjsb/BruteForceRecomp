@@ -10,10 +10,13 @@
 #include "boot_trace.h"
 #include "native_media.h"
 #include "instruction_services.h"
+#include "startup_sampler.h"
+#include "host_input.h"
 extern "C" {
 #include "xbox/xboxrecomp.h"
 using GuestFunction = void (*)(void);
 GuestFunction recomp_lookup(uint32_t);
+void sub_0037EE7C(void);
 int recomp_dispatch_init(void);
 void xbox_path_init(const char *, const char *);
 #ifdef _MSC_VER
@@ -22,7 +25,11 @@ extern __declspec(thread) uint32_t g_esp;
 extern __thread uint32_t g_esp;
 #endif
 // NULL delegates to the generated dispatcher. This host has no overrides.
-GuestFunction recomp_lookup_manual(uint32_t target) { return boot_trace_lookup(target); }
+GuestFunction recomp_lookup_manual(uint32_t target) {
+    // Measured startup callback, recovered from its hash-verified XBE body.
+    if (target == 0x0037EE7C) return sub_0037EE7C;
+    return boot_trace_lookup(target);
+}
 void recomp_icall_fail_log(uint32_t va) {
     std::fprintf(stderr, "Unresolved guest call at 0x%08X; stopping.\n", va);
     std::exit(20);
@@ -85,6 +92,7 @@ int main(int argc, char **argv) {
         kernel_ready = true;
         xbox_path_init(game.string().c_str(), saves.string().c_str());
         xbox_kernel_bridge_init();
+        if (!start_host_input()) return 12;
         boot_trace_init(bytes.data(), bytes.size());
         // ESP is a guest 32-bit register. The runtime owns its mapped stack.
         g_esp = XBOX_STACK_TOP;
@@ -93,6 +101,7 @@ int main(int argc, char **argv) {
         const auto entry = recomp_lookup(0x002F5D1F);
         if (!entry) return 9;
         xbox_WatchdogStart();
+        start_startup_sampler();
         std::fprintf(stderr, "Experimental Brute Force boot; gameplay unverified.\n");
         entry();
         cleanup();
