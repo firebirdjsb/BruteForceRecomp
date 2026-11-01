@@ -6,6 +6,18 @@ Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows,
 
 See [STATUS.md](STATUS.md) for completed builds, the observed DVD-service startup blocker, validation evidence and remaining platform work.
 
+## Desktop launcher
+
+On Windows, open **Launch Brute Force.cmd**. On Linux, run `sh launch.sh`. Python 3.10+ and an existing native build are required. The launcher finds the toolkit/executable in this checkout's known CMake build directories, or accepts explicit paths:
+
+```powershell
+python -m launcher --toolkit "PATH_TO_PINNED_TOOLKIT" --exe "PATH_TO_NATIVE_EXECUTABLE"
+```
+
+The Brute Force themed command center opens in your local browser. Choose your ISO with **Browse files**, select **Import disc**, then **Start Game** after validation. It extracts into `.local/launcher/imports`, keeps saves in its separate `.local/launcher/player-data` profile, and writes per-session game logs. Imported data is revalidated on restart and before launch. The real 685-file disc import and Windows native menu launch were tested. The UI uses original vector/CSS artwork; game textures/assets are never distributed with the launcher.
+
+Only the authenticated local UI is exposed on loopback; game files are not HTTP assets. No upload, account or game-file download is involved. Linux's native chooser needs `python3-tk`; a full ISO path can also be pasted. This is currently a **desktop launcher**, not the pending native Android application UI. The keyboard checkbox enables the diagnostic controller mapping, not completed native mouse aim or rebinding. The Start button launches an experimental host; it does not imply playable campaign support.
+
 The current Debug build now renders the original Start screen and reaches the Campaign Type menu through scripted controller reports. It is not yet a verified playable release. [FEATURE_TARGETS.md](FEATURE_TARGETS.md) records the requested enhancement menu, full mouse/keyboard and controller support, cheats, HD/widescreen and expanded multiplayer scope.
 
 Startup fixes apply only to hash-checked build copies of the public runtime; its checkout stays clean. The semaphore target is derived from the live D3D device, and the completion word changes only when the renderer consumes an actual semaphore-release command. `BF_TRACE_FILE_IO=1` restores successful-read payload tracing; failures remain visible by default.
@@ -50,7 +62,7 @@ python scripts/pipeline.py runtime --xbe "D:/your-game/default.xbe"
 python scripts/pipeline.py build --xbe "D:/your-game/default.xbe"
 ```
 
-On Linux use `python3`; install the dependencies described in the pinned toolkit's `docs/GETTING_STARTED.md` (SDL2, libepoxy, OpenSSL, ffmpeg development packages). Linux execution has not been verified here.
+On Linux use `python3`; install the dependencies described in the pinned toolkit's `docs/GETTING_STARTED.md` (SDL2, libepoxy, OpenSSL, ffmpeg development packages). Native x64 builds/validation and a visible SDL loading screen are now verified under WSLg. Menu/gameplay remains blocked by the asynchronous read wait recorded in STATUS.md.
 
 Each stage logs to `.local/` by default; `--work-dir` selects another private directory. Generated source, disassembly databases, the XBE and extracted assets must stay private and outside commits/releases. The pipeline uses all executable sections, includes ABI analysis, and does not silently substitute cdecl for a missing analysis stage. Its inferred boundaries and ABI are still unverified.
 
@@ -80,6 +92,18 @@ Use `scripts/boot_test.py --exe PATH --game-dir PATH --work-dir PATH` for a boun
 The boot test enables the runtime's pushbuffer executor and framebuffer window. `--gpu-trace` adds GPU submission diagnostics. It returns failure for an early firmware return, watchdog stall, timeout or nonzero process exit. Use the program's `--validate-only GAME_FOLDER` option to check supported local inputs without executing guest code. If preparing an older generated directory manually, run `scripts/prepare_native_media.py --xbe FILE --generated DIR`, then `scripts/audit_generated.py DIR`, before building.
 
 ## Platform gates
+
+NDK r30 is installed locally with user acceptance of its terms. `android-toolchain.json` pins its revision and official archive checksum. A separate object-only audit compiles the existing generated game code for real Android ARM64 without pretending to be an application:
+
+```sh
+cmake -S cmake/android-audit -B .local/android-audit -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+  -DXBOXRECOMP_DIR="$TOOLKIT" -DBF_GENERATED_DIR="$GENERATED" -DBF_RECOVERED_DIR="$RECOVERED"
+cmake --build .local/android-audit --parallel 4
+```
+
+All 227 translation units pass this audit with NDK r30 Clang 21. Compiler warnings still require semantic review. There is no APK or linked Android graphics/audio/application runtime yet; this audit cannot be installed on the S24 Ultra.
 
 | Target | Required evidence |
 | --- | --- |

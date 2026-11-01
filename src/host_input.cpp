@@ -14,6 +14,27 @@ static LONG CALLBACK device_fault(EXCEPTION_POINTERS *exception) {
         return EXCEPTION_CONTINUE_EXECUTION;
     return EXCEPTION_CONTINUE_SEARCH;
 }
+#elif defined(__linux__)
+#include <csignal>
+#include <unistd.h>
+static struct sigaction previous_segv{}, previous_bus{};
+static void device_fault(int signal, siginfo_t *info, void *context) {
+    if (info && context && xbox_PosixMmioFault(context, reinterpret_cast<uintptr_t>(info->si_addr))) return;
+    const auto &previous = signal == SIGSEGV ? previous_segv : previous_bus;
+    // Forward unrelated faults to the prior owner. A default/ignored
+    // synchronous memory fault must retain its fatal signal, never loop by
+    // returning to an instruction the device model did not understand.
+    if (previous.sa_handler != SIG_DFL && previous.sa_handler != SIG_IGN) {
+        if (previous.sa_flags & SA_SIGINFO) previous.sa_sigaction(signal, info, context);
+        else previous.sa_handler(signal);
+        return;
+    }
+    struct sigaction fatal{};
+    fatal.sa_handler = SIG_DFL;
+    sigemptyset(&fatal.sa_mask);
+    sigaction(signal, &fatal, nullptr);
+    raise(signal);
+}
 #endif
 
 bool start_host_input() {
@@ -28,6 +49,19 @@ bool start_host_input() {
     }
     xbox_OhciInit();
     std::fprintf(stderr, "[INPUT] Guest USB controller model initialized\n");
+    return true;
+#elif defined(__linux__)
+    struct sigaction action{};
+    action.sa_sigaction = device_fault;
+    action.sa_flags = SA_SIGINFO;
+    sigemptyset(&action.sa_mask);
+    if (sigaction(SIGSEGV, &action, &previous_segv) != 0) return false;
+    if (sigaction(SIGBUS, &action, &previous_bus) != 0) {
+        sigaction(SIGSEGV, &previous_segv, nullptr);
+        return false;
+    }
+    xbox_OhciInit();
+    std::fprintf(stderr, "[INPUT] Guest USB controller model initialized (POSIX)\n");
     return true;
 #else
     std::fprintf(stderr, "[INPUT] Host signal-handler integration is not implemented on this platform yet\n");

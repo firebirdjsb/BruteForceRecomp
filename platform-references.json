@@ -3,7 +3,7 @@
     "repository": "https://github.com/xenophobentx/xboxrecomp.git",
     "branch": "takedawn",
     "inspected_commit": "ebcbf6ff086bea64b5181741951f0d815db90968",
-    "status": "SOURCE_INSPECTED_NOT_INTEGRATED",
+    "status": "GENERIC_LINUX_MMIO_DECODER_REUSED_RENDERER_AND_ANDROID_APP_NOT_INTEGRATED",
     "reusable_surfaces": ["SDL2 host", "Vulkan NV2A renderer", "Android host helpers", "ARM64 fault handling"],
     "required_review": "Separate generic runtime code from title-specific assumptions; check generated register-model compatibility and licenses before integration."
   },

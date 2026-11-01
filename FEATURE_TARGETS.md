@@ -9,6 +9,13 @@ User requirements recorded 1 November 2026. These are targets, not claims of imp
 - Preserve original gameplay and timing as the default. Keep optional enhancements and cheats modular.
 - Windows, Linux and Android ARM64 targets. First Android device: Canadian Samsung Galaxy S24 Ultra.
 
+## Front end launcher
+
+- A polished Brute Force themed launcher, including textured panels, squad presentation and readable keyboard/mouse focus states.
+- Ask for the user's local ISO, show extraction/verification progress, retain a local game library and start the compiled native host. Do not distribute the disc contents.
+- Desktop implementation now provides this flow through a loopback-only local UI and native file dialog. The real 685-file disc import, native validation and Windows menu launch have been exercised. Artwork is original vector/CSS styling; original game textures are not bundled.
+- Native Android application UI, Storage Access Framework ISO selection/import, lifecycle and on-device launch remain pending. The desktop launcher does not establish Android application support.
+
 ## Enhancement menu and input
 
 - Full native mouse-and-keyboard support is a core requirement, explicitly requested by the user: mouse look/aim, keyboard movement and actions, rebinding, sensitivity/inversion, cursor capture/release and complete menu navigation. Keyboard-as-gamepad diagnostics are not completion of this requirement.
@@ -35,4 +42,4 @@ User requirements recorded 1 November 2026. These are targets, not claims of imp
 
 ## Current boundary
 
-The port is still in graphics startup bring-up. The menu, cheats, expanded multiplayer, texture replacement and complete controller/audio/level/character validation are pending. Existing fixes and measurements are in STATUS.md. Do not label these targets complete merely because their controls or configuration entries exist.
+Windows renders original menus. Native Linux now renders the loading screen but does not reach a verified menu; the sampled guest thread waits for an asynchronous read flag at `0x00265B80`. The Android translation audit compiles all 227 translation units for ARM64, but there is no integrated Android application. The enhancement menu, cheats, expanded multiplayer, texture replacement and complete input/audio/level/character validation remain pending. Existing measurements are in STATUS.md.

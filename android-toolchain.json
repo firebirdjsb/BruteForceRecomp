@@ -1,0 +1,13 @@
+{
+  "ndk": "r30",
+  "revision": "30.0.16248370",
+  "host": "linux-x86_64",
+  "archive": "https://dl.google.com/android/repository/android-ndk-r30-linux.zip",
+  "archive_sha1": "5107f898313790e449e87eee2183d9a20602dee9",
+  "checksum_source": "https://developer.android.com/ndk/downloads",
+  "abi": "arm64-v8a",
+  "initial_api": 28,
+  "translation_audit": "cmake/android-audit",
+  "application_status": "NOT_INTEGRATED",
+  "device_test": "NOT_RUN"
+}

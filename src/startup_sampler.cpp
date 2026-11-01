@@ -21,6 +21,13 @@ static DWORD WINAPI sample_main_thread(void *argument) {
     if (!thread) return 1;
     const HANDLE process = GetCurrentProcess();
     const bool symbols = SymInitialize(process, nullptr, TRUE) != FALSE;
+    // Optional late sample for a wait reached only after menu navigation.
+    // The bound keeps a malformed environment value from parking diagnostics.
+    if (const char *delay = std::getenv("BF_SAMPLE_DELAY_MS")) {
+        char *end = nullptr;
+        const unsigned long ms = std::strtoul(delay, &end, 10);
+        if (end != delay && *end == '\0' && ms <= 120000) Sleep(ms);
+    }
     for (unsigned sample = 0; sample < 3; ++sample) {
         Sleep(2000);
         CONTEXT context{};

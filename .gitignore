@@ -25,5 +25,6 @@ __pycache__/
 *.mgf
 *.keystore
 *.pfx
+*.log
 .env
 .env.*

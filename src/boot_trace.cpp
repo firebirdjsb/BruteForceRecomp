@@ -9,14 +9,20 @@ extern "C" {
 BootGuestFunction recomp_lookup_kernel(uint32_t);
 #ifdef _MSC_VER
 extern __declspec(thread) uint32_t g_esp;
+extern __declspec(thread) uint32_t g_eax;
 #else
 extern __thread uint32_t g_esp;
+extern __thread uint32_t g_eax;
 #endif
 }
 
 static uint32_t ioctl_target;
 static BootGuestFunction actual_ioctl;
 static std::atomic_uint calls{0};
+static uint32_t delay_target;
+static std::atomic_uint delay_calls{0};
+
+static void trace_delay();
 
 static uint32_t guest32(uint32_t va) {
     // Guest pointers are 32-bit offsets into the runtime's retail RAM map.
@@ -29,6 +35,28 @@ static void dump(uint32_t va, uint32_t bytes) {
     if (uint64_t(va) + bytes > g_xbox_total_ram) return;
     const auto *p = reinterpret_cast<const unsigned char *>(uintptr_t(xbox_GetMemoryOffset()) + va);
     for (uint32_t i = 0; i < bytes; ++i) std::fprintf(stderr, " %02X", p[i]);
+}
+
+static void trace_delay() {
+    const unsigned n = delay_calls.fetch_add(1, std::memory_order_relaxed) + 1;
+    const bool trace = n <= 8 || (n & (n - 1)) == 0;
+    if (trace) {
+        try {
+            // KeDelayExecutionThread has three 4-byte stack arguments after
+            // its return address. Interval points to a signed 8-byte count
+            // of 100-ns units; negative is relative, zero yields.
+            const auto interval = guest32(g_esp + 12);
+            std::fprintf(stderr, "[BF_DELAY] #%u caller=%08X mode=%u alertable=%u interval=%08X:%08X\n",
+                         n, guest32(g_esp), guest32(g_esp + 4), guest32(g_esp + 8),
+                         guest32(interval + 4), guest32(interval));
+        } catch (const std::exception &error) {
+            std::fprintf(stderr, "[BF_DELAY] rejected read: %s\n", error.what());
+        }
+    }
+    const auto selected = recomp_lookup_kernel(delay_target);
+    if (!selected) std::exit(23);
+    selected();
+    if (trace) std::fprintf(stderr, "[BF_DELAY] status=%08X\n", g_eax);
 }
 
 static void trace_ioctl() {
@@ -95,12 +123,14 @@ void boot_trace_init(const char *xbe, std::size_t bytes) {
             if (ordinal == (0x80000000u | 196u)) {
                 ioctl_target = guest32(thunk + i * 4);
                 actual_ioctl = recomp_lookup_kernel(ioctl_target);
-                return;
             }
+            if (ordinal == (0x80000000u | 99u) && std::getenv("BF_TRACE_DELAY"))
+                delay_target = guest32(thunk + i * 4);
         }
     }
 }
 
 BootGuestFunction boot_trace_lookup(uint32_t target) {
+    if (delay_target && target == delay_target) return trace_delay;
     return actual_ioctl && target == ioctl_target ? trace_ioctl : nullptr;
 }

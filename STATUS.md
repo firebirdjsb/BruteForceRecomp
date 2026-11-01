@@ -4,6 +4,22 @@ This is an experimental recompilation project, **not a playable Windows/Linux/An
 
 ## Current progress
 
+The desktop launcher now imports the user's ISO, reports extraction progress, validates the native inputs and starts the Windows executable. The real disc imported **685 files** into a separate QA library; Start launched the original Start/Demos menu, and closing the game returned the launcher to Ready. The library survives launcher restart and is revalidated before use. The Windows native file chooser, long ISO path, refresh/session persistence and responsive layouts were inspected. Styling uses authored vector/CSS textures, with no original game artwork bundled. Native Android launcher/application integration remains pending.
+
+Native Linux x64 now builds and visibly renders the original **Loading** screen through SDL2 under WSLg. It does **not** reach a verified game menu. Fixed the POSIX memory reservation so contiguous RAM, NV2A, MCPX and tiled aliases fit inside a reserved 4-GB guest virtual window. Previously the OS placed RAM near the top of user address space and the device mappings failed. The tiled/contiguous alias is checked by the runtime. Added the POSIX device fault handler and reused the public runtime's Linux x64 MMIO decoder, with eight compiled instruction/context checks. The original toolkit remains clean; three source adaptations are made only in private build copies.
+
+Enabled the runtime's existing validated model for events built directly by the XDK. The D3D notification event at live device +`0x195C` (`0x0037D69C` in the observed run) now has a host event with its actual type/state, instead of being passed as a host handle. On Linux that invalid handle previously faulted inside `pthread_mutex_lock`. Guest waits are preserved. SDL now owns the process main thread and runs the guest on the runtime's dedicated thread.
+
+The approved **NDK r30, 30.0.16248370**, is installed under `work/tools/android-ndk-r30` (Linux host). The official archive checksum matched before extraction. All **227 generated/recovered C translation units compile to Android ARM64 objects** at API 28. This is a translation portability audit: it does not link the Android renderer/runtime, produce an APK, prove instruction equivalence, or establish Galaxy S24 Ultra support. The main application target still rejects Android configuration until that integration exists.
+
+The next measured Linux blocker is the zero-delay yield loop at original `0x00265B80`, waiting for an asynchronous read object's byte at +5 to clear while loading common resources. A native GDB sample identifies `sub_00265AD0 -> sub_00254C60 -> sub_00255330`; worker threads wait on their request events. No flag was forced clear and no successful read was fabricated. The 60-second run ended at the test limit. Windows startup/menu input tests also remain bounded runs, not gameplay validation.
+
+Current checks: **12 Python tests pass on Windows and Linux**, including supported/missing/corrupted inputs, extraction path restrictions, launcher request isolation, library containment and launch gates. Windows Debug builds and its compiled import test pass. Linux builds and both CTests pass (import guard and eight MMIO vectors). NDK ARM64 object build passes. Current Release, physical controllers, full mouse/keyboard gameplay, audio quality, all missions/characters, enhancement UI, cheats and expanded P2P remain unverified or unimplemented.
+
+Build-environment changes are local: a separate `BruteForceBuild` Ubuntu WSL distribution and project-local NDK were added. Existing Kali's public archive keyring was refreshed from its official source with a verified checksum and its original retained in `work/kali-archive-keyring.original.gpg`; package indices were updated, but the large simulated package migration was not installed. No original game, permanent save or production service was modified. Source rollback is to revert the relevant commit and rebuild; QA imports/builds remain private under `work/` and the isolated distro. Do not remove player data as part of a routine source rollback.
+
+## Earlier Windows startup batch
+
 The Windows Debug build visibly renders the real Start/Demos screen. A scripted USB controller-report test also reaches the Campaign Type screen showing Campaign, Quick Campaign, Host Session and Join Session. Both screens were inspected directly. This establishes menu rendering and a controller-report navigation path, not completed gameplay, verified physical-controller support, mouse aim, working networking or audio quality.
 
 Fixed and observed in this batch:
@@ -53,10 +69,10 @@ One intermediate trace run was discarded: the runtime uses a shared kernel dispa
 
 | Surface | State |
 | --- | --- |
-| Windows x64 | Diagnostic executable linked; native media validation passes; startup reaches graphics initialization and stalls before menu. |
-| Windows optimized build | Current native-media/cache-service source linked successfully with MSVC x64 Release. Its bounded boot reproduced the graphics-initialization stall and watchdog exit code 3. |
-| Linux | Native runtime/game not built or run. A read-only WSL prerequisite probe found no usable build-tool output and `pkg-config` reported permission denied. No Linux installation/configuration was changed. |
-| Android | Not built, installed or run. Canadian Galaxy S24 Ultra is the requested first device. A public SDL2/Vulkan runtime candidate and Android application reference were inspected and pinned as research snapshots. |
+| Windows x64 | Current Debug build and native file validation pass; original menus and launcher-to-game flow observed. Gameplay remains unverified. |
+| Windows optimized build | Current source batch not verified in Release. Earlier Release boot evidence describes the historical startup blocker only. |
+| Linux | Native x64 build, validation and two CTests pass; SDL loading screen observed under WSLg. Asynchronous read wait prevents a verified menu. |
+| Android | NDK r30 installed and all 227 translation units compile for ARM64. No linked Android application, APK or S24 Ultra device test yet. |
 | Controller, sound, rendering, missions, save/reload | Not verified. |
 | Original semantic fidelity | Not verified. Discovery, translation and compilation are distinct from runtime correctness. |
 

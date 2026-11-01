@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>Brute Force · Command Center</title><link rel="stylesheet" href="/app.css"></head>
+<body><div class="shell">
+  <header><a class="brand" href="#"><img src="/emblem.svg" alt=""><span>CONFEDERATION<span class="brand-sub">SPECIAL OPERATIONS</span></span></a><span class="build"><i></i> NATIVE RECOMP · DEVELOPMENT BUILD</span></header>
+  <main>
+    <section class="hero" aria-labelledby="title">
+      <div class="coordinates" aria-hidden="true">C.S.O. // SECURE UPLINK<br>SECTOR 04 — COMMAND AUTHORIZED</div>
+      <div class="hero-content"><div class="eyebrow"><span></span> FOUR OPERATIVES. ONE FORCE.</div>
+      <h1 id="title">BRUTE<span>FORCE</span></h1><p class="hero-copy">The squad is back.<br>Your disc. A new deployment.</p>
+      <div class="hero-footer"><span class="serial">BF / 4D53001E</span><span>PC RECOMPILATION PROJECT</span></div></div>
+      <div class="radar" aria-hidden="true"><div class="radar-ring"></div><div class="radar-ring inner"></div><img src="/emblem.svg" alt=""><span class="radar-label">SQUAD SIGNAL // ACQUIRED</span><b class="radar-dot d1"></b><b class="radar-dot d2"></b><b class="radar-dot d3"></b><b class="radar-dot d4"></b></div>
+      <div class="squad" aria-label="Brute Force squad"><span><b>01</b> TEX</span><span><b>02</b> BRUTUS</span><span><b>03</b> HAWK</span><span><b>04</b> FLINT</span></div>
+    </section>
+    <section class="command" aria-labelledby="deploy-title">
+      <div class="panel-heading"><div><span class="eyebrow">YOUR NEXT MISSION</span><h2 id="deploy-title">Prepare for deployment.</h2></div><span class="status-pill" id="badge">AWAITING DISC</span></div>
+      <ol class="steps" aria-label="Setup progress"><li id="step-disc" class="active"><b>01</b> SELECT DISC</li><li id="step-import"><b>02</b> IMPORT & VERIFY</li><li id="step-play"><b>03</b> DEPLOY SQUAD</li></ol>
+      <label class="field-label" for="iso">BRUTE FORCE DISC IMAGE</label>
+      <div class="disc-field"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><circle cx="16" cy="16" r="3"/><path d="M8 10l4 4m8 4 4 4"/></svg><input id="iso" type="text" spellcheck="false" placeholder="Choose your .iso or .xiso file" autocomplete="off"><button class="secondary" id="browse">Browse files <span aria-hidden="true">↗</span></button></div>
+      <p class="field-help">Import your own original Xbox disc image. Your game files stay on this device.</p>
+      <div class="import-row"><button id="import" class="secondary">Import disc <span aria-hidden="true">↓</span></button><button id="verify" class="text-button" disabled>Verify local files</button><span id="file-count"></span></div>
+      <div class="telemetry"><div class="telemetry-heading"><span id="phase-label">MISSION STATUS</span><span id="percent">—</span></div><progress id="progress" value="0" max="100" aria-label="Disc import progress"></progress><p id="message" role="status" aria-live="polite">Connecting to your command center…</p><p class="current-file" id="current-file"></p><pre class="error" id="error" role="alert" hidden></pre></div>
+      <div class="launch-row"><div class="launch-context"><span class="field-label">INPUT</span><label class="check"><input id="keyboard" type="checkbox" checked> Enable keyboard test mapping</label><span class="key-help">Z = confirm · X = back · Enter = Start</span></div><button class="deploy" id="play" disabled><span class="play-icon" aria-hidden="true">▶</span><span>START GAME<small>NATIVE EXECUTABLE</small></span><span class="deploy-arrow" aria-hidden="true">↗</span></button></div>
+      <details><summary>Local files & build information</summary><dl><dt>Native host</dt><dd id="host-path">Checking…</dd><dt>Imported game</dt><dd id="game-path">No disc imported</dd><dt>Session log</dt><dd id="log-path">No session yet</dd></dl></details>
+    </section>
+    <aside class="dev-note"><span class="note-icon" aria-hidden="true">!</span><p><strong>Experimental deployment.</strong> Menu rendering is verified on Windows. Gameplay, audio, networking and full input support are still being developed. Linux and native Android are active targets; Galaxy S24 Ultra is the first Android test device.</p></aside>
+  </main><footer><span>BUILT FOR A NEW FRONTIER.</span><span>WINDOWS <i>/</i> LINUX <i>/</i> ANDROID TARGET</span><span>UNOFFICIAL FAN PROJECT · ORIGINAL DISC REQUIRED</span></footer>
+</div><script src="/app.js"></script></body></html>

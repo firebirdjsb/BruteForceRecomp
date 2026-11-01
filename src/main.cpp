@@ -14,6 +14,7 @@
 #include "host_input.h"
 extern "C" {
 #include "xbox/xboxrecomp.h"
+#include "video_player.h"
 using GuestFunction = void (*)(void);
 GuestFunction recomp_lookup(uint32_t);
 void sub_0037EE7C(void);
@@ -52,7 +53,7 @@ static void cleanup() {
     if (memory_ready) { memory_ready = false; xbox_MemoryLayoutShutdown(); }
 }
 
-int main(int argc, char **argv) {
+static int run_native(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     try {
@@ -66,6 +67,17 @@ int main(int argc, char **argv) {
         const auto saves = std::filesystem::absolute(argv[2]);
         if (game == saves) return 2;
         if (!native_media_initialize(game)) return 11;
+        // This XDK builds its D3D notification event directly in guest RAM
+        // (live device +0x195C). The runtime validates Type/Size and mirrors
+        // its SignalState; a guest address must never become a host HANDLE.
+        // Keep an explicit environment override for baseline comparisons.
+        if (!std::getenv("RECOMP_TITLE_KEVENTS")) {
+#ifdef _WIN32
+            _putenv_s("RECOMP_TITLE_KEVENTS", "1");
+#else
+            setenv("RECOMP_TITLE_KEVENTS", "1", 0);
+#endif
+        }
         std::filesystem::create_directories(saves);
         std::ifstream file(game / "default.xbe", std::ios::binary | std::ios::ate);
         if (!file) return 3;
@@ -111,4 +123,24 @@ int main(int argc, char **argv) {
         cleanup();
         return 10;
     }
+}
+
+#ifndef _WIN32
+static int process_argc;
+static char **process_argv;
+static int guest_window_main() { return run_native(process_argc, process_argv); }
+#endif
+
+int main(int argc, char **argv) {
+#ifndef _WIN32
+    // SDL owns the process main thread for window/event/controller pumping;
+    // the runtime creates the guest thread with the required stack size.
+    // Offline validation must also work on a machine with no display.
+    if (argc == 3 && std::string_view(argv[1]) != "--validate-only") {
+        process_argc = argc;
+        process_argv = argv;
+        return xbox_HostWindowMain(guest_window_main);
+    }
+#endif
+    return run_native(argc, argv);
 }

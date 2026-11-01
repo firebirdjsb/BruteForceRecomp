@@ -20,8 +20,8 @@ def main():
     parser.add_argument('--mouse-keyboard', action='store_true', help='Exercise the runtime raw-mouse/keyboard adapter; gameplay behavior requires QA')
     parser.add_argument('--sample-startup', action='store_true', help='Sample the Windows host main thread')
     args = parser.parse_args()
-    if not 1 <= args.seconds <= 60:
-        parser.error('--seconds must be between 1 and 60')
+    if not 1 <= args.seconds <= 120:
+        parser.error('--seconds must be between 1 and 120')
     try:
         game = args.game_dir.resolve()
         verify(game / 'default.xbe')
@@ -61,7 +61,8 @@ def main():
                   'watchdog_expired': watchdog,
                   'status': ('EARLY_FIRMWARE_RETURN' if firmware_exit else
                              'BOUNDED_RUN_ENDED' if watchdog or timed_out else
-                             'UNSUPPORTED_INSTRUCTION' if unsupported else 'DIAGNOSTIC_ONLY'),
+                             'UNSUPPORTED_INSTRUCTION' if unsupported else
+                             'PROCESS_ERROR' if code != 0 else 'DIAGNOSTIC_ONLY'),
                   'manual_gameplay_verified': False, 'log': str(scratch / 'boot.log')}
         (scratch / 'result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
         print(json.dumps(result, indent=2))
