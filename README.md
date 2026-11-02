@@ -35,6 +35,17 @@ Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/
 
 Xbox executables use XBE headers, not Windows PE headers. `scripts/verify_offsets.py` validates the actual format, image bounds and this exact build. Guest virtual addresses in the host identify original code; host memory addresses are derived by the runtime loader.
 
+## Demo content policy
+
+New ISO imports deliberately skip the separately identified Tao Feng and
+MechAssault demo payload directories (`fx/`, `Mech/`) and the root
+`demos.xbe`. The original game's other files stay intact, and the
+importer never executes or changes the source disc. **Existing imported
+libraries are not silently altered**: reimport your disc to use the
+new demo-exclusion policy. The built-in Demos entry on the original game's
+menu is a separate guest-code question and is not claimed removed here.
+Do not distribute extracted game files or substitute another title's data.
+
 ## Evaluated external recompilation work
 
 The generic texture-math optimization is proposed on a separate review
