@@ -15,7 +15,7 @@ struct GraphicsOptions {
 };
 inline bool valid_graphics(const GraphicsOptions &o) {
     return (o.backend=="auto"||o.backend=="dx12"||o.backend=="dx11"||o.backend=="gdi") &&
-        (o.scene=="cpu"||o.scene=="d3d11") &&
+        (o.scene=="cpu"||o.scene=="d3d11"||o.scene=="d3d12") &&
         (o.scale==0||o.scale==2||o.scale==4||o.scale==8) &&
         (o.height==0||o.height==720||o.height==1080||o.height==1440||o.height==2160) &&
         o.volume>=0 && o.volume<=100;

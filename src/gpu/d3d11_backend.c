@@ -59,6 +59,7 @@
 #include "vsh_hlsl.h"
 #include "shader_cache.h"
 #include "xbox_memory_layout.h"
+#include "scene_device.h"
 
 extern ptrdiff_t xbox_GetMemoryOffset(void);
 
@@ -68,6 +69,7 @@ static ID3D11Device *s_dev;
 static ID3D11DeviceContext *s_ctx;
 static int s_failed;
 static int s_warp;
+static int s_d3d12;
 static int s_depth_texture;
 static volatile LONG s_device_thread;
 
@@ -295,12 +297,12 @@ static int ensure_device(void)
     if (s_dev)
         return 1;
     s_failed = 1;               /* until everything below has worked */
-    hr = D3D11CreateDevice(NULL, s_warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE,
+    hr = s_d3d12 ? bf_scene_d3d12_create(s_warp,&s_dev,&s_ctx,&got) : D3D11CreateDevice(NULL, s_warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE,
                            NULL, D3D11_CREATE_DEVICE_SINGLETHREADED, &fl, 1,
                            D3D11_SDK_VERSION, &s_dev, &got, &s_ctx);
     if (FAILED(hr)) {
-        fprintf(stderr, "[GPU-D3D11] D3D11CreateDevice failed 0x%08lX\n", (unsigned long)hr);
-        return 0;
+        fprintf(stderr, "[GPU] %s scene device creation failed 0x%08lX; select another scene renderer in the launcher\n",s_d3d12?"D3D12/11On12":"D3D11", (unsigned long)hr);
+        abort();
     }
     InterlockedExchange(&s_device_thread, (LONG)GetCurrentThreadId());
     if (!compile(s_base_hlsl, sizeof s_base_hlsl - 1, "base", "vs_main", "vs_5_0", &vsb)
@@ -371,6 +373,10 @@ typedef struct {
     ID3D11Texture2D *tex;
     ID3D11RenderTargetView *rtv;
     ID3D11ShaderResourceView *srv;
+    uint8_t *guest_shadow;
+    size_t guest_shadow_bytes;
+    unsigned guest_check_gen;
+    int gpu_dirty;
 } Surf;
 
 typedef struct {
@@ -386,6 +392,8 @@ static Depth s_depth[MAX_SURF];
 static int s_ndepth;
 static Surf *s_cur;
 static Depth *s_cur_depth;
+static uint32_t s_gen = 1;          /* completed-flip generation */
+static int readable_guest_range(uint32_t va, uint64_t bytes);
 
 static DXGI_FORMAT surf_format(uint32_t bpp)
 {
@@ -398,6 +406,64 @@ static void release_surf(Surf *s)
     if (s->rtv) ID3D11RenderTargetView_Release(s->rtv);
     if (s->tex) ID3D11Texture2D_Release(s->tex);
     s->srv = NULL; s->rtv = NULL; s->tex = NULL;
+    free(s->guest_shadow);s->guest_shadow=NULL;s->guest_shadow_bytes=0;
+    s->guest_check_gen=0;s->gpu_dirty=0;
+}
+
+/* CPU movie decoding writes color surfaces directly. Compare those bytes
+ * with the last shared snapshot before uploading or publishing GPU pixels.
+ * Generic ownership protocol adapted from upstream 24d2e58 (MIT). */
+static int snapshot_guest_surface(Surf *s)
+{
+    size_t row=(size_t)s->w*s->bpp,bytes;
+    uint32_t y;
+    uint8_t *shadow;
+    if(!row||!s->h||row>s->pitch||s->h>SIZE_MAX/row||
+       !readable_guest_range(s->va,(uint64_t)(s->h-1)*s->pitch+row))return 0;
+    bytes=row*s->h;
+    if(s->guest_shadow_bytes!=bytes) {
+        shadow=(uint8_t *)realloc(s->guest_shadow,bytes);
+        if(!shadow)return 0;
+        s->guest_shadow=shadow;s->guest_shadow_bytes=bytes;
+    }
+    for(y=0;y<s->h;++y)memcpy(s->guest_shadow+y*row,GUEST(s->va)+(size_t)y*s->pitch,row);
+    return 1;
+}
+
+static int sync_guest_surface(Surf *s,int force)
+{
+    size_t row=(size_t)s->w*s->bpp;
+    uint32_t y;
+    if(!force&&s->guest_check_gen==s_gen)return 1;
+    s->guest_check_gen=s_gen;
+    if(!s->guest_shadow)return 0;
+    for(y=0;y<s->h;++y)
+        if(memcmp(s->guest_shadow+y*row,GUEST(s->va)+(size_t)y*s->pitch,row))break;
+    if(y==s->h)return 1;
+    if(s->gpu_dirty) {
+        static int warned;
+        if(!warned++)fprintf(stderr,"[GPU-D3D11] CPU writes overlap pending GPU color work at %08X; preserving GPU work\n",s->va);
+        return 1;
+    }
+    ID3D11DeviceContext_UpdateSubresource(s_ctx,(ID3D11Resource *)s->tex,0,NULL,GUEST(s->va),s->pitch,0);
+    return snapshot_guest_surface(s);
+}
+
+static int mirror_full_color_clear(Surf *s,uint32_t argb)
+{
+    uint32_t x,y;
+    for(y=0;y<s->h;++y) {
+        if(s->bpp==4) {
+            uint32_t *row=(uint32_t *)(GUEST(s->va)+(size_t)y*s->pitch);
+            for(x=0;x<s->w;++x)row[x]=argb;
+        } else if(s->bpp==2) {
+            uint16_t value=(uint16_t)(((argb>>8)&0xF800u)|((argb>>5)&0x07E0u)|((argb>>3)&0x001Fu));
+            uint16_t *row=(uint16_t *)(GUEST(s->va)+(size_t)y*s->pitch);
+            for(x=0;x<s->w;++x)row[x]=value;
+        } else return 0;
+    }
+    if(!snapshot_guest_surface(s))return 0;
+    s->gpu_dirty=0;s->guest_check_gen=0;return 1;
 }
 
 /* Seeded from guest memory: whatever the title (or the boot) left there.
@@ -406,6 +472,7 @@ static int create_surf(Surf *s)
 {
     D3D11_TEXTURE2D_DESC td;
     D3D11_SUBRESOURCE_DATA init, *pinit = NULL;
+    if(!snapshot_guest_surface(s))return 0;
 
     memset(&td, 0, sizeof td);
     td.Width = s->w;
@@ -763,6 +830,7 @@ static int begin(const Nv2aSurface *s, const Nv2aRenderState *rs)
     surf = get_surf(s);
     if (!surf)
         return 0;
+    if(!sync_guest_surface(surf,0))return 0;
     d = rs ? get_depth(rs->zeta_va, surf->w, surf->h) : NULL;
     if (surf != s_cur || d != s_cur_depth)
         bind_targets(surf, d);
@@ -788,7 +856,6 @@ typedef struct {
 
 static Tex *s_tex;
 static int s_ntex;
-static uint32_t s_gen = 1;          /* frame number */
 static uint32_t *s_decode;
 static size_t s_decode_cap;
 static GpuTextureDecoder s_texture_decoder;
@@ -1517,6 +1584,7 @@ static void d3d_clear(const Nv2aSurface *s, const Nv2aRenderState *rs, uint32_t 
     D3D11_RECT rect;
     float c[4], z;
     int full_color, full_depth;
+    uint32_t color_flags=flags&0xF0u;
 
     if (!begin(s, rs))
         return;
@@ -1564,6 +1632,11 @@ static void d3d_clear(const Nv2aSurface *s, const Nv2aRenderState *rs, uint32_t 
     }
     if (flags & 0xF3)
         clear_draw(&rect, flags, argb, zstencil, z);
+    if(color_flags) {
+        if(color_flags==0xF0u&&full_color) {
+            if(!mirror_full_color_clear(s_cur,argb))s_cur->gpu_dirty=1;
+        } else s_cur->gpu_dirty=1;
+    }
 }
 
 static int set_window_clip(const Nv2aSurface *s)
@@ -1675,6 +1748,7 @@ static void d3d_draw(const Nv2aSurface *s, const Nv2aBatch *b)
     ID3D11DeviceContext_OMSetDepthStencilState(s_ctx, get_ds(rs, s_cur_depth != NULL),
                                                rs->stencil_ref & 0xFF);
     ID3D11DeviceContext_Draw(s_ctx, b->count, 0);
+    s_cur->gpu_dirty=1;
     s_st.draws++;
     s_st.tris += b->count / 3;
 }
@@ -1827,6 +1901,7 @@ static void d3d_xdraw(const Nv2aSurface *s, const Nv2aXBatch *b)
     ID3D11DeviceContext_VSSetConstantBuffers(s_ctx, 0, 1, &s_xcb);
     ID3D11DeviceContext_GSSetShader(s_ctx, NULL, NULL, 0);
     ID3D11DeviceContext_Draw(s_ctx, b->count, 0);
+    s_cur->gpu_dirty=1;
     s_st.draws++;
     s_st.xdraws++;
     s_st.tris += b->count / 3;
@@ -2337,6 +2412,7 @@ static int d3d_xdraw_vsh(const Nv2aSurface *s, const Nv2aXVsBatch *b)
     ID3D11DeviceContext_VSSetConstantBuffers(s_ctx, 0, 2, cbs);
     ID3D11DeviceContext_GSSetShader(s_ctx, vsh_filter_gs(), NULL, 0);
     ID3D11DeviceContext_DrawIndexed(s_ctx, b->nindices, ioff / 4u, 0);
+    s_cur->gpu_dirty=1;
     ID3D11DeviceContext_GSSetShader(s_ctx, NULL, NULL, 0);
     s_vlast = v;
     s_vlast_voff = voff;
@@ -2552,8 +2628,8 @@ static void query_resume_clear(int counting)
 /* RECOMP_GPU_ZPASS=async: a report is written into guest memory when its
  * queries complete, polled from the NV2A thread's loop, instead of waiting
  * for the GPU at GET_REPORT. The title sees the result later in time, as it
- * would from the console's GPU, and D3D's own polling waits for it. Off by
- * default while it is measured. */
+ * would from the console's GPU, and D3D's own polling waits for it.
+ * RECOMP_GPU_ZPASS=sync retains the blocking diagnostic reference. */
 typedef struct {
     uint32_t va;
     uint64_t stamp;
@@ -2740,6 +2816,7 @@ static int d3d_readback(uint32_t color_va)
 
     if (!sf || !s_dev)
         return 0;
+    if(!sync_guest_surface(sf,1))return 0;
     if (!s_staging || s_staging_w != sf->w || s_staging_h != sf->h || s_staging_bpp != sf->bpp) {
         D3D11_TEXTURE2D_DESC td;
         if (s_staging)
@@ -2767,6 +2844,8 @@ static int d3d_readback(uint32_t color_va)
         memcpy(GUEST(sf->va) + (size_t)y * sf->pitch, (const uint8_t *)m.pData + (size_t)y * m.RowPitch,
                row);
     ID3D11DeviceContext_Unmap(s_ctx, (ID3D11Resource *)s_staging, 0);
+    if(!snapshot_guest_surface(sf))return 0;
+    sf->guest_check_gen=s_gen;sf->gpu_dirty=0;
     s_st.readbacks++;
     s_st.readback_ms += qpc_ms() - t0;
     return 1;
@@ -2786,6 +2865,7 @@ static const Nv2aBackendExt s_backend_ext = { d3d_xdraw, d3d_xdraw_vsh, d3d_vsh_
 
 int bruteforce_d3d11_install(void)
 {
+    const char *scene_api=getenv("RECOMP_GPU");
     const char *warp = getenv("RECOMP_D3D11_WARP");
     const char *mulzero = getenv("RECOMP_GPU_VSH_MULZERO");
     const char *tex_gpu = getenv("RECOMP_GPU_TEX_DECODE");
@@ -2799,12 +2879,14 @@ int bruteforce_d3d11_install(void)
     }
     if (!gpu_pscache_init()) return 0;
     s_warp = warp && strcmp(warp, "1") == 0;
+    s_d3d12=scene_api&&strcmp(scene_api,"d3d12")==0;
     s_depth_texture = depth_texture && strcmp(depth_texture, "1") == 0;
     s_tex_gpu = !tex_gpu || strcmp(tex_gpu, "0") != 0;
     s_tex_log = tex_log && strcmp(tex_log, "1") == 0;
     s_vsh_flags = mulzero && strcmp(mulzero, "1") == 0 ? GPU_VSH_MULZERO : 0;
     s_vsh_sync = getenv("RECOMP_GPU_VSH_SYNC") && strcmp(getenv("RECOMP_GPU_VSH_SYNC"), "1") == 0;
-    s_zpass_async = getenv("RECOMP_GPU_ZPASS") && strcmp(getenv("RECOMP_GPU_ZPASS"), "async") == 0;
+    { const char *reports=getenv("RECOMP_GPU_ZPASS");
+      s_zpass_async=!reports||!*reports||strcmp(reports,"async")==0; }
     s_tex = (Tex *)calloc(MAX_TEX, sizeof *s_tex);
     if (!s_tex) {
         fprintf(stderr, "Cannot allocate the D3D11 texture cache\n");
@@ -2812,8 +2894,8 @@ int bruteforce_d3d11_install(void)
     }
     nv2a_backend_ext_register(&s_backend_ext);
     nv2a_backend_register(&s_backend);
-    fprintf(stderr, "[GPU] Direct3D 11 back end registered (RECOMP_GPU=d3d11%s)\n",
-            s_warp ? ", WARP" : "");
+    fprintf(stderr, "[GPU] %s scene backend registered (RECOMP_GPU=%s%s)\n",
+            s_d3d12?"Direct3D 12 via D3D11On12":"Direct3D 11",s_d3d12?"d3d12":"d3d11",s_warp ? ", WARP" : "");
     if (s_depth_texture)
         fprintf(stderr, "[GPU-D3D11] experimental D24 depth texture aliases enabled\n");
     return 1;
@@ -2830,6 +2912,11 @@ void bruteforce_d3d11_wait(void)
     HRESULT result;
     ULONGLONG started;
     if (!s_ctx) return; /* no GPU commands have been issued */
+    if(s_d3d12) {
+        result=bf_scene_d3d12_wait(s_ctx);
+        if(SUCCEEDED(result))return;
+        fprintf(stderr,"[GPU-D3D12] scene completion failed %08lX\n",(unsigned long)result);abort();
+    }
     if (!event && FAILED(ID3D11Device_CreateQuery(s_dev,&descriptor,&event))) {
         fprintf(stderr,"[GPU-D3D11] completion query allocation failed\n"); abort();
     }

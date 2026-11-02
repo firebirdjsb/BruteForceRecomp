@@ -18,7 +18,8 @@ std::mutex guard;
 bool opened{},keyboard=true,mouse_menus=true,prompts_on=true,fsr{},fsr_supported{},muted{};
 int volume=100,selected{};
 int page{};
-bool gpu_available{},active_gpu{};
+bool gpu_available{};
+std::string active_scene="CPU REFERENCE";
 bf::GraphicsOptions preferences;
 std::filesystem::path settings_path;
 std::string settings_error;
@@ -44,7 +45,11 @@ void persist() {
 }
 void adjust(int row,int direction=1) {
     if(page) {
-        if(row==0&&gpu_available)preferences.scene=preferences.scene=="cpu"?"d3d11":"cpu";
+        if(row==0&&gpu_available) {
+            const char *scenes[]={"cpu","d3d11","d3d12"};int index=0;
+            for(int i=0;i<3;++i)if(preferences.scene==scenes[i])index=i;
+            preferences.scene=scenes[(index+3+direction)%3];
+        }
         if(row==1&&gpu_available)preferences.gpu_programs=!preferences.gpu_programs;
 #ifdef _WIN32
         if(row==2) {
@@ -168,7 +173,10 @@ extern "C" void bf_ui_settings_initial(int available) {
     std::lock_guard lock(guard);gpu_available=available!=0;
     if(const auto *path=std::getenv("BF_UI_SETTINGS");path&&*path)settings_path=std::filesystem::u8path(path);
     preferences=settings_path.empty()?bf::GraphicsOptions{}:bf::load_graphics(settings_path);
-    if(const auto *scene=std::getenv("RECOMP_GPU")) {active_gpu=std::string(scene)=="d3d11";preferences.scene=active_gpu?"d3d11":"cpu";}
+    if(const auto *scene=std::getenv("RECOMP_GPU")) {
+        auto candidate=preferences;candidate.scene=scene;if(bf::valid_graphics(candidate))preferences.scene=scene;
+        active_scene=preferences.scene=="d3d12"?"DX12 GPU [11ON12]":preferences.scene=="d3d11"?"D3D11 GPU":"CPU REFERENCE";
+    }
     if(const auto *programs=std::getenv("RECOMP_GPU_VSH"))preferences.gpu_programs=std::string(programs)!="0";
     if(const auto *backend=std::getenv("BF_RENDER_BACKEND")) {
         auto candidate=preferences;candidate.backend=backend;if(bf::valid_graphics(candidate))preferences.backend=backend;
@@ -209,7 +217,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         c.text(122,y+7,page?renderer_names[i]:names[i],0xffd9efff,2);
         std::string value;
         if(page) {
-            if(i==0)value=preferences.scene=="cpu"?"CPU":"DX11 GPU";
+            if(i==0)value=preferences.scene=="d3d12"?"DX12 GPU":preferences.scene=="d3d11"?"DX11 GPU":"CPU";
             if(i==1)value=gpu_available?(preferences.gpu_programs?"ON":"OFF"):"N/A";
             if(i==2)value=preferences.backend;
 #ifndef _WIN32
@@ -228,11 +236,12 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     }
     if(page) {
         c.text(122,233,"APPLIES ON NEXT LAUNCH",0xffe6b47e,2);
-        c.text(122,260,active_gpu?"ACTIVE SCENE: D3D11 GPU":"ACTIVE SCENE: CPU REFERENCE",0xffd9efff,2);
+        c.text(122,260,"ACTIVE: "+active_scene,0xffd9efff,2);
         c.text(122,283,gpu_available?"GPU SCENE BACKEND AVAILABLE":"GPU BACKEND ABSENT IN THIS BUILD",0xff9bc0d5);
         c.text(122,303,"GPU PACING: ORIGINAL SWAP INTERVAL",0xff9bc0d5);
-        c.text(122,320,"EXACT TEXTURE VALIDATION / AUTO CACHE",0xff9bc0d5);
+        c.text(122,320,preferences.scene=="d3d12"?"D3D12 SCENES USE D3D11ON12 BRIDGE":"EXACT TEXTURE VALIDATION / AUTO CACHE",0xff9bc0d5);
         c.text(122,340,settings_path.empty()?"DIRECT RUN: SESSION SETTINGS ONLY":"SETTINGS SHARED WITH LAUNCHER",0xff9bc0d5);
+        c.text(122,354,"WASD / MOUSE AIM   F9: RELEASE MOUSE",0xff9bc0d5);
     }
     c.text(112,373,"MOUSE OR ARROWS / ENTER TO CHANGE",0xff9bc0d5);
     c.text(112,388,"TAB: PAGE   F1 / ESC: CLOSE",0xff9bc0d5);

@@ -14,14 +14,14 @@ Reference: `Tzeentchnet/BruteForce` at `24d2e58687c976390efa23ab8b83a6b80078f1ec
 | `0008-experimental-pgraph-and-staged-walker.patch` | Independent repair active | DMA traversal, original command fixups and CALL state; no wholesale title-hook transplant |
 | `0009-experimental-window-clipping.patch` | Optional GPU overlay, off by default | Requires matched game-frame validation before enabling |
 | `0010-experimental-face-culling.patch` | Optional GPU overlay, off by default | Requires matched game-frame validation before enabling |
-| `0011-experimental-program-near-plane.patch` | Optional GPU overlay, off by default | No default near-plane policy change |
+| `0011-experimental-program-near-plane.patch` | GPU title compatibility enabled | Zero-depth tutorial/HUD rendering verified; explicit diagnostic override retained |
 | `0012-vectorize-color-unpack.patch` | Optional GPU overlay | Generic color unpack; separate existing blend SIMD retained |
 | `0013-optimize-texture-sampling.patch` | Active adaptation | Exact texture wrap and DXT slot math |
 | `0014-frame-statistics.patch` | Active adaptation | Opt-in real presented-frame hashing and CSV telemetry |
 | `0015-gpu-census-and-ceiling-probe.patch` | Not imported | Local render timing exists; upstream ceiling probes are not game acceleration |
 | `0016-extended-render-backend.patch` | Optional GPU integration | Actual D3D11 batches/combiners/clears/readback; CPU default retained |
 | `0017-gpu-vertex-programs.patch` | Optional GPU integration | Real GPU vertex dispatch, CPU transform fallback while compiling |
-| `0018-async-visibility-reports.patch` | Optional GPU integration | Real query/report callbacks and idle polling; synchronous mode remains default |
+| `0018-async-visibility-reports.patch` | GPU integration, async default | Actual-completion report callbacks and idle polling; explicit/default synthetic checks and bounded title test pass; sync diagnostic retained |
 | `0019-cache-hot-getenv.patch` | Active adaptation | Cache the remaining primitive-draw environment lookup |
 | `0020-texture-metadata.patch` | Optional GPU integration | Metadata and bounds-checked CPU/GPU texture decode connected |
 | `0021-gpu-window-clip.patch` | Optional GPU integration, off by default | Backend clip capability present; experimental clip policy remains gated |

@@ -61,6 +61,8 @@ int main(int argc,char **argv) {
     bf_ui_mouse(200,132+28+8,640,480,1);
     const auto saved=bf::load_graphics(settings);
     if(saved.scene!="d3d11"||saved.gpu_programs||saved.scale!=8||saved.height!=2160)return 28;
+    bf_ui_mouse(200,132+8,640,480,1);
+    if(bf::load_graphics(settings).scene!="d3d12")return 29;
     bf_ui_key(9,0);
     if(argc==3&&std::strcmp(argv[2],"renderer")==0)bf_ui_key(9,0);
     std::vector<uint32_t> image(640*480,0xff000000);bf_ui_paint(image.data(),640,480);

@@ -23,6 +23,8 @@
 #include "nv2a_vsh_interp.h"
 #include "xbox_memory_layout.h"
 #include "gpu/d3d11_backend.h"
+#include "gpu/scene_device.h"
+extern void bruteforce_d3d11_wait(void);
 
 
 typedef void (*recomp_func_t)(void);
@@ -998,6 +1000,44 @@ static int scene_bc(const char *out_path)
     return 1;
 }
 
+/* Model Bink's actual ownership pattern: clear on GPU, write a whole frame
+ * on CPU, then flip without a draw. Repeat with a partial CPU update. */
+static int scene_hud(const char *out_path)
+{
+    uint32_t va=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),vb=xbox_ContiguousAlloc(4096,4096);
+    const float origin[4]={0,0,0.5f,0};
+    const Pos p[4]={{0,0,0,1},{64,0,0,1},{64,64,0,1},{0,64,0,1}};
+    const uint32_t colors[4]={0xFF39C2A0u,0xFF39C2A0u,0xFF39C2A0u,0xFF39C2A0u};
+    const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
+    FILE *file;uint32_t pixel;
+    REQUIRE(va&&vb,"allocate zero-depth HUD scene");
+    identity_matrix();load_program();nv2a_vsh_set_constant(59,origin);
+    surface(va,B_SIZE,0);clear(0xF0,0xFF000000u,0);combiners(0);
+    method(0x030C,0);draw(8,p,colors,uv,4,vb);flip();
+    pixel=((uint32_t *)guest(va))[32*B_SIZE+32];
+    REQUIRE((pixel&0x00FFFFFFu)!=0,"HUD vertices at depth zero must remain visible");
+    file=fopen(out_path,"wb");REQUIRE(file,"open HUD scene output");
+    REQUIRE(fwrite(guest(va),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE&&fclose(file)==0,"write HUD scene output");
+    return 1;
+}
+
+static int scene_cpu_surface(const char *out_path)
+{
+    uint32_t va=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),i;
+    uint32_t expected[B_SIZE*B_SIZE];FILE *file;
+    REQUIRE(va,"allocate CPU-written color surface");
+    surface(va,B_SIZE,0);clear(0xF0,0xFF000000u,0);
+    for(i=0;i<B_SIZE*B_SIZE;++i)expected[i]=0xFF000000u|((i*13u&255u)<<16)|((i*7u&255u)<<8)|(i*3u&255u);
+    memcpy(guest(va),expected,sizeof expected);flip();
+    REQUIRE(!memcmp(guest(va),expected,sizeof expected),"GPU readback must preserve CPU movie frame after clear");
+    expected[17]=0xFF28C670u;expected[1089]=0xFFF28041u;
+    memcpy(guest(va),expected,sizeof expected);flip();
+    REQUIRE(!memcmp(guest(va),expected,sizeof expected),"repeated CPU movie writes must remain visible");
+    file=fopen(out_path,"wb");REQUIRE(file,"open CPU surface output");
+    REQUIRE(fwrite(guest(va),1,sizeof expected,file)==sizeof expected&&fclose(file)==0,"write CPU surface output");
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
@@ -1012,11 +1052,13 @@ int main(int argc, char **argv)
     if ((strstr(argv[2], "clip") || strstr(argv[2], "clear")) &&
         _putenv_s("RECOMP_WINDOW_CLIP", "1") != 0)
         return 1;
+    if(strstr(argv[2],"hud")&&_putenv_s("RECOMP_PROGRAM_NEAR_ZERO","1")!=0)return 1;
     if (strncmp(argv[2], "gpu", 3) == 0) {
         /* gpu-cpuvsh: programs transformed on the CPU, drawn on the GPU. */
         if (_putenv_s("RECOMP_D3D11_WARP", strstr(argv[2], "hardware") ? "0" : "1") != 0 ||
+            _putenv_s("RECOMP_GPU",strstr(argv[2],"d3d12")?"d3d12":"d3d11") != 0 ||
             _putenv_s("RECOMP_GPU_VSH", strstr(argv[2], "cpuvsh") ? "0" : "1") != 0 ||
-            _putenv_s("RECOMP_GPU_ZPASS", strstr(argv[2], "async") ? "async" : "sync") != 0 ||
+            _putenv_s("RECOMP_GPU_ZPASS", strstr(argv[2],"defaultasync")?"":strstr(argv[2], "async") ? "async" : "sync") != 0 ||
             _putenv_s("RECOMP_GPU_TEX_DECODE", strstr(argv[2], "software-texture") ? "0" : "1") != 0 ||
             (strstr(argv[2], "depth") &&
              _putenv_s("RECOMP_GPU_DEPTH_TEXTURE", strstr(argv[2], "invalid") ? "invalid" : "1") != 0) ||
@@ -1032,8 +1074,12 @@ int main(int argc, char **argv)
         strstr(argv[2], "clip") ? !scene_window_clip(argv[3], strstr(argv[2], "vsh") != NULL) :
         strstr(argv[2], "depth") ? !scene_depth_texture(argv[3], strstr(argv[2], "vsh") != NULL) :
         strstr(argv[2], "bc") ? !scene_bc(argv[3]) :
+        strstr(argv[2], "surface") ? !scene_cpu_surface(argv[3]) :
+        strstr(argv[2], "hud") ? !scene_hud(argv[3]) :
         !scene(argv[3], strstr(argv[2], "vsh") != NULL, strncmp(argv[2], "gpu", 3) == 0))
         return 1;
     puts("scene drawn");
+    if(strncmp(argv[2],"gpu",3)==0)bruteforce_d3d11_wait();
+    bf_scene_d3d12_shutdown();
     return 0;
 }

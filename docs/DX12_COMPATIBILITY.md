@@ -5,6 +5,12 @@ completed images in guest memory. The optional D3D11 scene backend now connects
 real NV2A draws and reads back for that presenter. This document describes the
 additional contract for a future native DX12 NV2A scene renderer.
 
+An optional `RECOMP_GPU=d3d12` scene path now runs those draws through
+D3D11On12 on a real D3D12 direct queue. `src/gpu/scene_device.cpp` owns its
+device/queue/fence and gates guest signals on actual completion. Synthetic
+WARP and RTX 3060 Ti draw/HUD/movie/visibility comparisons pass. This bridge
+is distinct from a native D3D12 scene implementation or a performance guarantee.
+
 ## What is already shared
 
 The original-Xbox/NV2A state machine, guest physical-memory and semaphore

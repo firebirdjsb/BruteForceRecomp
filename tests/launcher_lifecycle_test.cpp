@@ -9,7 +9,7 @@
 
 int main(int argc,char **argv) try {
     if(argc==3&&std::string(argv[1])=="--child") {
-        for(const char *name:{"RECOMP_GPU","RECOMP_GPU_VSH","RECOMP_FLIP_PACING","BF_RENDER_BACKEND","BF_UPSCALER","BF_UI_SETTINGS"})
+        for(const char *name:{"RECOMP_GPU","RECOMP_GPU_VSH","RECOMP_FLIP_PACING","BF_RENDER_BACKEND","BF_UPSCALER","BF_UI_SETTINGS","RECOMP_KEYBOARD","RECOMP_MKB"})
             std::cout<<name<<'='<<(std::getenv(name)?std::getenv(name):"")<<'\n';
         std::this_thread::sleep_for(std::chrono::milliseconds(250));return std::atoi(argv[2]);
     }
@@ -29,10 +29,13 @@ int main(int argc,char **argv) try {
     if(!window)throw std::runtime_error(SDL_GetError());
     const auto exe=std::filesystem::absolute(bf::text_path(argv[0]));
     for(const int exit_code:{0,7}) {
+        options.scene=exit_code==0?"d3d11":"d3d12";
+        bf::save_graphics(settings,options);
+        if(bf::load_graphics(settings).scene!=options.scene)return 7;
         SDL_ShowWindow(window);bool hidden=false,saw_hidden=false;
         std::atomic_bool running=false,finished=false;bf::ProcessResult result{};std::exception_ptr failure;
         std::thread child([&] {
-            try {result=bf::run_process(exe,{"--child",std::to_string(exit_code)},root,root/"child.log",root/"saves",false,options,settings,[&]{running=true;});}
+            try {result=bf::run_process(exe,{"--child",std::to_string(exit_code)},root,root/"child.log",root/"saves",true,options,settings,[&]{running=true;});}
             catch(...){failure=std::current_exception();}
             running=false;finished=true;
         });
@@ -44,7 +47,7 @@ int main(int argc,char **argv) try {
         child.join();bf::sync_game_window(window,false,hidden);
         if(failure)std::rethrow_exception(failure);
         if(result.code!=exit_code||!saw_hidden||hidden||!(SDL_GetWindowFlags(window)&SDL_WINDOW_SHOWN))return 3;
-        for(const std::string &text:std::vector<std::string>{"RECOMP_GPU=d3d11","RECOMP_GPU_VSH=0","RECOMP_FLIP_PACING=edge","BF_RENDER_BACKEND=dx12","BF_UPSCALER=fsr1","BF_UI_SETTINGS="+bf::path_text(settings)})
+        for(const std::string &text:std::vector<std::string>{"RECOMP_GPU="+options.scene,"RECOMP_GPU_VSH=0","RECOMP_FLIP_PACING=edge","BF_RENDER_BACKEND=dx12","BF_UPSCALER=fsr1","BF_UI_SETTINGS="+bf::path_text(settings),"RECOMP_KEYBOARD=1","RECOMP_MKB=1"})
             if(result.detail.find(text)==std::string::npos)return 4;
     }
     bool started=false;

@@ -17,6 +17,7 @@
 #include "ui/host_ui.h"
 #ifdef BF_EXPERIMENTAL_NV2A_D3D11
 extern "C" int bruteforce_d3d11_install(void);
+extern "C" void bf_scene_d3d12_shutdown(void);
 #endif
 extern "C" {
 #include "xbox/xboxrecomp.h"
@@ -74,6 +75,9 @@ static void cleanup() {
     if (kernel_ready) { kernel_ready = false; xbox_kernel_shutdown(); }
     stop_host_audio();
     if (memory_ready) { memory_ready = false; xbox_MemoryLayoutShutdown(); }
+#ifdef BF_EXPERIMENTAL_NV2A_D3D11
+    bf_scene_d3d12_shutdown();
+#endif
 }
 
 static int run_native(int argc, char **argv) {
@@ -82,9 +86,9 @@ static int run_native(int argc, char **argv) {
     try {
         if(argc==2 && std::string_view(argv[1])=="--capabilities") {
 #ifdef BF_EXPERIMENTAL_NV2A_D3D11
-            std::puts("nv2a_d3d11=1");
+            std::puts("nv2a_d3d11=1\nnv2a_d3d12=1");
 #else
-            std::puts("nv2a_d3d11=0");
+            std::puts("nv2a_d3d11=0\nnv2a_d3d12=0");
 #endif
             return 0;
         }
@@ -156,13 +160,23 @@ static int run_native(int argc, char **argv) {
         if (read32(0) != 0x48454258 || (read32(0x128) ^ 0xA8FC57AB) != 0x002F5D1F)
             return 6;
         if (const char *backend=std::getenv("RECOMP_GPU"); backend && *backend && std::string_view(backend)!="cpu") {
-            if (std::string_view(backend)!="d3d11") {
+            if (std::string_view(backend)!="d3d11"&&std::string_view(backend)!="d3d12") {
                 std::fprintf(stderr,"Unknown scene backend: %s\n",backend); return 14;
             }
 #ifdef BF_EXPERIMENTAL_NV2A_D3D11
+            // The retail tutorial/HUD uses programmable vertices at screen
+            // depth zero. Viewport c[59].z is not an extra UI clipping plane.
+            // Keep an explicit diagnostic override for matched comparisons.
+            if(!std::getenv("RECOMP_PROGRAM_NEAR_ZERO")) {
+#ifdef _WIN32
+                _putenv_s("RECOMP_PROGRAM_NEAR_ZERO","1");
+#else
+                setenv("RECOMP_PROGRAM_NEAR_ZERO","1",0);
+#endif
+            }
             if (!bruteforce_d3d11_install()) return 14;
 #else
-            std::fprintf(stderr,"D3D11 scene rendering requires BF_EXPERIMENTAL_NV2A_D3D11=ON.\n"); return 14;
+            std::fprintf(stderr,"GPU scene rendering requires BF_EXPERIMENTAL_NV2A_D3D11=ON.\n"); return 14;
 #endif
         }
 #ifdef BF_EXPERIMENTAL_NV2A_D3D11

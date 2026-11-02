@@ -24,6 +24,9 @@ process exits, including a crash. Validation or start failures leave the app
 visible. Graphics, input and audio preferences are shared with F1 through the
 local `graphics.settings` file; permanent saves stay in `player-data`.
 
+The latest continuation prompt is [NEXT_AGENT_HANDOFF.md](docs/NEXT_AGENT_HANDOFF.md).
+It records the installed builds, current evidence and unresolved gameplay issues.
+
 For authentic local branding, run `python scripts/extract_branding.py --help` and configure `-DBF_PRIVATE_BRANDING_DIR=PRIVATE_OUTPUT_FOLDER`. The tool validates the exact XBE and extracts its title icon. The game executable and launcher use the icon; the launcher also loads its title image. These extracted assets stay private and are never committed or bundled with public source.
 
 ## Native graphics
@@ -33,6 +36,13 @@ Windows selects hardware DX12 automatically and falls back to D3D11, then GDI wh
 FSR 1 runs AMD's EASU and RCAS GPU compute passes when the window is at least the source size; smaller windows use bilinear downscaling. Aspect ratio is preserved. The default scene renderer is the CPU reference. Windows builds with `-DBF_EXPERIMENTAL_NV2A_D3D11=ON` can select **D3D11 GPU (experimental)** and GPU vertex programs in the launcher or F1's Renderer page. The scene is read back for the existing DX12/FSR presenter. This is spatial FSR 1, not temporal reconstruction or frame generation. DLSS integration remains pending because the renderer does not yet expose valid depth, motion vectors and camera history. Linux/Android do not use DX12; native graphics integration on those platforms remains separate. See [GPU backend evidence and limits](docs/GPU_SCENE_BACKEND.md).
 
 A standalone hardware test requires no game data:
+
+GPU-enabled builds also offer **D3D12 GPU via D3D11On12 (experimental)** for
+scene rendering, separate from the presentation selector. Direct runs select
+it with `RECOMP_GPU=d3d12`. It uses a real D3D12 queue through the bridge;
+a native D3D12 scene pipeline remains unfinished. The current GPU title path
+restores zero-depth tutorial/HUD rendering and preserves CPU-written movies.
+Mouse/keyboard launches enable the raw-mouse adapter; F9 releases capture.
 
 ```sh
 cmake -S . -B .local/graphics-test -DBF_GRAPHICS_ONLY=ON
@@ -52,7 +62,7 @@ The game's profile/campaign name screens accept direct typing: letters/numbers/S
 
 Native mouse menu input now hit-tests the game's live buttons, lists and on-screen keyboard. It uses original focus/selection handlers, then the normal controller-report path for activation. Left click selects; right click or Escape goes Back. Enter selects and arrows navigate when a menu owns input. Mouse coordinates follow the actual letterboxed game image. A scripted Windows run hovered Options, entered it with a click and returned with Escape. Unique menu widgets, split-screen/player-specific screens and complete physical-device coverage still need QA. Mouse aiming/gameplay remain separate work.
 
-**F1** opens the live settings overlay; F1 or Escape closes it. Mouse or arrows/Enter change mouse menu selection, keyboard/mouse prompts, FSR 1, FSR output scale (Auto/2x/4x/8x), window resolution (Auto/720p/1080p/1440p/2160p), mute and master volume. These settings last for the process. Window presets fit within the desktop work area. Fixed FSR factors describe its intermediate output relative to the original 640x480 source; 8x is 5120x3840 before fitting to the window, not native scene rendering. DX12/FSR controls are unavailable on other backends. The common A/B/X/Y menu prompt glyphs gain keyboard/mouse keycaps while keyboard/mouse is active; unrecognized glyphs retain original rendering. Actual physical-controller switching still requires QA.
+**F1** opens the live settings overlay; F1 or Escape closes it. Mouse or arrows/Enter change mouse menu selection, keyboard/mouse prompts, FSR 1, FSR output scale (Auto/2x/4x/8x), window resolution (Auto/720p/1080p/1440p/2160p), mute and master volume. Direct runs use session-only settings; launcher sessions persist them. Window presets fit within the desktop work area. Fixed FSR factors describe its intermediate output relative to the original 640x480 source; 8x is 5120x3840 before fitting to the window, not native scene rendering. DX12/FSR controls are unavailable on other backends. The common A/B/X/Y menu prompt glyphs gain keyboard/mouse keycaps while keyboard/mouse is active; unrecognized glyphs retain original rendering. Actual physical-controller switching still requires QA.
 
 Tab/Page Up/Page Down or the page buttons select F1's **Renderer** page.
 Scene renderer, GPU vertex programs and presentation changes take effect at the

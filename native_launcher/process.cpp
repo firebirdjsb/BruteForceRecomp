@@ -35,10 +35,10 @@ static std::map<std::string,std::string> game_environment(const std::filesystem:
         {"RECOMP_SAVE_DIR",path_text(saves)},{"BF_RENDER_BACKEND",graphics.backend},
         {"BF_UPSCALER",graphics.fsr1?"fsr1":"off"},{"RECOMP_GPU",graphics.scene},
         {"RECOMP_GPU_VSH",graphics.gpu_programs?"1":"0"},
-        {"RECOMP_FLIP_PACING",graphics.scene=="d3d11"?"edge":"0"},
+        {"RECOMP_FLIP_PACING",graphics.scene!="cpu"?"edge":"0"},
         {"BF_UI_SETTINGS",path_text(settings)}};
     for(const auto *name:{"RECOMP_USB","RECOMP_PB_EXEC","RECOMP_FB_WINDOW","RECOMP_VBLANK","RECOMP_TITLE_KEVENTS","RECOMP_UNIMPL_TRAP"})result[name]="1";
-    if(keyboard)result["RECOMP_KEYBOARD"]="1";
+    if(keyboard) {result["RECOMP_KEYBOARD"]="1";result["RECOMP_MKB"]="1";}
     return result;
 }
 #ifdef _WIN32

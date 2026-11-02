@@ -86,6 +86,8 @@ Their game-specific code, shaders, demo assets and Xbox hooks are not included.
   `d3d11_device_status.{c,h}` and `tests/gpu_scene_textures.c` use commit
   `24d2e58687c976390efa23ab8b83a6b80078f1ec`. Blood Wake's original
   backend provenance and MIT notice are retained above/below.
+  The CPU/GPU guest-color snapshot/ownership protocol is adapted from that
+  same upstream commit; shared/scaled presentation is not imported.
 - `src/gpu/runtime/*` and `patches/nv2a-d3d11/executor.patch` adapt generic
   MIT xboxrecomp runtime changes in public patches 0008–0021 (excluding
   census 0015), plus GPU clear offload equivalent to 0022. They preserve

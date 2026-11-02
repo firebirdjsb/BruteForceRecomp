@@ -3,6 +3,32 @@
 This remains an experimental native recompilation. It is not a completed
 Windows/Linux/Android release.
 
+## Latest player fixes and handoff
+
+The launch black screen was stale GPU color data overwriting CPU-decoded Bink
+frames. Guest/GPU surface ownership is now synchronized; a visible warm-cache
+test produced 42 nonblack captures and the user confirmed movies/menus visible.
+The apparent mission freeze was an invisible Basic Controls tutorial dialog:
+zero-depth programmable UI compatibility restores it and the HUD. The launcher
+now enables the raw-mouse adapter with keyboard controls. Full physical input
+and mission-progression QA remain open.
+
+D3D12 scene rendering is available through an explicitly labeled D3D11On12
+bridge, with a real D3D12 device/queue/fence. It is not a native DX12 scene
+pipeline. D3D11/D3D12 synthetic WARP and RTX 3060 Ti tests cover actual draws,
+CPU-written movies, zero-depth HUD, GPU programs and async visibility. Windows
+passes 17 CTests; Linux passes 14; both native launcher lifecycle tests pass.
+
+Asynchronous visibility is now the GPU default after a bounded 178-second
+world/HUD test measured late reports of 29.99–30.01 presented frames/s without
+blocking visibility reads. `RECOMP_GPU_ZPASS=sync` retains the diagnostic path.
+This is not an all-mission minimum. A longer sync run produced late blue frames;
+that defect still needs equivalent-state testing. Coarse textures, excessive
+brightness and complete gameplay/audio validation remain unfinished.
+
+See [the self-contained next-agent prompt](docs/NEXT_AGENT_HANDOFF.md) for the
+full source map, local applications, private evidence, rollback and next steps.
+
 ## Campaign rendering checkpoint
 
 The tutorial now loads and renders Tex, terrain, vegetation and sky after the intros. The original GPU software methods were missing: operation 5 signals the D3D fence event; operations 3/4 apply the original reusable-pushbuffer fixup records and return jump; operation 10 updates the original byte accounting and continuation. The DMA walker now shares the actual CALL-state register with those operations. DMA walking is the default, with the CPU renderer retained. Original physics and simulation timing were not changed.

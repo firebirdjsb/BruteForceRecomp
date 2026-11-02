@@ -140,10 +140,10 @@ void Library::launch(bool keyboard) {
             const auto stamp = std::chrono::system_clock::now().time_since_epoch().count();
             const auto session = root_ / "sessions" / std::to_string(stamp), saves = root_ / "player-data";
             std::filesystem::create_directories(saves);
-            if(options.scene=="d3d11") {
+            if(options.scene!="cpu") {
                 const auto capability=run_process(exe,{"--capabilities"},session,session/"capabilities.log");
-                if(capability.code || capability.detail.find("nv2a_d3d11=1")==std::string::npos)
-                    throw std::runtime_error("This native build has no GPU scene backend. Select CPU reference or locate a build with experimental D3D11 scenes enabled.");
+                if(capability.code || capability.detail.find("nv2a_"+options.scene+"=1")==std::string::npos)
+                    throw std::runtime_error("This native build lacks the selected GPU scene backend. Select CPU reference or locate a build with that GPU scene backend enabled.");
             }
             const auto result = run_process(exe, {path_text(game_directory()), path_text(saves)}, session, session / "game.log", saves, keyboard, options,root_/"graphics.settings",[this,session] {
                 std::lock_guard guard(mutex_);state_.running=true;state_.phase="running";

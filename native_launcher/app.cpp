@@ -46,16 +46,17 @@ void App::command() {
         ImGui::PushFont(theme_.small);ImGui::TextWrapped("%s",ui_error_.empty()?state.error.c_str():ui_error_.c_str());ImGui::PopFont();ImGui::PopStyleColor();
     }
     ImGui::Spacing();
-    ImGui::BeginDisabled(state.busy);ImGui::Checkbox("Enable keyboard test mapping",&keyboard_);ImGui::EndDisabled();
-    label("Z = confirm     X = back     Enter = Start",theme_.small);
+    ImGui::BeginDisabled(state.busy);ImGui::Checkbox("Mouse and keyboard controls",&keyboard_);ImGui::EndDisabled();
+    label("WASD = move / mouse = aim / F9 = release mouse",theme_.small);
     ImGui::Spacing();
     if(ImGui::CollapsingHeader("Graphics")) {
         ImGui::BeginDisabled(state.busy);
         auto options=library_.graphics();
         bool changed=false;
 #ifdef _WIN32
-        int scene=options.scene=="d3d11"?1:0;
-        if(ImGui::Combo("Scene renderer",&scene,"CPU reference\0D3D11 GPU (experimental)\0")){options.scene=scene?"d3d11":"cpu";changed=true;}
+        const char *scenes[]={"cpu","d3d11","d3d12"};int scene=0;
+        for(int i=0;i<3;++i)if(options.scene==scenes[i])scene=i;
+        if(ImGui::Combo("Scene renderer",&scene,"CPU reference\0D3D11 GPU (experimental)\0D3D12 GPU via D3D11On12 (experimental)\0")){options.scene=scenes[scene];changed=true;}
         ImGui::BeginDisabled(scene==0);
         changed|=ImGui::Checkbox("GPU vertex programs",&options.gpu_programs);
         ImGui::EndDisabled();
@@ -79,6 +80,7 @@ void App::command() {
         if(changed)library_.set_graphics(options);
         ImGui::PushFont(theme_.small);
         ImGui::TextWrapped("The GPU renderer follows the game's original swap interval. Texture validation and shader caching run automatically. F1 has these options in game; renderer changes apply on the next launch.");
+        ImGui::TextWrapped("The D3D12 scene option uses Microsoft's D3D11On12 bridge. Presentation is a separate choice below the scene renderer.");
         ImGui::TextWrapped("The original 4:3 picture is preserved. Window size and FSR output scale do not enable native widescreen or increase scene resolution.");
         ImGui::PopFont();
         ImGui::EndDisabled();
