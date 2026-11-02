@@ -35,6 +35,15 @@ Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/
 
 Xbox executables use XBE headers, not Windows PE headers. `scripts/verify_offsets.py` validates the actual format, image bounds and this exact build. Guest virtual addresses in the host identify original code; host memory addresses are derived by the runtime loader.
 
+## Renderer frame comparisons
+
+The independent MIT-licensed frame-difference tool can measure captured
+CPU/reference and future GPU image differences without game data in Git.
+Install optional tools with `python -m pip install -r tools/analysis-requirements.txt`,
+then run `python tools/compare_frames.py reference.png candidate.png
+--diff mismatch.png`. Its JSON result reports changed pixels, thresholds and
+regions; it does not prove images are from the same game state.
+
 ## Demo content policy
 
 New ISO imports deliberately skip the separately identified Tao Feng and
