@@ -35,6 +35,15 @@ Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/
 
 Xbox executables use XBE headers, not Windows PE headers. `scripts/verify_offsets.py` validates the actual format, image bounds and this exact build. Guest virtual addresses in the host identify original code; host memory addresses are derived by the runtime loader.
 
+## Evaluated external recompilation work
+
+The generic texture-math optimization is proposed on a separate review
+branch, not assumed to prove improved performance or runtime correctness.
+See [Tzeentchnet reuse assessment](docs/TZEENTCHNET_REUSE.md) for the
+upstream D3D11/GPU, audio, rendering-scale and validation candidates, XBE
+fingerprint mismatch, license boundaries and required regression checks.
+Adapted code attribution is recorded in [third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## Public tools
 
 | Repository | Role / assessment |
