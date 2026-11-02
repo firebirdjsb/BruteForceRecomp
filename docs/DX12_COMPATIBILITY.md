@@ -74,8 +74,10 @@ and command-triggered CPU executor fix are left intact.
 - `gpu_completion_timeline_test.cpp` verifies no premature guest writes,
   monotonic ordering, failed guest writes, and device-removed sentinels.
 - `d3d12_fence_bridge_test.cpp` can test real D3D12 WARP fence completion
-  and D3D11On12 device creation on a Windows CI runner; prints SKIP when the
-  runner cannot create the optional WARP device.
+  and D3D11On12 device creation on a Windows CI runner. CTest marks the case
+  **Skipped**, not passed, when the runner lacks DXGI/D3D12 WARP support.
+  The CI runner prints the test output verbosely so this distinction can be
+  audited instead of inferring DX12 hardware support from a green check.
 - No full game, DX11-on-DX12 gameplay, DX12 draw, texture, PSO, swap-chain,
   or hardware-device validation is claimed.
 
