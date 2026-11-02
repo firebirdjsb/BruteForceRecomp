@@ -17,17 +17,17 @@ int main() {
     ComPtr<IDXGIFactory4> factory;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
         std::puts("SKIP: no DXGI factory on this test runner");
-        return 0;
+        return 77;
     }
     ComPtr<IDXGIAdapter> warp;
     if (FAILED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)))) {
         std::puts("SKIP: no DX12 WARP adapter on this test runner");
-        return 0;
+        return 77;
     }
     ComPtr<ID3D12Device> device;
     if (FAILED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)))) {
         std::puts("SKIP: WARP D3D12 device unsupported on this test runner");
-        return 0;
+        return 77;
     }
     D3D12_COMMAND_QUEUE_DESC desc = {};
     desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
