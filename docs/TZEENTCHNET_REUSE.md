@@ -54,6 +54,22 @@ device model and Android ARM64 compile audit. Do not copy an upstream
 - Added `.github/workflows/recomp-source-checks.yml` for safe,
   proprietary-free Python, path policy and C11/UBSan test checks.
 
+## Windows framebuffer publication correction
+
+The upstream `0005-synchronize-presented-frames.patch` identifies a
+producer/consumer race: two presentation buffers alone do not prevent the
+producer from filling the same buffer that the Windows window thread is
+reading. Our hash-pinned private build-copy adaptation adds one Win32 SRW
+lock around the producer's copy/publication and the presenter's snapshot
+read. It also unlocks correctly on allocation failure. The existing
+no-flip/pinned framebuffer fallback is retained verbatim. Linux uses
+`fb_present_sdl.c` and is deliberately not modified by this patch.
+
+All five replacement spans were checked against the exact pinned
+`xboxrecomp` base. **Windows compilation, startup and matched-frame
+validation remain necessary**; the CMake smoke workflow uses synthetic
+generated files and contains no proprietary XBE or game asset content.
+
 ## Follow-up candidates, ordered by risk and payoff
 
 | Priority | Upstream files / patches | Reuse path | Conditions |
