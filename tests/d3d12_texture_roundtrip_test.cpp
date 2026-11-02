@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <wrl/client.h>
@@ -76,6 +77,11 @@ int main() {
     uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
     D3D12_HEAP_PROPERTIES readbackHeap = {};
     readbackHeap.Type = D3D12_HEAP_TYPE_READBACK;
+    // Explicit single-node masks also work with the software WARP adapter.
+    for (D3D12_HEAP_PROPERTIES *properties : {&defaultHeap, &uploadHeap, &readbackHeap}) {
+        properties->CreationNodeMask = 1;
+        properties->VisibleNodeMask = 1;
+    }
     ComPtr<ID3D12Resource> texture, upload, readback;
     CHECK(SUCCEEDED(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE,
        &textureDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&texture))));
