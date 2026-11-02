@@ -32,6 +32,18 @@ add_test(NAME import_guard COMMAND bf_import_guard_test)
 add_executable(bf_texture_math_test tests/texture_math_test.c)
 target_include_directories(bf_texture_math_test PRIVATE src)
 add_test(NAME texture_math COMMAND bf_texture_math_test)
+# This GPU completion state machine is API-neutral and has no game dependencies.
+add_executable(bf_gpu_timeline_test tests/gpu_completion_timeline_test.cpp)
+target_include_directories(bf_gpu_timeline_test PRIVATE src)
+add_test(NAME gpu_timeline COMMAND bf_gpu_timeline_test)
+if(WIN32)
+    # Optional Direct3D 12 WARP / D3D11On12 interoperability smoke. This does
+    # not activate a D3D12 game renderer or change the default presentation.
+    add_executable(bf_d3d12_compat_test tests/d3d12_fence_bridge_test.cpp)
+    target_include_directories(bf_d3d12_compat_test PRIVATE src)
+    target_link_libraries(bf_d3d12_compat_test PRIVATE d3d12 d3d11 dxgi)
+    add_test(NAME d3d12_compat COMMAND bf_d3d12_compat_test)
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
     add_executable(bf_posix_mmio_test tests/posix_mmio_test.c)
     add_test(NAME posix_mmio_context COMMAND bf_posix_mmio_test)
