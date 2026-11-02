@@ -2,9 +2,10 @@ name: Source regression checks
 
 on:
   pull_request:
-  push:
-    branches:
-      - integration/tzeentchnet-texture-math
+
+concurrency:
+  group: source-regressions-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   source-tests:
