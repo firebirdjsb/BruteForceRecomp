@@ -17,6 +17,10 @@ jobs:
         run: python3 -m compileall -q launcher scripts tests
       - name: Test import, path and translation safety
         run: python3 -m unittest discover -s tests -v
+      - name: Test frame comparison using synthetic reference/candidate images
+        run: |
+          python3 -m pip install --disable-pip-version-check -r tools/analysis-requirements.txt
+          python3 -m pytest -q tests/test_compare_frames.py
       - name: Build and test CPU texture-math regression (C11)
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -Isrc tests/texture_math_test.c -o /tmp/bf-texture-math
