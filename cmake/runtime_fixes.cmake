@@ -119,4 +119,105 @@ function(bf_apply_runtime_fixes toolkit)
     list(REMOVE_ITEM patched_sources "${executor}")
     list(APPEND patched_sources "${gpu_patched}")
     set_property(TARGET xbox_kernel PROPERTY SOURCES "${patched_sources}")
+    # Windows-only correctness backport from Tzeentchnet patch 0005.
+    # Leave the original toolkit and the Linux SDL presenter untouched.
+    if(WIN32)
+        set(video_original "${toolkit}/src/video/fb_present.c")
+        file(READ "${video_original}" video_source)
+        string(REPLACE "\r\n" "\n" video_source "${video_source}")
+        set(bf_frame_old_0 [=[static volatile LONG s_present_idx = -1;   /* -1 until the first flip */]=])
+        set(bf_frame_new_0 [=[static LONG          s_present_idx = -1;   /* -1 until the first flip */
+static SRWLOCK       s_present_lock = SRWLOCK_INIT;]=])
+        string(FIND "${video_source}" "${bf_frame_old_0}" frame_anchor_0)
+        if(frame_anchor_0 EQUAL -1)
+            message(FATAL_ERROR "Expected framebuffer declarations anchor not found.")
+        endif()
+        string(REPLACE "${bf_frame_old_0}" "${bf_frame_new_0}" video_source "${video_source}")
+        set(bf_frame_old_1 [=[    if (getenv("RECOMP_FB_VA"))
+        return;                       /* pinned: leave the old path alone */
+    next = (s_present_idx == 0) ? 1 : 0;]=])
+        set(bf_frame_new_1 [=[    if (getenv("RECOMP_FB_VA"))
+        return;                       /* pinned: leave the old path alone */
+    AcquireSRWLockExclusive(&s_present_lock);
+    next = (s_present_idx == 0) ? 1 : 0;]=])
+        string(FIND "${video_source}" "${bf_frame_old_1}" frame_anchor_1)
+        if(frame_anchor_1 EQUAL -1)
+            message(FATAL_ERROR "Expected framebuffer writer_begin anchor not found.")
+        endif()
+        string(REPLACE "${bf_frame_old_1}" "${bf_frame_new_1}" video_source "${video_source}")
+        set(bf_frame_old_2 [=[        if (!s_present[next])
+            return;]=])
+        set(bf_frame_new_2 [=[        if (!s_present[next]) {
+            ReleaseSRWLockExclusive(&s_present_lock);
+            fprintf(stderr, "  [FBWIN] cannot allocate a presentation frame\n");
+            return;
+        }]=])
+        string(FIND "${video_source}" "${bf_frame_old_2}" frame_anchor_2)
+        if(frame_anchor_2 EQUAL -1)
+            message(FATAL_ERROR "Expected framebuffer allocation anchor not found.")
+        endif()
+        string(REPLACE "${bf_frame_old_2}" "${bf_frame_new_2}" video_source "${video_source}")
+        set(bf_frame_old_3 [=[    /* Published only once it is whole. */
+    InterlockedExchange(&s_present_idx, next);
+}
+
+/* Title bar]=])
+        set(bf_frame_new_3 [=[    /* Published under the same lock used by the window's copy. */
+    s_present_idx = next;
+    ReleaseSRWLockExclusive(&s_present_lock);
+}
+
+static int bf_copy_presented_frame(uint32_t *dst)
+{
+    int copied = 0;
+    AcquireSRWLockShared(&s_present_lock);
+    if (s_present_idx >= 0) {
+        memcpy(dst, s_present[s_present_idx],
+               (size_t)s_fb_width * s_fb_height * 4);
+        copied = 1;
+    }
+    ReleaseSRWLockShared(&s_present_lock);
+    return copied;
+}
+
+/* Title bar]=])
+        string(FIND "${video_source}" "${bf_frame_old_3}" frame_anchor_3)
+        if(frame_anchor_3 EQUAL -1)
+            message(FATAL_ERROR "Expected framebuffer publish anchor not found.")
+        endif()
+        string(REPLACE "${bf_frame_old_3}" "${bf_frame_new_3}" video_source "${video_source}")
+        set(bf_frame_old_4 [=[        if (s_present_idx >= 0 && s_rgb) {
+            /* A finished frame, published by the flip. Copied into s_rgb so
+             * the dump path and GDI see one consistent image even if the
+             * next flip lands mid-blit. */
+            LONG idx = s_present_idx;
+            if (s_present[idx])
+                memcpy(s_rgb, s_present[idx],
+                       (size_t)s_fb_width * s_fb_height * 4);
+            if (!fb_pinned)]=])
+        set(bf_frame_new_4 [=[        if (s_rgb && bf_copy_presented_frame(s_rgb)) {
+            /* The snapshot was copied while excluding producer writes.
+             * GDI and dump paths now see the same complete image. */
+            if (!fb_pinned)]=])
+        string(FIND "${video_source}" "${bf_frame_old_4}" frame_anchor_4)
+        if(frame_anchor_4 EQUAL -1)
+            message(FATAL_ERROR "Expected framebuffer reader anchor not found.")
+        endif()
+        string(REPLACE "${bf_frame_old_4}" "${bf_frame_new_4}" video_source "${video_source}")
+        set(video_patched "${CMAKE_BINARY_DIR}/runtime-fixes/fb_present.c")
+        file(WRITE "${video_patched}.in" "${video_source}")
+        configure_file("${video_patched}.in" "${video_patched}" COPYONLY)
+        get_target_property(video_sources xbox_video SOURCES)
+        get_target_property(video_directory xbox_video SOURCE_DIR)
+        set(video_replacements)
+        foreach(item IN LISTS video_sources)
+            get_filename_component(absolute "${item}" ABSOLUTE BASE_DIR "${video_directory}")
+            if(absolute STREQUAL video_original)
+                list(APPEND video_replacements "${video_patched}")
+            else()
+                list(APPEND video_replacements "${absolute}")
+            endif()
+        endforeach()
+        set_property(TARGET xbox_video PROPERTY SOURCES "${video_replacements}")
+    endif()
 endfunction()
