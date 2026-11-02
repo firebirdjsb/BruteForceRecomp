@@ -1,5 +1,3 @@
-/* STAGING HEADER: exact upstream extended NV2A contract for future
-   DX11/DX12 backends. This has not been registered into the guest executor. */
 /*
  * Extended render back-end interface: the full pixel pipeline.
  *
@@ -51,7 +49,9 @@ typedef struct {
     uint8_t tex_valid[4];
     uint8_t tex_normalized[4];      /* coordinates are 0..1 (swizzled, DXT); else texels */
     uint8_t tex_cube[4];
-    uint8_t cull;   /* Future GPU draw_vsh culling; preserved from upstream 0017. */
+    uint8_t cull;                   /* draw_vsh: cull by state as the CPU path would
+                                       (RECOMP_CULL_FACE); CPU-transformed batches
+                                       arrive already culled */
     float fogc[4];                  /* fog colour r, g, b (a unused) */
     uint32_t clip_plane_mode;       /* SET_SHADER_CLIP_PLANE_MODE */
     uint32_t alpha_func, alpha_ref; /* NV2A values; also in state */
@@ -138,7 +138,20 @@ typedef struct {
      * a title that culls by visibility draws nothing behind its tests. */
     void (*zpass)(int op);
     uint32_t (*zpass_count)(void);
+    /* Optional, asynchronous reports. At GET_REPORT the executor offers the
+     * report to zpass_report(report_va, stamp) first; a back end returning 1
+     * writes the 16-byte report itself (stamp, count, status 0) once the
+     * count is known, as the GPU writes a report after the draws before it.
+     * Until then the slot keeps what the title left there, and D3D's
+     * GetVisibilityTestResult keeps reporting the test incomplete.
+     * poll() runs on every pass of the NV2A thread, also while it is idle,
+     * so pending reports complete while the title waits for them. */
+    int (*zpass_report)(uint32_t report_va, uint64_t stamp);
+    void (*poll)(void);
+    uint32_t capabilities;
 } Nv2aBackendExt;
+
+enum { NV2A_BACKEND_CAP_WINDOW_CLIP = 1u };
 
 enum { NV2A_ZPASS_END = 0, NV2A_ZPASS_BEGIN = 1, NV2A_ZPASS_CLEAR = 2 };
 

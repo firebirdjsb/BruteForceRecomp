@@ -1,5 +1,6 @@
 #include "app.h"
 #include "process.h"
+#include "window_lifecycle.h"
 #include <imgui_impl_sdl2.h>
 #include <imgui_impl_sdlrenderer2.h>
 #include <cstdio>
@@ -49,13 +50,15 @@ int main(int argc,char **argv) {
         {
             bf::Theme theme;
             if(!theme.load(renderer,bf::path_text(application/"assets").c_str()))throw std::runtime_error("Launcher fonts/textures could not be loaded. Keep the assets folder beside the application.");
-            bf::App app(library,theme);bool running=true;unsigned frame=0;
+            bf::App app(library,theme);bool running=true,hidden_for_game=false;unsigned frame=0;
             while(running){SDL_Event event;
                 while(SDL_PollEvent(&event)){
                     ImGui_ImplSDL2_ProcessEvent(&event);
                     if(event.type==SDL_QUIT || (event.type==SDL_WINDOWEVENT && event.window.event==SDL_WINDOWEVENT_CLOSE && event.window.windowID==SDL_GetWindowID(window)))running=!app.can_close();
                     if(event.type==SDL_DROPFILE)SDL_free(event.drop.file);
                 }
+                bf::sync_game_window(window,library.state().running,hidden_for_game);
+                if(hidden_for_game){SDL_Delay(50);continue;}
                 ImGui_ImplSDLRenderer2_NewFrame();ImGui_ImplSDL2_NewFrame();ImGui::NewFrame();app.draw();ImGui::Render();
                 if(std::getenv("BF_LAUNCHER_TRACE") && ++frame==120){
                     std::ofstream trace(workspace/"render-diagnostic.txt");

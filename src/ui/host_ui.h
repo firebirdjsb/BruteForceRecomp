@@ -24,6 +24,7 @@ void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height);
 int bf_ui_fsr(void);
 void bf_ui_fsr_initial(int enabled);
 void bf_ui_fsr_supported(int supported);
+void bf_ui_settings_initial(int gpu_available);
 unsigned bf_ui_scale(void);
 int bf_ui_take_size(unsigned *width,unsigned *height);
 float bf_ui_audio_gain(void);

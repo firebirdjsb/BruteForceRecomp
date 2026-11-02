@@ -14,6 +14,10 @@
 #include "host_input.h"
 #include "host_audio.h"
 #include "guest_failure.h"
+#include "ui/host_ui.h"
+#ifdef BF_EXPERIMENTAL_NV2A_D3D11
+extern "C" int bruteforce_d3d11_install(void);
+#endif
 extern "C" {
 #include "xbox/xboxrecomp.h"
 #include "video_player.h"
@@ -76,6 +80,14 @@ static int run_native(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     try {
+        if(argc==2 && std::string_view(argv[1])=="--capabilities") {
+#ifdef BF_EXPERIMENTAL_NV2A_D3D11
+            std::puts("nv2a_d3d11=1");
+#else
+            std::puts("nv2a_d3d11=0");
+#endif
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[1]) == "--validate-only")
             return native_media_initialize(std::filesystem::absolute(argv[2])) ? 0 : 11;
         if (argc != 3) {
@@ -143,6 +155,21 @@ static int run_native(int argc, char **argv) {
         // 0x128 contains the retail XOR-encoded 32-bit guest entry point.
         if (read32(0) != 0x48454258 || (read32(0x128) ^ 0xA8FC57AB) != 0x002F5D1F)
             return 6;
+        if (const char *backend=std::getenv("RECOMP_GPU"); backend && *backend && std::string_view(backend)!="cpu") {
+            if (std::string_view(backend)!="d3d11") {
+                std::fprintf(stderr,"Unknown scene backend: %s\n",backend); return 14;
+            }
+#ifdef BF_EXPERIMENTAL_NV2A_D3D11
+            if (!bruteforce_d3d11_install()) return 14;
+#else
+            std::fprintf(stderr,"D3D11 scene rendering requires BF_EXPERIMENTAL_NV2A_D3D11=ON.\n"); return 14;
+#endif
+        }
+#ifdef BF_EXPERIMENTAL_NV2A_D3D11
+        bf_ui_settings_initial(1);
+#else
+        bf_ui_settings_initial(0);
+#endif
         std::atexit(cleanup);
         if (!xbox_MemoryLayoutInit(bytes.data(), bytes.size())) return 7;
         memory_ready = true;

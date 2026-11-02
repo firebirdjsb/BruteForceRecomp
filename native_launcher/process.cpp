@@ -27,7 +27,20 @@ std::string read_tail(const std::filesystem::path &path, size_t limit) {
     file.seekg(size > std::streamoff(limit) ? size - std::streamoff(limit) : std::streamoff(0));
     return std::string(std::istreambuf_iterator<char>(file), {});
 }
-static const char *removed[] = {"RECOMP_WATCHDOG_SECS", "RECOMP_PAD_SCRIPT", "BF_SAMPLE_BOOT", "BF_TRACE_DELAY", "RECOMP_KEYBOARD", "RECOMP_MKB"};
+static const char *removed[] = {"RECOMP_WATCHDOG_SECS", "RECOMP_PAD_SCRIPT", "RECOMP_PAD_LIVE", "BF_SAMPLE_BOOT", "BF_TRACE_DELAY", "RECOMP_KEYBOARD", "RECOMP_MKB", "RECOMP_D3D11_WARP", "RECOMP_GPU_DEPTH_TEXTURE", "RECOMP_GPU_VSH_VERIFY", "RECOMP_GPU_VSH_SYNC"};
+static std::map<std::string,std::string> game_environment(const std::filesystem::path &saves,bool keyboard,
+        const GraphicsOptions &graphics,const std::filesystem::path &settings) {
+    if(!valid_graphics(graphics))throw std::runtime_error("Invalid game graphics settings");
+    std::map<std::string,std::string> result{
+        {"RECOMP_SAVE_DIR",path_text(saves)},{"BF_RENDER_BACKEND",graphics.backend},
+        {"BF_UPSCALER",graphics.fsr1?"fsr1":"off"},{"RECOMP_GPU",graphics.scene},
+        {"RECOMP_GPU_VSH",graphics.gpu_programs?"1":"0"},
+        {"RECOMP_FLIP_PACING",graphics.scene=="d3d11"?"edge":"0"},
+        {"BF_UI_SETTINGS",path_text(settings)}};
+    for(const auto *name:{"RECOMP_USB","RECOMP_PB_EXEC","RECOMP_FB_WINDOW","RECOMP_VBLANK","RECOMP_TITLE_KEVENTS","RECOMP_UNIMPL_TRAP"})result[name]="1";
+    if(keyboard)result["RECOMP_KEYBOARD"]="1";
+    return result;
+}
 #ifdef _WIN32
 static std::wstring wide(const std::string &text) {
     if (text.empty()) return {};
@@ -53,13 +66,15 @@ static std::wstring quote(const std::wstring &text) {
 #endif
 ProcessResult run_process(const std::filesystem::path &exe, const std::vector<std::string> &arguments,
                           const std::filesystem::path &directory, const std::filesystem::path &log,
-                          const std::filesystem::path &saves, bool keyboard, const GraphicsOptions &graphics) {
+                          const std::filesystem::path &saves, bool keyboard, const GraphicsOptions &graphics,
+                          const std::filesystem::path &settings,const std::function<void()> &on_started) {
     if (!std::filesystem::is_regular_file(exe)) throw std::runtime_error("The native game executable was not found.");
     std::filesystem::create_directories(directory);
 #ifdef _WIN32
     std::wstring command = quote(exe.wstring());
     for (const auto &argument : arguments) command += L" " + quote(wide(argument));
-    std::map<std::wstring, std::wstring> values;
+    const auto less=[](const std::wstring &a,const std::wstring &b){return _wcsicmp(a.c_str(),b.c_str())<0;};
+    std::map<std::wstring, std::wstring,decltype(less)> values(less);
     if (auto *environment = GetEnvironmentStringsW()) {
         for (auto *item = environment; *item; item += wcslen(item) + 1) {
             std::wstring entry(item);
@@ -70,11 +85,7 @@ ProcessResult run_process(const std::filesystem::path &exe, const std::vector<st
     }
     for (const auto *name : removed) values.erase(wide(name));
     if (!saves.empty()) {
-        values[L"RECOMP_SAVE_DIR"] = saves.wstring();
-        values[L"BF_RENDER_BACKEND"] = wide(graphics.backend);
-        values[L"BF_UPSCALER"] = graphics.fsr1 ? L"fsr1" : L"off";
-        for (const auto *name : {"RECOMP_USB", "RECOMP_PB_EXEC", "RECOMP_FB_WINDOW", "RECOMP_VBLANK", "RECOMP_TITLE_KEVENTS", "RECOMP_UNIMPL_TRAP"}) values[wide(name)] = L"1";
-        if (keyboard) values[L"RECOMP_KEYBOARD"] = L"1";
+        for(const auto &[name,value]:game_environment(saves,keyboard,graphics,settings))values[wide(name)]=wide(value);
     }
     std::vector<wchar_t> block;
     for (const auto &[name, value] : values) {
@@ -94,6 +105,7 @@ ProcessResult run_process(const std::filesystem::path &exe, const std::vector<st
     CloseHandle(output);
     if (!started) throw std::runtime_error("Cannot start the native host (Windows error " + std::to_string(error) + ").");
     CloseHandle(process.hThread);
+    if(on_started)on_started();
     WaitForSingleObject(process.hProcess, INFINITE);
     DWORD code = 0; GetExitCodeProcess(process.hProcess, &code); CloseHandle(process.hProcess);
     return {int(code), read_tail(log)};
@@ -105,9 +117,7 @@ ProcessResult run_process(const std::filesystem::path &exe, const std::vector<st
     }
     for (const auto *name : removed) values.erase(name);
     if (!saves.empty()) {
-        values["RECOMP_SAVE_DIR"] = path_text(saves);
-        for (const auto *name : {"RECOMP_USB", "RECOMP_PB_EXEC", "RECOMP_FB_WINDOW", "RECOMP_VBLANK", "RECOMP_TITLE_KEVENTS", "RECOMP_UNIMPL_TRAP"}) values[name] = "1";
-        if (keyboard) values["RECOMP_KEYBOARD"] = "1";
+        for(const auto &[name,value]:game_environment(saves,keyboard,graphics,settings))values[name]=value;
     }
     std::vector<std::string> environment;
     for (const auto &[name, value] : values) environment.push_back(name + '=' + value);
@@ -128,6 +138,7 @@ ProcessResult run_process(const std::filesystem::path &exe, const std::vector<st
     }
     close(output);
     if (pid < 0) throw std::runtime_error("Cannot create the native host process.");
+    if(on_started)on_started();
     int status = 0;
     while (waitpid(pid, &status, 0) < 0) if (errno != EINTR) throw std::runtime_error("Cannot wait for the native host.");
     return {WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status), read_tail(log)};

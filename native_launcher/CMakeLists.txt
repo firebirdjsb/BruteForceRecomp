@@ -30,6 +30,16 @@ add_library(bf_launcher_ui STATIC
 target_include_directories(bf_launcher_ui PUBLIC "${bf_imgui_SOURCE_DIR}" "${bf_imgui_SOURCE_DIR}/backends")
 target_link_libraries(bf_launcher_ui PUBLIC SDL2::SDL2)
 add_executable(BruteForceLauncher WIN32 main.cpp app.cpp theme.cpp library.cpp process.cpp file_picker.cpp manifest.cpp)
+enable_testing()
+add_executable(bf_launcher_lifecycle_test ../tests/launcher_lifecycle_test.cpp process.cpp)
+target_link_libraries(bf_launcher_lifecycle_test PRIVATE SDL2::SDL2)
+if(WIN32)
+    target_compile_definitions(bf_launcher_lifecycle_test PRIVATE SDL_MAIN_HANDLED)
+    add_custom_command(TARGET bf_launcher_lifecycle_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:SDL2::SDL2>" "$<TARGET_FILE_DIR:bf_launcher_lifecycle_test>")
+endif()
+add_test(NAME launcher_process_lifecycle COMMAND bf_launcher_lifecycle_test)
+set_tests_properties(launcher_process_lifecycle PROPERTIES ENVIRONMENT "SDL_VIDEODRIVER=dummy" TIMEOUT 20)
 set(BF_PRIVATE_BRANDING_DIR "" CACHE PATH "Private, locally extracted title icon/art; never committed or distributed as source")
 if(BF_PRIVATE_BRANDING_DIR AND EXISTS "${BF_PRIVATE_BRANDING_DIR}/title.bmp")
     add_custom_command(TARGET BruteForceLauncher POST_BUILD

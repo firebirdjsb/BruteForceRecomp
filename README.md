@@ -19,13 +19,18 @@ Build dependencies are fetched from pinned public repositories. Linux also needs
 
 Use `BruteForceLauncher --workspace FOLDER --game-exe FILE` to select an explicit library and native build. Otherwise the app uses the platform application-data directory and searches for a native Release build. Keep the executable, SDL2 DLL on Windows, and assets folder together. A mouse/keyboard/gamepad navigable launcher does not establish complete input support inside the game.
 
+The launcher hides after the native game process starts and returns when that
+process exits, including a crash. Validation or start failures leave the app
+visible. Graphics, input and audio preferences are shared with F1 through the
+local `graphics.settings` file; permanent saves stay in `player-data`.
+
 For authentic local branding, run `python scripts/extract_branding.py --help` and configure `-DBF_PRIVATE_BRANDING_DIR=PRIVATE_OUTPUT_FOLDER`. The tool validates the exact XBE and extracts its title icon. The game executable and launcher use the icon; the launcher also loads its title image. These extracted assets stay private and are never committed or bundled with public source.
 
 ## Native graphics
 
 Windows selects hardware DX12 automatically and falls back to D3D11, then GDI when initialization fails. The native launcher exposes renderer and AMD FSR 1 settings under **Graphics**. Direct launches can use `BF_RENDER_BACKEND=auto`, `dx12`, `dx11`, or `gdi`, and `BF_UPSCALER=off` or `fsr1`.
 
-FSR 1 runs AMD's EASU and RCAS GPU compute passes when the window is at least the source size; smaller windows use bilinear downscaling. Aspect ratio is preserved. The Xbox scene is still rasterized by the current CPU runtime, so GPU presentation/scaling alone cannot remove a CPU rendering bottleneck. This is spatial FSR 1, not temporal reconstruction or frame generation. DLSS integration remains pending because the renderer does not yet expose valid depth, motion vectors and camera history. Linux/Android do not use DX12; native graphics integration on those platforms remains separate.
+FSR 1 runs AMD's EASU and RCAS GPU compute passes when the window is at least the source size; smaller windows use bilinear downscaling. Aspect ratio is preserved. The default scene renderer is the CPU reference. Windows builds with `-DBF_EXPERIMENTAL_NV2A_D3D11=ON` can select **D3D11 GPU (experimental)** and GPU vertex programs in the launcher or F1's Renderer page. The scene is read back for the existing DX12/FSR presenter. This is spatial FSR 1, not temporal reconstruction or frame generation. DLSS integration remains pending because the renderer does not yet expose valid depth, motion vectors and camera history. Linux/Android do not use DX12; native graphics integration on those platforms remains separate. See [GPU backend evidence and limits](docs/GPU_SCENE_BACKEND.md).
 
 A standalone hardware test requires no game data:
 
@@ -49,7 +54,14 @@ Native mouse menu input now hit-tests the game's live buttons, lists and on-scre
 
 **F1** opens the live settings overlay; F1 or Escape closes it. Mouse or arrows/Enter change mouse menu selection, keyboard/mouse prompts, FSR 1, FSR output scale (Auto/2x/4x/8x), window resolution (Auto/720p/1080p/1440p/2160p), mute and master volume. These settings last for the process. Window presets fit within the desktop work area. Fixed FSR factors describe its intermediate output relative to the original 640x480 source; 8x is 5120x3840 before fitting to the window, not native scene rendering. DX12/FSR controls are unavailable on other backends. The common A/B/X/Y menu prompt glyphs gain keyboard/mouse keycaps while keyboard/mouse is active; unrecognized glyphs retain original rendering. Actual physical-controller switching still requires QA.
 
-The renderer retains the original 4:3 game image. The 16:9 window presets are **not native widescreen gameplay**. Correct projection/HUD behavior and cheats remain unavailable, and complete campaign/mission validation remains unfinished. The current menu is also below the requested solid 30 FPS. See STATUS.md for measured limits and test evidence.
+Tab/Page Up/Page Down or the page buttons select F1's **Renderer** page.
+Scene renderer, GPU vertex programs and presentation changes take effect at the
+next launch. When started by the app, live and restart preferences persist and
+the launcher reloads them on return. Direct runs without `BF_UI_SETTINGS` use
+session-only preferences. Original swap-interval pacing, exact texture
+validation and automatic shader caches are reported on that page.
+
+The renderer retains the original 4:3 game image. The 16:9 window presets are **not native widescreen gameplay**. Correct projection/HUD behavior and cheats remain unavailable, and complete campaign/mission validation remains unfinished. The experimental GPU tutorial run reported about 30 presented frames/s in its late scene; loading dips and full mission/input/effects QA remain. See STATUS.md for measured limits and test evidence.
 
 ## Exact input
 
@@ -76,10 +88,9 @@ Unidentified GPU-owned frames remain unknown, not counted as distinct.
 ## Graphics backend boundary
 
 The native DX12 presenter and FSR 1 are implemented in `src/graphics/` and
-operate on completed CPU-rendered images. The imported NV2A HLSL generators,
-P8 decoder, shader cache and completion timeline are compiled and tested,
-but are not yet connected to a hardware NV2A scene renderer. Connecting
-real guest draws is the next performance milestone. A native DX12 scene
+operate on completed images in guest memory. The optional D3D11 scene backend
+now connects actual NV2A draws, generated vertex shaders and register combiners,
+then reads back for that presenter. The CPU reference remains available. A native DX12 scene
 pipeline needs its own resource, descriptor, PSO and fence implementation.
 See [DX12 compatibility](docs/DX12_COMPATIBILITY.md).
 

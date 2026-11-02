@@ -11,13 +11,13 @@ The upstream main branch was rechecked on 2026-11-02; it remains at the commit a
 
 | Priority | Feature | Implemented in main | Not yet complete |
 | --- | --- | --- | --- |
-| Highest | GPU renderer and Xbox vertex programs | Imported MIT NV2A extended batch **staging interface**, register-combiner HLSL and vertex-program HLSL emitters. Synthetic pixel and vertex shaders compile with Windows D3DCompiler. Shared semantics are intended for DX11 and DX12. | The full D3D11 backend's surfaces, shader invocation, vertex streams, GPU draw dispatch and full-frame readback are **not connected** to our pinned executor. The CPU still rasterizes the scene. The separate native DX12 presenter/FSR path is active on Windows; it does not execute NV2A scene draws. |
-| High | Frame synchronization/presentation | Existing Windows GDI framebuffer SRW lock + DX12 completed-fence bridge (tested with WARP). Original GPU semaphore patch is preserved. | The native DX12 CPU-frame presenter already has a swap chain, barriers and completion fences. GPU-owned NV2A surface presentation still needs draw integration and parity checks. |
-| High | Texture decoding / shader caching | Runtime CPU texture fast path and DXT slot improvement; portable, bounds-checked P8 swizzled-paletted decode; Windows persistent compiler/content-keyed DXBC cache, corruption validation. | Complete GPU texture/sampler/BCn staging and cache lookup at actual D3D11/DX12 shader compilation sites. DXC/DXIL for native DX12 requires its own compiler-key validation. |
+| Highest | GPU renderer and Xbox vertex programs | Optional D3D11 scene backend executes actual NV2A clears/draws, combiners, vertex programs and readback. Synthetic CPU/GPU parity passes on WARP and RTX 3060 Ti. A bounded tutorial run renders Tex/environment at about 30 presented frames/s late in the run. | Full game-frame parity, control/progression QA, effects/shadows and all missions. The separate native DX12 presenter/FSR path does not execute NV2A scene draws; native DX12 scenes need their own pipeline. |
+| High | Frame synchronization/presentation | Windows framebuffer lock and DX12 completed-fence bridge; optional D3D11 real EVENT-query completion before guest signals. DMA GET/CALL/payload survives original swap-interval waits. | GPU-resident shared presentation, full flip/readback equivalence and lifecycle QA. Current GPU scene frames are read back for the native presenter. |
+| High | Texture decoding / shader caching | CPU texture math, GPU texture/sampler/BC staging, bounds-checked P8 decode, exact per-use source/palette validation and persistent DXBC cache at pixel-shader compile sites. | Depth texture 0x2E/shadows, full mutation/parity coverage and persistent vertex-shader caching. DXC/DXIL for native DX12 needs its own compiler-key validation. |
 | High | Positional audio/HRTF | Upstream mono-source HRTF fix applied **in the private pinned xbox_apu build copy**. Actual APU test harness verifies left and right channels retain different HRTF results, plus ADPCM and gain checks. | Full end-to-end speaker/HRTF listening and mixed soundtrack tests. No GPL DSP interpreter or unreviewed audio subsystem transplant. |
 | Medium | Render scaling | Verified portable render-size, native-output-height and aspect-preserving viewport math, including 1440p/4K cases. | FSR 1 output factors and window presets exist in the native F1 overlay. Higher-resolution scene targets, native widescreen projection/HUD and GPU guest readback remain unfinished. 4:3 output is **not** artificially stretched. |
 | Medium | USB | Existing original USB/IRQ/dispatch gate patches remain intact. Upstream patch `0006` audited: it changes thread startup, TIB ownership, MMIO protection lifetime, IRQ safe points and shutdown API. | **Not applied** until dependent kernel calls and Windows/POSIX startup/shutdown tests can be verified without invalidating our working controller paths. |
-| Medium | Benchmarking | Opt-in `RECOMP_FRAME_STATS=<path>` CSV emitted by private NV2A runtime (visible framebuffer hash, distinct/unknown status, draw counts, program vertices). Synthetic hashing tests and `tools/frame_bench.py` metrics parser. `tools/compare_frames.py` reports pixel differences on matched images. | Game-run captures, verified scene/input equivalence, controlled A/B/A tests, GPU-presented-frame hashes and real FPS claims. |
+| Medium | Benchmarking | Opt-in real frame CSV/hashes, game-run captures including GPU readback, distinct/unknown counts, draw/vertex counters, frame parser and synthetic comparison gates. | Independently matched game scenes/inputs, controlled A/B/A speedup tests, sustained all-mission minimum FPS and world-progression validation. |
 
 ## Using the opt-in frame benchmark
 
@@ -69,6 +69,7 @@ viewpoint, input state and flip phase. Its RGB diff is *not* an in-game matcher.
 5. Keep third-party attribution. No original title/demo executables or assets
    are committed. This is not a finished DX11/DX12 GPU game port.
 
-The current software renderer stays the only gameplay-backed reference until
-those gates succeed. **Experimental renderer code should never overwrite our
+The current software renderer stays the reference; the optional GPU path has
+bounded tutorial evidence described in [the backend report](GPU_SCENE_BACKEND.md).
+**Experimental renderer code should never overwrite our
 existing original-XBE-derived patches to make a build green.**

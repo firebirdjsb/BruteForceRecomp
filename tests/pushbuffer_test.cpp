@@ -8,6 +8,7 @@ struct Method {uint32_t channel,number,value;bool operator==(const Method &)cons
 static std::vector<uint32_t> memory(64*1024*1024/4);
 static std::vector<Method> seen;
 static bool software_return;
+static bool flip_hold;
 // The real decoder runs against an owned RAM image and a collecting test
 // backend. Reporting and hardware notification callbacks are unused here.
 extern "C" {
@@ -20,10 +21,12 @@ void nv2a_pb_exec_method(uint32_t channel,uint32_t number,uint32_t value){
     seen.push_back({channel,number,value});
     // Model the real software handler changing the shared CALL register.
     if(software_return&&number==0x100)*xbox_Nv2aRegPtr(0x324C)=value;
+    if(number==0x130&&value==1)flip_hold=true;
 }
 void nv2a_pb_exec_report(){}
 void nv2a_pb_exec_walk_begin(){}
 void xbox_Nv2aAckBusyBits(){}
+int nv2a_pb_exec_flip_poll(){return flip_hold;}
 volatile uint32_t *xbox_Nv2aRegPtr(uint32_t offset){static uint32_t get,subroutine;return offset==0x324C?&subroutine:&get;}
 }
 int main() {
@@ -89,5 +92,18 @@ int main() {
     nv2a_pb_resync(0x7000);nv2a_pb_scan(0x7008);
     if(seen!=std::vector<Method>{{0,0x100,0x7004},{0,0x304,42}})return 6;
     if(*xbox_Nv2aRegPtr(0x324C)!=0x7008)return 7;
+    // Pause inside a called method packet and resume its remaining payload
+    // before RETURN. GET must name the next unread word, not the submitted PUT.
+    memory[0xA000/4]=0xB002;
+    memory[0xB000/4]=(2u<<18)|0x130;
+    memory[0xB004/4]=1;
+    memory[0xB008/4]=9;
+    memory[0xB00C/4]=0x20000;
+    software_return=false;seen.clear();
+    *xbox_Nv2aRegPtr(0x800044)=0xA000;
+    nv2a_pb_resync(0xA000);nv2a_pb_scan(0xA004);
+    if(seen!=std::vector<Method>{{0,0x130,1}}||*xbox_Nv2aRegPtr(0x800044)!=0xB008)return 8;
+    flip_hold=false;nv2a_pb_scan(0xA004);
+    if(seen!=std::vector<Method>{{0,0x130,1},{0,0x134,9}}||*xbox_Nv2aRegPtr(0x800044)!=0xA004)return 9;
     std::puts("Actual pushbuffer decoder preserves split method payloads, call order and physical bounds.");
 }

@@ -17,8 +17,9 @@ Library::Library(std::filesystem::path workspace) : root_(std::filesystem::absol
     if (settings >> std::quoted(value)) executable_ = text_path(value);
     std::string backend; bool fsr = false;
     if (settings >> backend >> fsr) {
-        if (backend == "auto" || backend == "dx12" || backend == "dx11" || backend == "gdi") graphics_ = {backend, fsr};
+        if (backend == "auto" || backend == "dx12" || backend == "dx11" || backend == "gdi") {graphics_.backend=backend;graphics_.fsr1=fsr;}
     }
+    graphics_=load_graphics(root_/"graphics.settings",graphics_);
     if (std::filesystem::exists(game_directory() / "default.xbe")) verify();
 }
 Library::~Library() { cancel(); join(); }
@@ -37,6 +38,7 @@ void Library::save_settings() {
     std::error_code error;
     std::filesystem::remove(root_ / "launcher.settings", error);
     std::filesystem::rename(temporary, root_ / "launcher.settings");
+    save_graphics(root_/"graphics.settings",graphics_);
 }
 void Library::set_executable(std::filesystem::path path) {
     if (state().busy) return;
@@ -47,7 +49,7 @@ void Library::set_executable(std::filesystem::path path) {
 GraphicsOptions Library::graphics() const { std::lock_guard guard(mutex_); return graphics_; }
 void Library::set_graphics(GraphicsOptions options) {
     if (state().busy) return;
-    if (options.backend != "auto" && options.backend != "dx12" && options.backend != "dx11" && options.backend != "gdi")
+    if (!valid_graphics(options))
         throw std::runtime_error("Unknown graphics backend");
     std::lock_guard guard(mutex_);
     graphics_ = std::move(options); save_settings();
@@ -138,9 +140,16 @@ void Library::launch(bool keyboard) {
             const auto stamp = std::chrono::system_clock::now().time_since_epoch().count();
             const auto session = root_ / "sessions" / std::to_string(stamp), saves = root_ / "player-data";
             std::filesystem::create_directories(saves);
-            { std::lock_guard guard(mutex_); state_.running = true; state_.phase = "running";
-              state_.message = "Native game running. Close its window to return to your squad."; state_.log = path_text(session / "game.log"); }
-            const auto result = run_process(exe, {path_text(game_directory()), path_text(saves)}, session, session / "game.log", saves, keyboard, options);
+            if(options.scene=="d3d11") {
+                const auto capability=run_process(exe,{"--capabilities"},session,session/"capabilities.log");
+                if(capability.code || capability.detail.find("nv2a_d3d11=1")==std::string::npos)
+                    throw std::runtime_error("This native build has no GPU scene backend. Select CPU reference or locate a build with experimental D3D11 scenes enabled.");
+            }
+            const auto result = run_process(exe, {path_text(game_directory()), path_text(saves)}, session, session / "game.log", saves, keyboard, options,root_/"graphics.settings",[this,session] {
+                std::lock_guard guard(mutex_);state_.running=true;state_.phase="running";
+                state_.message="Native game running. Close its window to return to your squad.";state_.log=path_text(session/"game.log");
+            });
+            {std::lock_guard guard(mutex_);graphics_=load_graphics(root_/"graphics.settings",graphics_);}
             if (result.code || result.detail.find("[EXIT] HalReturnToFirmware") != std::string::npos)
                 throw std::runtime_error("Native host stopped (code " + std::to_string(result.code) + ").\n" + result.detail);
             std::lock_guard guard(mutex_); state_.running = state_.busy = false; state_.phase = "ready";

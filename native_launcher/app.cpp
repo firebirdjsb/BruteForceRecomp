@@ -49,22 +49,48 @@ void App::command() {
     ImGui::BeginDisabled(state.busy);ImGui::Checkbox("Enable keyboard test mapping",&keyboard_);ImGui::EndDisabled();
     label("Z = confirm     X = back     Enter = Start",theme_.small);
     ImGui::Spacing();
-#ifdef _WIN32
     if(ImGui::CollapsingHeader("Graphics")) {
         ImGui::BeginDisabled(state.busy);
         auto options=library_.graphics();
+        bool changed=false;
+#ifdef _WIN32
+        int scene=options.scene=="d3d11"?1:0;
+        if(ImGui::Combo("Scene renderer",&scene,"CPU reference\0D3D11 GPU (experimental)\0")){options.scene=scene?"d3d11":"cpu";changed=true;}
+        ImGui::BeginDisabled(scene==0);
+        changed|=ImGui::Checkbox("GPU vertex programs",&options.gpu_programs);
+        ImGui::EndDisabled();
         static const char *backends[]={"auto","dx12","dx11","gdi"};
         int selected=0;for(int i=0;i<4;++i)if(options.backend==backends[i])selected=i;
-        if(ImGui::Combo("Renderer",&selected,"Automatic\0DirectX 12\0DirectX 11\0GDI fallback\0")){
-            options.backend=backends[selected];library_.set_graphics(options);
+        if(ImGui::Combo("Presentation",&selected,"Automatic\0DirectX 12\0DirectX 11\0GDI fallback\0")){
+            options.backend=backends[selected];changed=true;
         }
         ImGui::BeginDisabled(selected==2 || selected==3);
-        if(ImGui::Checkbox("AMD FSR 1 upscaling",&options.fsr1))library_.set_graphics(options);
+        changed|=ImGui::Checkbox("AMD FSR 1 upscaling",&options.fsr1);
+        const unsigned factors[]={0,2,4,8};int factor=0;
+        for(int i=0;i<4;++i)if(options.scale==factors[i])factor=i;
+        if(ImGui::Combo("FSR output scale",&factor,"Match window\0 2x\0 4x\0 8x\0")){options.scale=factors[factor];changed=true;}
         ImGui::EndDisabled();
-        ImGui::PushFont(theme_.small);ImGui::TextWrapped("Preserves the original picture shape. FSR sharpens and scales the image when the game window is enlarged.");ImGui::PopFont();
+#else
+        ImGui::TextUnformatted("CPU scene renderer / native SDL presentation");
+#endif
+        const unsigned heights[]={0,720,1080,1440,2160};int resolution=0;
+        for(int i=0;i<5;++i)if(options.height==heights[i])resolution=i;
+        if(ImGui::Combo("Window resolution",&resolution,"Automatic\0 720p\0 1080p\0 1440p\0 2160p (4K)\0")){options.height=heights[resolution];changed=true;}
+        if(changed)library_.set_graphics(options);
+        ImGui::PushFont(theme_.small);
+        ImGui::TextWrapped("The GPU renderer follows the game's original swap interval. Texture validation and shader caching run automatically. F1 has these options in game; renderer changes apply on the next launch.");
+        ImGui::TextWrapped("The original 4:3 picture is preserved. Window size and FSR output scale do not enable native widescreen or increase scene resolution.");
+        ImGui::PopFont();
         ImGui::EndDisabled();
     }
-#endif
+    if(ImGui::CollapsingHeader("Input & audio")) {
+        ImGui::BeginDisabled(state.busy);auto options=library_.graphics();bool changed=false;
+        changed|=ImGui::Checkbox("Mouse menu selection",&options.mouse_menus);
+        changed|=ImGui::Checkbox("Keyboard / mouse button prompts",&options.prompts);
+        changed|=ImGui::Checkbox("Mute audio",&options.muted);
+        changed|=ImGui::SliderInt("Master volume",&options.volume,0,100,"%d%%");
+        if(changed)library_.set_graphics(options);ImGui::EndDisabled();
+    }
     ImGui::BeginDisabled(state.busy || !state.ready || !std::filesystem::is_regular_file(library_.executable()));
     ImGui::PushStyleColor(ImGuiCol_Button,gold);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered,ImVec4{.90f,.82f,.56f,1});

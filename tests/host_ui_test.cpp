@@ -1,11 +1,22 @@
 #include "ui/host_ui.h"
 #include "ui/pad_pulses.h"
+#include "ui/graphics_options.h"
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
+#include <chrono>
 #include <vector>
 int main(int argc,char **argv) {
+    const auto settings=std::filesystem::temp_directory_path()/
+        ("bf-f1-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".settings");
+#ifdef _WIN32
+    _putenv_s("BF_UI_SETTINGS",settings.string().c_str());_putenv_s("RECOMP_GPU","cpu");
+#else
+    setenv("BF_UI_SETTINGS",settings.string().c_str(),1);setenv("RECOMP_GPU","cpu",1);
+#endif
+    bf_ui_settings_initial(1);
     bf::ui::PadPulses pulses;unsigned control{};
     pulses.push(0);pulses.push(0);pulses.push(1);
     if(!pulses.busy(0))return 27;
@@ -45,9 +56,16 @@ int main(int argc,char **argv) {
         bf_ui_mouse(200,132+4*28+8,640,480,1);
         if(!bf_ui_take_size(&w,&h)||h!=height||w!=height*16/9)return 21;
     }
+    bf_ui_key(9,0);
+    bf_ui_mouse(200,132+8,640,480,1);
+    bf_ui_mouse(200,132+28+8,640,480,1);
+    const auto saved=bf::load_graphics(settings);
+    if(saved.scene!="d3d11"||saved.gpu_programs||saved.scale!=8||saved.height!=2160)return 28;
+    bf_ui_key(9,0);
+    if(argc==3&&std::strcmp(argv[2],"renderer")==0)bf_ui_key(9,0);
     std::vector<uint32_t> image(640*480,0xff000000);bf_ui_paint(image.data(),640,480);
     if(image[62*640+94]!=0xff55c5e8)return 14;
-    if(argc==2) {
+    if(argc>=2) {
         std::array<unsigned char,54> header{};header[0]='B';header[1]='M';
         auto field=[&](unsigned offset,uint32_t value){std::memcpy(header.data()+offset,&value,4);};
         field(2,54+640*480*4);field(10,54);field(14,40);field(18,640);field(22,480);
@@ -60,5 +78,6 @@ int main(int argc,char **argv) {
     bf_ui_key(27,0);if(bf_ui_open())return 15;
     if(!bf_ui_menu_key(13,0))return 16;
     buttons=0;analog={};if(!bf_ui_pad(&buttons,analog.data())||analog[0]!=255)return 17;
+    std::filesystem::remove(settings);
     std::puts("Menu coordinates, input ownership, click ordering, F1 focus and live audio settings passed.");
 }

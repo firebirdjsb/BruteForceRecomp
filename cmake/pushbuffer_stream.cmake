@@ -21,6 +21,12 @@ string(REPLACE "s_ret = s_get;\n            s_in_call = 1;"
     "s_ret = s_get;\n            s_in_call = 1;\n            *xbox_Nv2aRegPtr(0x324C) = s_ret | 1u;" source "${source}")
 string(REPLACE "s_get = s_ret;\n                s_in_call = 0;"
     "s_get = s_ret;\n                s_in_call = 0;\n                *xbox_Nv2aRegPtr(0x324C) = s_ret;" source "${source}")
+# Pause only after consuming the parameter that arms FLIP_STALL. The DMA
+# state (including a pending packet and CALL register) survives the wait.
+string(REPLACE "        (*words)++;\n    }"
+    "        (*words)++;\n        { extern int nv2a_pb_exec_flip_poll(void);\n          if (nv2a_pb_exec_flip_poll()) break; }\n    }" source "${source}")
+string(REPLACE "    while (s_get != put) {"
+    "    while (s_get != put) {\n        extern int nv2a_pb_exec_flip_poll(void);\n        if (nv2a_pb_exec_flip_poll()) break;" source "${source}")
 set(BF_PB_SCANNER "${CMAKE_BINARY_DIR}/runtime-fixes/nv2a_pb_scan.c")
 file(WRITE "${BF_PB_SCANNER}.in" "${source}")
 configure_file("${BF_PB_SCANNER}.in" "${BF_PB_SCANNER}" COPYONLY)

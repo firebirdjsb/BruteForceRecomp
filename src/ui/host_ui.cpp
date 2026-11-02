@@ -1,11 +1,13 @@
 #include "host_ui.h"
 #include "ui_draw.h"
 #include "pad_pulses.h"
+#include "graphics_options.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <exception>
 #include <mutex>
@@ -15,6 +17,11 @@ using Clock=std::chrono::steady_clock;
 std::mutex guard;
 bool opened{},keyboard=true,mouse_menus=true,prompts_on=true,fsr{},fsr_supported{},muted{};
 int volume=100,selected{};
+int page{};
+bool gpu_available{},active_gpu{};
+bf::GraphicsOptions preferences;
+std::filesystem::path settings_path;
+std::string settings_error;
 std::atomic<float> audio_gain{1.0f};
 constexpr int rows=8,row_y=132,row_step=28;
 unsigned scale_index{},resolution_index{};
@@ -27,7 +34,27 @@ uint64_t serial{};
 struct Prompt { BfUiRect rect;std::string key;Clock::time_point time; };
 std::array<Prompt,32> prompts;
 bool menu(){return mouse_menus&&Clock::now()-menu_seen<std::chrono::milliseconds(500);}
+int row_count(){return page?3:rows;}
+void persist() {
+    preferences.fsr1=fsr;preferences.scale=scales[scale_index];preferences.height=heights[resolution_index];
+    preferences.mouse_menus=mouse_menus;preferences.prompts=prompts_on;preferences.muted=muted;preferences.volume=volume;
+    if(settings_path.empty())return;
+    try {bf::save_graphics(settings_path,preferences);settings_error.clear();}
+    catch(const std::exception &e){settings_error="SETTINGS SAVE FAILED";std::fprintf(stderr,"[UI] %s\n",e.what());}
+}
 void adjust(int row,int direction=1) {
+    if(page) {
+        if(row==0&&gpu_available)preferences.scene=preferences.scene=="cpu"?"d3d11":"cpu";
+        if(row==1&&gpu_available)preferences.gpu_programs=!preferences.gpu_programs;
+#ifdef _WIN32
+        if(row==2) {
+            const char *backends[]={"auto","dx12","dx11","gdi"};int index=0;
+            for(int i=0;i<4;++i)if(preferences.backend==backends[i])index=i;
+            preferences.backend=backends[(index+4+direction)%4];
+        }
+#endif
+        persist();return;
+    }
     switch(row) {
     case 0:mouse_menus=!mouse_menus;break;
     case 1:prompts_on=!prompts_on;break;
@@ -39,6 +66,7 @@ void adjust(int row,int direction=1) {
     case 7:opened=false;break;
     }
     audio_gain.store(muted?0.0f:float(volume)/100.0f,std::memory_order_relaxed);
+    if(row!=7)persist();
 }
 extern "C" int bf_ui_menu_key(unsigned key,int repeat) {
     std::lock_guard lock(guard);
@@ -68,7 +96,9 @@ extern "C" void bf_ui_mouse(int x,int y,int w,int h,int action) try {
     float gx{},gy{};if(!bf_ui_point(x,y,w,h,&gx,&gy))return;
     std::lock_guard lock(guard);keyboard=true;
     if(opened) {
-        for(int i=0;i<rows;++i)if(bf_ui_contains({112,float(row_y+i*row_step),416,24},gx,gy)) {
+        if(bf_ui_contains({112,105,194,22},gx,gy)) {if(action==1){page=0;selected=0;}return;}
+        if(bf_ui_contains({314,105,214,22},gx,gy)) {if(action==1){page=1;selected=0;}return;}
+        for(int i=0;i<row_count();++i)if(bf_ui_contains({112,float(row_y+i*row_step),416,24},gx,gy)) {
             selected=i;if(action==1)adjust(i);else if(action==2)adjust(i,-1);break;
         }
         return;
@@ -86,8 +116,9 @@ extern "C" int bf_ui_key(unsigned key,int repeat) try {
     if(!opened)return 0;
     if(!repeat) {
         if(key==27)opened=false;
-        else if(key==38)selected=(selected+rows-1)%rows;
-        else if(key==40)selected=(selected+1)%rows;
+        else if(key==9||key==33||key==34){page=1-page;selected=0;}
+        else if(key==38)selected=(selected+row_count()-1)%row_count();
+        else if(key==40)selected=(selected+1)%row_count();
         else if(key==13||key==32||key==39)adjust(selected);
         else if(key==37)adjust(selected,-1);
     }
@@ -133,6 +164,22 @@ extern "C" void bf_ui_prompt(BfUiRect rect,const char *key) {
 extern "C" int bf_ui_fsr(){std::lock_guard lock(guard);return fsr;}
 extern "C" void bf_ui_fsr_initial(int value){std::lock_guard lock(guard);fsr=value!=0;}
 extern "C" void bf_ui_fsr_supported(int value){std::lock_guard lock(guard);fsr_supported=value!=0;}
+extern "C" void bf_ui_settings_initial(int available) {
+    std::lock_guard lock(guard);gpu_available=available!=0;
+    if(const auto *path=std::getenv("BF_UI_SETTINGS");path&&*path)settings_path=std::filesystem::u8path(path);
+    preferences=settings_path.empty()?bf::GraphicsOptions{}:bf::load_graphics(settings_path);
+    if(const auto *scene=std::getenv("RECOMP_GPU")) {active_gpu=std::string(scene)=="d3d11";preferences.scene=active_gpu?"d3d11":"cpu";}
+    if(const auto *programs=std::getenv("RECOMP_GPU_VSH"))preferences.gpu_programs=std::string(programs)!="0";
+    if(const auto *backend=std::getenv("BF_RENDER_BACKEND")) {
+        auto candidate=preferences;candidate.backend=backend;if(bf::valid_graphics(candidate))preferences.backend=backend;
+    }
+    fsr=preferences.fsr1;mouse_menus=preferences.mouse_menus;prompts_on=preferences.prompts;
+    muted=preferences.muted;volume=preferences.volume;
+    audio_gain.store(muted?0.0f:float(volume)/100.0f,std::memory_order_relaxed);
+    for(unsigned i=0;i<4;++i)if(preferences.scale==scales[i])scale_index=i;
+    for(unsigned i=0;i<5;++i)if(preferences.height==heights[i])resolution_index=i;
+    resize_pending=resolution_index!=0;
+}
 extern "C" unsigned bf_ui_scale(){std::lock_guard lock(guard);return scales[scale_index];}
 extern "C" int bf_ui_take_size(unsigned *width,unsigned *height) {
     std::lock_guard lock(guard);if(!resize_pending||!width||!height)return 0;
@@ -152,13 +199,24 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     if(!opened)return;
     c.box(92,60,456,374,0xff020e19);c.box(94,62,452,370,0xff102a3d);
     c.box(94,62,452,4,0xff55c5e8);c.text(112,82,"BRUTE FORCE",0xffe1f5ff,3);
-    c.text(112,108,"RECOMP / LIVE SETTINGS",0xff69cae9,2);
+    c.box(112,105,194,22,page==0?0xff245978:0xff17394e);c.text(122,111,"LIVE SETTINGS",0xff69cae9,2);
+    c.box(314,105,214,22,page==1?0xff245978:0xff17394e);c.text(324,111,"RENDERER",0xff69cae9,2);
     const char *names[]={"MOUSE MENU SELECTION","KEYBOARD / MOUSE PROMPTS","AMD FSR 1 (DX12)","FSR OUTPUT SCALE","WINDOW RESOLUTION","MUTE AUDIO","MASTER VOLUME","RETURN TO GAME"};
-    for(int i=0;i<rows;++i) {
+    const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION"};
+    for(int i=0;i<row_count();++i) {
         const int y=row_y+i*row_step;
         c.box(112,y,416,24,i==selected?0xff245978:0xff17394e);
-        c.text(122,y+7,names[i],0xffd9efff,2);
+        c.text(122,y+7,page?renderer_names[i]:names[i],0xffd9efff,2);
         std::string value;
+        if(page) {
+            if(i==0)value=preferences.scene=="cpu"?"CPU":"DX11 GPU";
+            if(i==1)value=gpu_available?(preferences.gpu_programs?"ON":"OFF"):"N/A";
+            if(i==2)value=preferences.backend;
+#ifndef _WIN32
+            if(i==2)value="SDL";
+#endif
+            c.text(446,y+7,value,0xff79dbb7,2);continue;
+        }
         if(i<3)value=(i==0?mouse_menus:i==1?prompts_on:fsr)?"ON":"OFF";
         if(i==3)value=scale_index?std::to_string(scales[scale_index])+"X":"AUTO";
         if(i==4)value=resolution_index?std::to_string(heights[resolution_index])+"P":"AUTO";
@@ -168,10 +226,18 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         if(i==3&&!fsr_supported)value="N/A";
         c.text(458,y+7,value,0xff79dbb7,2);
     }
+    if(page) {
+        c.text(122,233,"APPLIES ON NEXT LAUNCH",0xffe6b47e,2);
+        c.text(122,260,active_gpu?"ACTIVE SCENE: D3D11 GPU":"ACTIVE SCENE: CPU REFERENCE",0xffd9efff,2);
+        c.text(122,283,gpu_available?"GPU SCENE BACKEND AVAILABLE":"GPU BACKEND ABSENT IN THIS BUILD",0xff9bc0d5);
+        c.text(122,303,"GPU PACING: ORIGINAL SWAP INTERVAL",0xff9bc0d5);
+        c.text(122,320,"EXACT TEXTURE VALIDATION / AUTO CACHE",0xff9bc0d5);
+        c.text(122,340,settings_path.empty()?"DIRECT RUN: SESSION SETTINGS ONLY":"SETTINGS SHARED WITH LAUNCHER",0xff9bc0d5);
+    }
     c.text(112,373,"MOUSE OR ARROWS / ENTER TO CHANGE",0xff9bc0d5);
-    c.text(112,388,"F1 / ESC TO CLOSE",0xff9bc0d5);
+    c.text(112,388,"TAB: PAGE   F1 / ESC: CLOSE",0xff9bc0d5);
     c.text(112,407,"ORIGINAL 4:3 VIEW / NATIVE 16:9 PENDING",0xffe6b47e);
-    c.text(112,419,"CHEATS UNAVAILABLE",0xffe6b47e);
+    c.text(112,419,settings_error.empty()?"CHEATS UNAVAILABLE":settings_error,0xffe6b47e);
 } catch(const std::exception &e) {
     std::fprintf(stderr,"[UI] Overlay frame skipped: %s\n",e.what());
 }

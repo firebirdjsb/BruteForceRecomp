@@ -54,12 +54,12 @@ specific files, from the MIT-licensed
 Their game-specific code, shaders, demo assets and Xbox hooks are not included.
 
 - `src/gpu/nv2a_backend_ext.h`: the extended GPU batch and vertex-program
-  staging contract extracted from upstream patches 0016/0017, derived from
-  Blood Wake's `bw_backend_ext.h`; it is **not** registered into runtime.
+  contract extracted from upstream patches 0016–0021, derived from
+  Blood Wake's `bw_backend_ext.h`; the optional D3D11 backend registers it.
 - `src/gpu/vsh_hlsl.{c,h}` and `src/gpu/rc_hlsl.{c,h}`: generic NV2A
   vertex-program and register-combiner HLSL emitters derived from Blood Wake
   `bw_vsh_hlsl` and `bw_rc_hlsl`. The Windows fixture compiles synthetic
-  shader programs; no game GPU backend is installed.
+  shader programs; the optional D3D11 backend uses them for real draws.
 - `src/gpu/shader_cache.{c,h}`: persistent DXBC cache based on Blood Wake
   `bw_pscache.c` with content/compiler hashes, validated entries and atomic
   file publication, exercised by synthetic tests.
@@ -80,6 +80,17 @@ Their game-specific code, shaders, demo assets and Xbox hooks are not included.
 - `tests/apu_vp_hrtf_test.c` was adapted from upstream's MIT additions
   atop xboxrecomp's existing APU test harness; original framework rights
   and notices still apply.
+- `src/gpu/d3d11_backend.{c,h}` and `tests/gpu_scene_test.c` adapt the MIT
+  generic backend/fixture at upstream commit
+  `6527667105fa1ad693415537d2cd56db3ff3a180`. `texture_decode.{c,h}`,
+  `d3d11_device_status.{c,h}` and `tests/gpu_scene_textures.c` use commit
+  `24d2e58687c976390efa23ab8b83a6b80078f1ec`. Blood Wake's original
+  backend provenance and MIT notice are retained above/below.
+- `src/gpu/runtime/*` and `patches/nv2a-d3d11/executor.patch` adapt generic
+  MIT xboxrecomp runtime changes in public patches 0008–0021 (excluding
+  census 0015), plus GPU clear offload equivalent to 0022. They preserve
+  our independently verified title-specific integration. No generated
+  game body or original game data is included.
 
 The optional benchmark tools and tests use only synthetic test inputs. No
 original executable data or separately licensed GPL DSP interpreter is copied.
@@ -113,7 +124,7 @@ SOFTWARE.
 The other repository also uses separately licensed GPL-2.0-or-later
 xemu DSP code and LGPL xemu/APU integration, and includes a complete
 Blood Wake-derived MIT D3D11 renderer. **We have not imported the GPL DSP,
-complete GPU back end, DSP integration or game-specific hooks.** Our staged
+DSP integration or game-specific hooks.** The optional generic D3D11 backend,
 HLSL emitters and shader cache are identified above. Full APU and renderer
 licensing must continue to respect the pinned runtime's own notices.
 

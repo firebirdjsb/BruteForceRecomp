@@ -12,20 +12,20 @@ Reference: `Tzeentchnet/BruteForce` at `24d2e58687c976390efa23ab8b83a6b80078f1ec
 | `0006-harden-usb-lifecycle.patch` | Gated | Retain working USB/IRQ paths pending real-device and cross-platform shutdown QA |
 | `0007-account-guest-memory.patch` | Active equivalent | Guest RAM accounting and measured stack budget; cmake/memory_statistics.cmake |
 | `0008-experimental-pgraph-and-staged-walker.patch` | Independent repair active | DMA traversal, original command fixups and CALL state; no wholesale title-hook transplant |
-| `0009-experimental-window-clipping.patch` | Not enabled | Experimental clipping requires matched-frame validation |
-| `0010-experimental-face-culling.patch` | Not enabled | Experimental culling requires matched-frame validation |
-| `0011-experimental-program-near-plane.patch` | Not enabled | Experimental near-plane policy requires original-XBE evidence |
-| `0012-vectorize-color-unpack.patch` | Not imported | Separate local blend SIMD is tested; this color-unpack patch is not applied |
+| `0009-experimental-window-clipping.patch` | Optional GPU overlay, off by default | Requires matched game-frame validation before enabling |
+| `0010-experimental-face-culling.patch` | Optional GPU overlay, off by default | Requires matched game-frame validation before enabling |
+| `0011-experimental-program-near-plane.patch` | Optional GPU overlay, off by default | No default near-plane policy change |
+| `0012-vectorize-color-unpack.patch` | Optional GPU overlay | Generic color unpack; separate existing blend SIMD retained |
 | `0013-optimize-texture-sampling.patch` | Active adaptation | Exact texture wrap and DXT slot math |
 | `0014-frame-statistics.patch` | Active adaptation | Opt-in real presented-frame hashing and CSV telemetry |
 | `0015-gpu-census-and-ceiling-probe.patch` | Not imported | Local render timing exists; upstream ceiling probes are not game acceleration |
-| `0016-extended-render-backend.patch` | Staged | Extended batch contract and register-combiner HLSL; no hardware draw registration |
-| `0017-gpu-vertex-programs.patch` | Staged | Vertex HLSL generator; GPU vertex dispatch is not connected |
-| `0018-async-visibility-reports.patch` | Not imported | Async visibility completion needs a real GPU backend |
+| `0016-extended-render-backend.patch` | Optional GPU integration | Actual D3D11 batches/combiners/clears/readback; CPU default retained |
+| `0017-gpu-vertex-programs.patch` | Optional GPU integration | Real GPU vertex dispatch, CPU transform fallback while compiling |
+| `0018-async-visibility-reports.patch` | Optional GPU integration | Real query/report callbacks and idle polling; synchronous mode remains default |
 | `0019-cache-hot-getenv.patch` | Active adaptation | Cache the remaining primitive-draw environment lookup |
-| `0020-texture-metadata.patch` | Partial staging | Bounds-checked P8 decoder; full GPU texture metadata path is not connected |
-| `0021-gpu-window-clip.patch` | Not imported | GPU window clipping depends on backend integration |
-| `0022-gpu-depth-clear-offload.patch` | Not imported | Depth offload cannot activate before a backend owns real clears |
+| `0020-texture-metadata.patch` | Optional GPU integration | Metadata and bounds-checked CPU/GPU texture decode connected |
+| `0021-gpu-window-clip.patch` | Optional GPU integration, off by default | Backend clip capability present; experimental clip policy remains gated |
+| `0022-gpu-depth-clear-offload.patch` | Optional equivalent | GPU-owned clears avoid redundant software depth clearing |
 | `0023-flip-only-frame-captures.patch` | Independent capture active | Private captures occur on presented flips; upstream patch is not applied |
 | `0024-gpu-shared-presentation.patch` | Not imported | GPU-owned shared surfaces require actual scene draws and guest readback |
 | `0025-gpu-audit.patch` | Not imported | Upstream GPU request audit depends on extended renderer |

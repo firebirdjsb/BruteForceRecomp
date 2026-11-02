@@ -1,8 +1,9 @@
 # DX12 and DX11 reuse contract
 
 Windows has a native DX12 presenter and FSR 1 in `src/graphics/`. It presents
-completed CPU-rendered frames. This document describes the additional contract
-for a future DX12 NV2A scene renderer; scene draw commands are not connected.
+completed images in guest memory. The optional D3D11 scene backend now connects
+real NV2A draws and reads back for that presenter. This document describes the
+additional contract for a future native DX12 NV2A scene renderer.
 
 ## What is already shared
 

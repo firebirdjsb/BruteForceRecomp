@@ -9,7 +9,30 @@ The tutorial now loads and renders Tex, terrain, vegetation and sky after the in
 
 The 238-second `work/gameplay-priority/fixups-live-9a0natba/` run and 298-second visible `campaign-window-yf3rily3/` run reached their watchdog limits without the earlier command corruption/native crash. `gameplay-controls-oskkh3yh/frame.bmp00054.bmp` and `frame.bmp00067.bmp` show Tex moving forward in response to the runtime controller-report fixture. This establishes tutorial rendering and a movement path, not mission completion or physical-device QA. The visible run also exercised camera, jump and fire reports; their complete effects need further inspection. Nonzero game PCM was captured, but host audio reported starvation/underruns. The visible scene fell to about 3–4 presented frames/s. Solid 30 FPS, complete effects, audio quality, all levels and characters remain unverified.
 
-The separate native candidate is `work/diagnostic-build/campaign-test/Release/bruteforce_recomp.exe`, SHA-256 `C5BB4D4121CDE7F7EC1ADDE37F5AB41738D426FCA1BB97DA73314C14EA5333DB`. Seven Windows CTests, eight Linux CTests and nine Python checks passed before repository integration. The normal launcher/player was not replaced. Permanent saves and original assets were not edited; no production service was touched.
+The CPU campaign candidate is `work/diagnostic-build/campaign-test/Release/bruteforce_recomp.exe`, SHA-256 `C5BB4D4121CDE7F7EC1ADDE37F5AB41738D426FCA1BB97DA73314C14EA5333DB`. The user's latest code-21 screenshot came from the obsolete normal player with an 8-MB main stack, not this candidate. Its session log confirmed the same tutorial allocation failure. After that process exited naturally, the normal launcher player was updated to this candidate, with the old file backed up under `work/gpu-integration/rollback-old-launcher-player/`. Permanent saves and original assets were not edited; no production service was touched.
+
+## Optional GPU scene checkpoint
+
+Actual NV2A draws now reach the experimental Windows D3D11 scene backend.
+The 238-second scratch-save run `gpu-paced-dma-30oz_ib7` rendered Tex and the
+tutorial environment and ended at its watchdog without the native crash.
+Late scene reports measured 29.95–30.07 presented frames/s with distinct pixel
+hashes. Startup/loading dips remain, and this is not proof of mission completion
+or fully working controls/effects. Audio had no reported starvation and one
+underrun; listening QA remains pending.
+
+The GPU candidate is `work/diagnostic-build/gpu-paced/Release/bruteforce_recomp.exe`.
+The CPU reference remains the source default. The GPU backend honors the title's
+swap interval by retaining actual DMA GET, pending packet and CALL state across
+a held flip. Original physics and timestep code are unchanged. Synthetic WARP
+and RTX 3060 Ti CPU/GPU scene comparisons pass; complete game-frame parity,
+depth texture 0x2E/shadows and all-level tests remain open.
+
+The native launcher and F1 now share persistent graphics/input/audio preferences.
+F1's Renderer page selects scene backend, GPU vertex programs and presentation
+for the next launch. The app hides only after successful game-process creation
+and returns after normal exit or failure. A real-child/SDL lifecycle fixture
+covers those paths. See [GPU evidence, provenance and limits](docs/GPU_SCENE_BACKEND.md).
 
 Changed source: `src/gpu_completion.cpp`, `src/gpu_pushbuffer_fixups.cpp`, `src/gpu_event_bridge.inc`, `src/main.cpp`, `cmake/runtime_fixes.cmake`, `cmake/memory_statistics.cmake`, `cmake/pushbuffer_stream.cmake`, CMake wiring and focused GPU tests. Runtime transformations remain hash-pinned private build copies. The original reusable-buffer helper at 0x00377F00..0x00377F80 has SHA-256 `0ab8a4519944a61257e9f882992fb03c21555d692abd0353bf26c2fc3eaefe06`; its software dispatch and fence behavior were checked against the authenticated XBE and disassembly. GPU CALL register semantics were checked against xemu's public PFIFO implementation. No external binary injection was used.
 
@@ -28,16 +51,16 @@ See [the feature matrix](docs/UPSTREAM_INTEGRATION_PROGRESS.md) and
 
 The texture math and HRTF fixes are applied to private runtime copies.
 HLSL emitters, P8 decode, DXBC cache, scaling policy, real-frame telemetry and
-completion contracts compile and pass focused checks. They are not yet a
-registered hardware scene renderer. Native DX12 presentation and spatial
-FSR 1 operate on CPU-rendered scene frames. Connecting actual NV2A draws is
-the next performance milestone; DX12 needs its own scene pipeline.
+completion contracts compile and pass focused checks. The optional D3D11
+scene backend now executes hardware draws and reads back completed frames.
+Native DX12 presentation and spatial FSR 1 consume those or CPU-reference
+frames; DX12 still needs its own scene pipeline.
 
 The USB lifecycle overhaul remains unapplied pending physical-controller and
 cross-platform startup/shutdown tests. Existing USB, IRQ, typing and mouse-menu
 patches are retained. No physics, timestep or arbitrary coordinate patch was
 introduced. Complete input, audio/effects, all missions, characters, multiplayer
-and 30-FPS gameplay remain open.
+and sustained 30-FPS gameplay across missions remain open.
 
 ## Merge validation
 
@@ -90,8 +113,8 @@ mission/input parity is not established by build success. NDK r30 compiled
 227 ARM64 translation units; it is not an integrated Android app or S24 Ultra
 APK. Android game lifecycle, rendering, input and audio remain incomplete.
 
-Integration builds stay under ignored `work/` folders. The normal player and
-launcher settings are not overwritten by source integration. Permanent saves,
+Integration builds stay under ignored `work/` folders. Local player updates
+are backed up separately; source integration does not migrate saves. Permanent saves,
 original ISO/XBE/assets and the pinned toolkit are untouched. No production
 service was touched. Git history retains the pre-integration source checkpoint
 `9b780bf`; rebuild it for source rollback, preserving all player-data folders.

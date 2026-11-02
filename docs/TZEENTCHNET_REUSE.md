@@ -109,6 +109,10 @@ DX12's hardware texture samplers.
 
 ## Follow-up candidates, ordered by risk and payoff
 
+Update 2026-11-02: the generic D3D11 draw connection below now has an opt-in
+implementation and bounded tutorial evidence. See [GPU backend report](GPU_SCENE_BACKEND.md)
+for the exact source revisions, completion/pacing rules and remaining gaps.
+
 | Priority | Upstream files / patches | Reuse path | Conditions |
 | --- | --- | --- | --- |
 | 1 | `0019-cache-hot-getenv.patch`, `0014-frame-statistics.patch`, tests and `tools/bench.py` | Import small profiling/telemetry pieces first, not all title-specific scripted inputs | Check runtime drift; preserve our boot tracer, watchdog and deterministic scratch saves; count distinct **world** frames separately from flips |

@@ -14,6 +14,7 @@ if(BF_GRAPHICS_ONLY)
 endif()
 option(BF_LAUNCHER_ONLY "Build the native disc-import application independently of generated game code" OFF)
 if(BF_LAUNCHER_ONLY)
+    enable_testing()
     add_subdirectory(native_launcher)
     return()
 endif()
@@ -27,6 +28,7 @@ set(XBOXRECOMP_DIR "" CACHE PATH "Pinned xboxrecomp checkout")
 set(BF_GENERATED_DIR "" CACHE PATH "Private generated C source directory")
 set(BF_RECOVERED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/recovered" CACHE PATH "Private recovered callback source directory")
 option(BF_RUNTIME_CHECKS_ONLY "Build public runtime checks without private game code or title adapters" OFF)
+option(BF_EXPERIMENTAL_NV2A_D3D11 "Connect the experimental hardware NV2A scene backend; CPU remains the default" OFF)
 if(ANDROID)
     message(FATAL_ERROR "Android is not integrated yet. See platform-references.json for the public Vulkan/SDL2 runtime candidate and README.md for the app-lifecycle and device validation gates.")
 endif()
@@ -94,6 +96,7 @@ add_library(bf_nv2a_hlsl STATIC src/gpu/rc_hlsl.c src/gpu/vsh_hlsl.c)
 target_include_directories(bf_nv2a_hlsl PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/runtime"
     "${XBOXRECOMP_DIR}/src/kernel")
 add_executable(bf_nv2a_hlsl_test tests/nv2a_hlsl_test.c)
 target_link_libraries(bf_nv2a_hlsl_test PRIVATE bf_nv2a_hlsl)
@@ -146,6 +149,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_
     add_executable(bf_posix_mmio_test tests/posix_mmio_test.c)
     add_test(NAME posix_mmio_context COMMAND bf_posix_mmio_test)
 endif()
+include(cmake/scene_backend.cmake)
 if(BF_RUNTIME_CHECKS_ONLY)
     return()
 endif()
@@ -167,6 +171,10 @@ target_include_directories(bruteforce_recomp PRIVATE
     "${BF_GENERATED_DIR}" "${BF_GENERATED_DIR}/.."
     "${XBOXRECOMP_DIR}/templates/runtime" "${XBOXRECOMP_DIR}/include")
 target_link_libraries(bruteforce_recomp PRIVATE xboxrecomp)
+if(BF_EXPERIMENTAL_NV2A_D3D11)
+    target_link_libraries(bruteforce_recomp PRIVATE bf_scene_backend)
+    target_compile_definitions(bruteforce_recomp PRIVATE BF_EXPERIMENTAL_NV2A_D3D11=1)
+endif()
 if(WIN32)
     add_custom_command(TARGET bruteforce_recomp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:bruteforce_recomp>/licenses"

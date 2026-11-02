@@ -50,6 +50,9 @@ jobs:
 
   pinned-runtime-smoke:
     runs-on: windows-2022
+    strategy:
+      matrix:
+        scene: ["OFF", "ON"]
     permissions:
       contents: read
     steps:
@@ -62,13 +65,19 @@ jobs:
       - name: Configure private build-copy runtime patches
         shell: pwsh
         run: |
-          cmake -S . -B "${{ runner.temp }}/bf-smoke" -G "Visual Studio 17 2022" -A x64 "-DXBOXRECOMP_DIR=${{ runner.temp }}/xboxrecomp" -DBF_RUNTIME_CHECKS_ONLY=ON
+          cmake -S . -B "${{ runner.temp }}/bf-smoke" -G "Visual Studio 17 2022" -A x64 "-DXBOXRECOMP_DIR=${{ runner.temp }}/xboxrecomp" -DBF_RUNTIME_CHECKS_ONLY=ON -DBF_EXPERIMENTAL_NV2A_D3D11=${{ matrix.scene }}
       - name: Build patched kernel, NV2A shaders, mono-HRTF audio and DirectX probes
         shell: pwsh
         run: cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target xbox_kernel xbox_video xbox_apu bf_nv2a_hlsl_test bf_apu_hrtf_test bf_pscache_test bf_render_scale_test bf_frame_stats_test bf_nv2a_p8_test bf_gpu_timeline_test bf_d3d12_compat_test bf_d3d12_texture_test
       - name: Test NV2A GPU shader code, HRTF mixing and DX12 WARP compatibility
         shell: pwsh
         run: ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(gpu_timeline|d3d12_compat|d3d12_texture|nv2a_hlsl|apu_mono_hrtf|shader_cache|render_scale|frame_stats|nv2a_p8_decode)$" --output-on-failure -V
+      - name: Build and compare real NV2A draws with the CPU reference on WARP
+        if: matrix.scene == 'ON'
+        shell: pwsh
+        run: |
+          cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target bf_gpu_scene_test
+          ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^nv2a_gpu_scene_parity$" --output-on-failure -V
 
   native-launcher:
     runs-on: windows-2022
@@ -80,3 +89,5 @@ jobs:
         run: cmake -S . -B build/launcher -DBF_LAUNCHER_ONLY=ON
       - name: Build the native executable and its pinned dependencies
         run: cmake --build build/launcher --config Release --parallel 4
+      - name: Verify launch settings and window lifecycle across normal and failed child exits
+        run: ctest --test-dir build/launcher -C Release --output-on-failure
