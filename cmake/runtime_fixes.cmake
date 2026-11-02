@@ -61,12 +61,12 @@ function(bf_apply_runtime_fixes toolkit)
     # Adapt the MIT-licensed generic texture sampling fast path from
     # Tzeentchnet/BruteForce patch 0013 to the already hash-pinned executor.
     # Keep all earlier import, GPU semaphore and platform fixes untouched.
-    set(texture_header "#include \\"nv2a_combiner.h\\"")
+    set(texture_header "#include \"nv2a_combiner.h\"")
     string(FIND "${gpu_source}" "${texture_header}" texture_header_found)
     if(texture_header_found EQUAL -1)
         message(FATAL_ERROR "Expected NV2A combiner include was not found.")
     endif()
-    string(REPLACE "${texture_header}" "${texture_header}\\n#include \\"bf_texture_sample.h\\"" gpu_source "${gpu_source}")
+    string(REPLACE "${texture_header}" "${texture_header}\n#include \"bf_texture_sample.h\"" gpu_source "${gpu_source}")
     set(texture_old_wrap [=[static uint32_t wrap_coord(uint32_t c, uint32_t size, uint32_t mode)
 {
     /* Coordinates are signed: a bilinear tap one texel left of or above
