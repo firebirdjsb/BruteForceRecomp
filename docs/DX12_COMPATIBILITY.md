@@ -78,8 +78,14 @@ and command-triggered CPU executor fix are left intact.
   **Skipped**, not passed, when the runner lacks DXGI/D3D12 WARP support.
   The CI runner prints the test output verbosely so this distinction can be
   audited instead of inferring DX12 hardware support from a green check.
-- No full game, DX11-on-DX12 gameplay, DX12 draw, texture, PSO, swap-chain,
-  or hardware-device validation is claimed.
+- `d3d12_texture_roundtrip_test.cpp` now exercises a 7x5 synthetic RGBA
+  texture upload through a 256-byte-aligned row footprint, a D3D12 copy
+  into an ordinary GPU texture, an explicit COPY_DEST-to-COPY_SOURCE
+  barrier, GPU-to-readback transfer and a real completion fence. It compares
+  every visible pixel byte against the original CPU pattern. No proprietary
+  game data is used. Reports **Skipped** if a DX12 WARP device is absent.
+- No full game, native DX12 draw/PSO, swap-chain, original-game texture
+  coverage, or physical GPU/driver validation is claimed.
 
 ## API documentation
 
