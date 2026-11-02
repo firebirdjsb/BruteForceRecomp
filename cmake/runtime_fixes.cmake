@@ -58,6 +58,50 @@ function(bf_apply_runtime_fixes toolkit)
     string(REPLACE "${gpu_before}"
         "if (subch == 0 && method == 0x1D70) {\n        extern uint32_t bf_gpu_semaphore_target(void);\n        if (!s_sem_va) s_sem_va = bf_gpu_semaphore_target();"
         gpu_source "${gpu_source}")
+    # Adapt the MIT-licensed generic texture sampling fast path from
+    # Tzeentchnet/BruteForce patch 0013 to the already hash-pinned executor.
+    # Keep all earlier import, GPU semaphore and platform fixes untouched.
+    set(texture_header "#include \\"nv2a_combiner.h\\"")
+    string(FIND "${gpu_source}" "${texture_header}" texture_header_found)
+    if(texture_header_found EQUAL -1)
+        message(FATAL_ERROR "Expected NV2A combiner include was not found.")
+    endif()
+    string(REPLACE "${texture_header}" "${texture_header}\\n#include \\"bf_texture_sample.h\\"" gpu_source "${gpu_source}")
+    set(texture_old_wrap [=[static uint32_t wrap_coord(uint32_t c, uint32_t size, uint32_t mode)
+{
+    /* Coordinates are signed: a bilinear tap one texel left of or above
+     * texel 0 is -1, which must wrap to the far edge or clamp to 0 -- as an
+     * unsigned value it clamped to the far edge instead. */
+    int32_t sc = (int32_t)c, n = (int32_t)size;
+    if (!size)
+        return 0;
+    if (mode == 1)                         /* wrap */
+        return (uint32_t)(((sc % n) + n) % n);
+    if (mode == 2) {                       /* mirror */
+        int32_t m = ((sc % (2 * n)) + 2 * n) % (2 * n);
+        return (uint32_t)(m < n ? m : 2 * n - 1 - m);
+    }
+    return sc < 0 ? 0u : (sc >= n ? size - 1 : c);   /* clamp, and the rest */
+}]=])
+    string(FIND "${gpu_source}" "${texture_old_wrap}" texture_wrap_found)
+    if(texture_wrap_found EQUAL -1)
+        message(FATAL_ERROR "Expected pinned texture coordinate function was not found.")
+    endif()
+    string(REPLACE "${texture_old_wrap}"
+        "/* Texture coordinate math moved to bf_texture_sample.h; scalar reference is in tests. */"
+        gpu_source "${gpu_source}")
+    set(texture_u "u = wrap_coord(u, t->width,  t->addr_u);")
+    set(texture_v "v = wrap_coord(v, t->height, t->addr_v);")
+    set(texture_slot "size_t slot = ((key / bb) ^ (key >> 16)) & 4095;")
+    foreach(anchor IN ITEMS "${texture_u}" "${texture_v}" "${texture_slot}")
+        string(FIND "${gpu_source}" "${anchor}" found)
+        if(found EQUAL -1)
+            message(FATAL_ERROR "Expected texture sampling call site was not found: ${anchor}")
+        endif()
+    endforeach()
+    string(REPLACE "${texture_u}" "u = bf_texture_wrap_coord(u, t->width,  t->addr_u);" gpu_source "${gpu_source}")
+    string(REPLACE "${texture_v}" "v = bf_texture_wrap_coord(v, t->height, t->addr_v);" gpu_source "${gpu_source}")
+    string(REPLACE "${texture_slot}" "size_t slot = bf_texture_dxt_slot(key, bb);" gpu_source "${gpu_source}")
     set(gpu_patched "${CMAKE_BINARY_DIR}/runtime-fixes/nv2a_pb_exec.c")
     file(WRITE "${gpu_patched}.in" "${gpu_source}")
     configure_file("${gpu_patched}.in" "${gpu_patched}" COPYONLY)
