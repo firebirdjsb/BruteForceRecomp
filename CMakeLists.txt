@@ -64,6 +64,16 @@ if(WIN32)
         "${XBOXRECOMP_DIR}/src/nv2a")
     target_compile_definitions(bf_apu_hrtf_test PRIVATE _USE_MATH_DEFINES)
     add_test(NAME apu_mono_hrtf COMMAND bf_apu_hrtf_test)
+    # Windows-only staged persistent DXBC cache, with SHA-256 provenance
+    # and atomic publication. Not yet connected to game renderer compilation.
+    add_library(bf_nv2a_pscache STATIC src/gpu/shader_cache.c)
+    target_include_directories(bf_nv2a_pscache PUBLIC src/gpu)
+    target_link_libraries(bf_nv2a_pscache PRIVATE bcrypt)
+    add_executable(bf_pscache_test tests/shader_cache_test.c)
+    target_include_directories(bf_pscache_test PRIVATE src)
+    target_link_libraries(bf_pscache_test PRIVATE bf_nv2a_pscache)
+    add_test(NAME shader_cache COMMAND bf_pscache_test)
+    set_tests_properties(shader_cache PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 # This GPU completion state machine is API-neutral and has no game dependencies.
 add_executable(bf_gpu_timeline_test tests/gpu_completion_timeline_test.cpp)
