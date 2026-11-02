@@ -32,8 +32,8 @@ void check(HRESULT result, const char *operation) {
 }
 struct Includes final : ID3DInclude {
     HRESULT __stdcall Open(D3D_INCLUDE_TYPE, LPCSTR name, LPCVOID, LPCVOID *data, UINT *bytes) override {
-        if (!std::strcmp(name, "ffx_a.h")) { *data = shaders::ffx_a; *bytes = sizeof(shaders::ffx_a) - 1; }
-        else if (!std::strcmp(name, "ffx_fsr1.h")) { *data = shaders::ffx_fsr1; *bytes = sizeof(shaders::ffx_fsr1) - 1; }
+        if (!std::strcmp(name, "ffx_a.h")) { *data = shaders::ffx_a.data(); *bytes = static_cast<UINT>(shaders::ffx_a.size()); }
+        else if (!std::strcmp(name, "ffx_fsr1.h")) { *data = shaders::ffx_fsr1.data(); *bytes = static_cast<UINT>(shaders::ffx_fsr1.size()); }
         else return E_FAIL;
         return S_OK;
     }

@@ -51,9 +51,19 @@ file audit contains no original game or compiled payloads.
 The isolated merged game candidate is
 `work/diagnostic-build/integration-test/Release/bruteforce_recomp.exe`, SHA-256
 `467FCC4B4CA1E87A52D40A522F30471FA0494335ECCF1165C20DF24884C07F0A`.
-A fresh scratch-save campaign run under `work/gameplay-priority/merged-campaign-z2g7ube2/`
-checks rendering and real frame-statistics output. This does not enable a
-hardware NV2A backend or establish all-level, physical-device or audio QA.
+A fresh 238-second scratch-save run under
+`work/gameplay-priority/merged-campaign-z2g7ube2/` reached tutorial rendering,
+produced real frame CSV records and ended at the watchdog without the earlier
+native crash or bad-target diagnostics. Inspected merged-run frames show
+terrain/sky but do not establish complete actor/effect rendering. Controller
+reports were exercised; merged-build full character visibility and control QA
+remain open. Audio starvation/underruns and low scene FPS persist. This is not
+an all-level or perceptual-quality pass.
+
+GitHub CI exposed VS 2022's raw-string token-size limit in the FSR headers.
+Shader embedding now uses separate 8-KB appends. The reconstructed normalized
+source matches both original headers, and the native DX12/FSR GPU smoke passes
+color, alpha, letterbox, changing images, live scale, resize and shutdown.
 
 ## Preserved bring-up fixes
 
