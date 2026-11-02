@@ -1,0 +1,27 @@
+name: Source regression checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - integration/tzeentchnet-texture-math
+
+jobs:
+  source-tests:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate tracked Python sources
+        run: python3 -m compileall -q launcher scripts tests
+      - name: Test import, path and translation safety
+        run: python3 -m unittest discover -s tests -v
+      - name: Build and test CPU texture-math regression (C11)
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -Isrc tests/texture_math_test.c -o /tmp/bf-texture-math
+          /tmp/bf-texture-math
+      - name: Check texture math with undefined-behavior sanitizer
+        run: |
+          cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=all -Isrc tests/texture_math_test.c -o /tmp/bf-texture-math-ubsan
+          /tmp/bf-texture-math-ubsan
