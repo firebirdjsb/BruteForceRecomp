@@ -32,6 +32,33 @@ add_test(NAME import_guard COMMAND bf_import_guard_test)
 add_executable(bf_texture_math_test tests/texture_math_test.c)
 target_include_directories(bf_texture_math_test PRIVATE src)
 add_test(NAME texture_math COMMAND bf_texture_math_test)
+# Pre-register the upstream NV2A combiner / vertex HLSL emitters as a
+# testable shared renderer component. They are not plugged into guest draw
+# dispatch until original-CPU and DX11/DX12 frame parity is established.
+add_library(bf_nv2a_hlsl STATIC src/gpu/rc_hlsl.c src/gpu/vsh_hlsl.c)
+target_include_directories(bf_nv2a_hlsl PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu"
+    "${XBOXRECOMP_DIR}/src/kernel")
+add_executable(bf_nv2a_hlsl_test tests/nv2a_hlsl_test.c)
+target_link_libraries(bf_nv2a_hlsl_test PRIVATE bf_nv2a_hlsl)
+if(WIN32)
+    target_compile_definitions(bf_nv2a_hlsl_test PRIVATE COBJMACROS)
+    target_link_libraries(bf_nv2a_hlsl_test PRIVATE d3dcompiler)
+endif()
+add_test(NAME nv2a_hlsl COMMAND bf_nv2a_hlsl_test)
+if(WIN32)
+    # Compile the original APU voice-processor test harness against our
+    # patched private runtime (not against unmodified public source).
+    add_executable(bf_apu_hrtf_test tests/apu_vp_hrtf_test.c)
+    target_include_directories(bf_apu_hrtf_test PRIVATE
+        "${CMAKE_BINARY_DIR}/runtime-fixes"
+        "${XBOXRECOMP_DIR}/src"
+        "${XBOXRECOMP_DIR}/src/apu"
+        "${XBOXRECOMP_DIR}/src/nv2a")
+    target_compile_definitions(bf_apu_hrtf_test PRIVATE _USE_MATH_DEFINES)
+    add_test(NAME apu_mono_hrtf COMMAND bf_apu_hrtf_test)
+endif()
 # This GPU completion state machine is API-neutral and has no game dependencies.
 add_executable(bf_gpu_timeline_test tests/gpu_completion_timeline_test.cpp)
 target_include_directories(bf_gpu_timeline_test PRIVATE src)
