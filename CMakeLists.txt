@@ -24,6 +24,10 @@ endif()
 add_subdirectory("${XBOXRECOMP_DIR}" "${CMAKE_BINARY_DIR}/xboxrecomp")
 include(cmake/runtime_fixes.cmake)
 bf_apply_runtime_fixes("${XBOXRECOMP_DIR}")
+# Opt-in CSV telemetry is compiled into the emulator but does no hashing or
+# file writes unless RECOMP_FRAME_STATS is explicitly set.
+target_sources(xbox_kernel PRIVATE src/gpu/nv2a_frame_stats.c)
+target_include_directories(xbox_kernel PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu")
 include(cmake/posix_runtime.cmake)
 enable_testing()
 add_executable(bf_import_guard_test tests/import_guard_test.cpp)
@@ -38,6 +42,9 @@ if(NOT WIN32)
     target_link_libraries(bf_render_scale_test PRIVATE m)
 endif()
 add_test(NAME render_scale COMMAND bf_render_scale_test)
+add_executable(bf_frame_stats_test tests/frame_stats_test.c src/gpu/nv2a_frame_stats.c)
+target_include_directories(bf_frame_stats_test PRIVATE src/gpu)
+add_test(NAME frame_stats COMMAND bf_frame_stats_test)
 # Pre-register the upstream NV2A combiner / vertex HLSL emitters as a
 # testable shared renderer component. They are not plugged into guest draw
 # dispatch until original-CPU and DX11/DX12 frame parity is established.
