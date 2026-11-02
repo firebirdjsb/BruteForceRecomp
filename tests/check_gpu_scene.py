@@ -14,7 +14,7 @@ def main():
     environment = {k: v for k, v in os.environ.items()
                    if not k.startswith(('RECOMP_', 'BF_'))}
     images = {}
-    for mode in ('cpu', 'gpu', 'cpu-vsh', 'gpu-cpuvsh', 'gpu-vsh','cpu-surface','gpu-surface','cpu-hud','gpu-hud','gpu-async','gpu-vsh-async','gpu-defaultasync'):
+    for mode in ('cpu', 'gpu', 'cpu-vsh', 'gpu-cpuvsh', 'gpu-vsh','cpu-surface','gpu-surface','cpu-hud','gpu-hud','gpu-async','gpu-vsh-async','gpu-defaultasync','gpu-mips'):
         image = output / (mode + '.raw')
         selected = mode + '-hardware' if hardware and mode.startswith('gpu') else mode
         if d3d12 and mode.startswith('gpu'):selected+='-d3d12'

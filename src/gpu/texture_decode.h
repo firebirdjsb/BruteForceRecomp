@@ -13,6 +13,9 @@ typedef struct {
 
 size_t gpu_texture_face_stride(const Nv2aTexture *texture);
 size_t gpu_texture_span(const Nv2aTexture *texture, int faces);
+unsigned gpu_texture_mip_levels(const Nv2aTexture *texture);
+int gpu_texture_mip(const Nv2aTexture *texture, unsigned level,
+                     Nv2aTexture *image, size_t *offset, size_t *bytes);
 int gpu_texture_decode_supported(const Nv2aTexture *texture);
 int gpu_texture_p8_indices_valid(const Nv2aTexture *texture, int faces,
                                  const void *bytes, unsigned palette_entries,

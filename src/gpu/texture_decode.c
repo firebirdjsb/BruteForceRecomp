@@ -111,6 +111,37 @@ static size_t level_bytes(const Nv2aTexture *t)
     return (size_t)t->pitch * t->height;
 }
 
+unsigned gpu_texture_mip_levels(const Nv2aTexture *t)
+{
+    unsigned maximum = 1, largest, levels;
+    if (!t || !t->width || !t->height || t->width > 4096 || t->height > 4096) return 0;
+    if (!format_sized(t->color)) return 1; /* Linear NV2A textures have no mip chain. */
+    if ((t->width & (t->width-1)) || (t->height & (t->height-1))) return 0;
+    largest = t->width > t->height ? t->width : t->height;
+    while (largest > 1) { maximum++; largest >>= 1; }
+    levels = t->levels ? t->levels : 1;
+    return levels <= maximum ? levels : 0;
+}
+
+int gpu_texture_mip(const Nv2aTexture *t, unsigned level,
+                     Nv2aTexture *image, size_t *offset, size_t *bytes)
+{
+    Nv2aTexture mip;
+    size_t position = 0;
+    unsigned i, levels = gpu_texture_mip_levels(t);
+    if (!levels || level >= levels || !image || !offset || !bytes) return 0;
+    mip = *t;
+    if (format_sized(t->color)) mip.pitch = 0;
+    mip.levels = 1;
+    for (i=0;i<level;i++) {
+        position += level_bytes(&mip);
+        mip.width = mip.width > 1 ? mip.width/2 : 1;
+        mip.height = mip.height > 1 ? mip.height/2 : 1;
+    }
+    *image = mip; *offset = position; *bytes = level_bytes(&mip);
+    return *bytes > 0 && position + *bytes <= (64u << 20);
+}
+
 size_t gpu_texture_face_stride(const Nv2aTexture *t)
 {
     size_t total = 0;
@@ -139,7 +170,13 @@ size_t gpu_texture_span(const Nv2aTexture *t, int faces)
     size_t n, stride;
     if (!t || !t->width || !t->height || (faces != 1 && faces != 6))
         return 0;
-    n = level_bytes(t);
+    {
+        Nv2aTexture last;
+        size_t offset, bytes;
+        unsigned levels = gpu_texture_mip_levels(t);
+        if (!levels || !gpu_texture_mip(t,levels-1,&last,&offset,&bytes)) return 0;
+        n = offset + bytes;
+    }
     if (!format_sized(t->color) && t->pitch) {
         size_t used = (size_t)(t->height - 1) * t->pitch
                     + (size_t)t->width * texel_bytes(t->color);

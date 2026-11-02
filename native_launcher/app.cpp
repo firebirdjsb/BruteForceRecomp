@@ -87,6 +87,8 @@ void App::command() {
     }
     if(ImGui::CollapsingHeader("Input & audio")) {
         ImGui::BeginDisabled(state.busy);auto options=library_.graphics();bool changed=false;
+        changed|=ImGui::SliderFloat("Mouse sensitivity",&options.mouse_sensitivity,0.25f,5.0f,"%.2fx");
+        ImGui::TextWrapped("F2 opens the keyboard/mouse guide in game. Mouse sensitivity can be adjusted there live.");
         changed|=ImGui::Checkbox("Mouse menu selection",&options.mouse_menus);
         changed|=ImGui::Checkbox("Keyboard / mouse button prompts",&options.prompts);
         changed|=ImGui::Checkbox("Mute audio",&options.muted);

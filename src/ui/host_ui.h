@@ -28,6 +28,7 @@ void bf_ui_settings_initial(int gpu_available);
 unsigned bf_ui_scale(void);
 int bf_ui_take_size(unsigned *width,unsigned *height);
 float bf_ui_audio_gain(void);
+float bf_ui_mouse_sensitivity(void);
 int bf_ui_point(int x,int y,int width,int height,float *gx,float *gy);
 int bf_ui_contains(BfUiRect rect,float x,float y);
 #ifdef __cplusplus

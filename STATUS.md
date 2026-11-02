@@ -5,6 +5,73 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### User-confirmed desktop controls and authored mip sampling
+
+User follow-up: WASD and left-click firing pass. Mouse aim and cursor hiding
+also pass when AnyDesk **Gaming Mode** is enabled. Standard AnyDesk control
+did not provide working aim; the temporary desktop-pointer fallback was
+discarded after this confirmation. Preserve the tested raw-input/cursor path.
+RMB previously reached the grenade/inventory trigger. It now reaches right-stick
+click for the game's zoom action; G reaches the grenade/inventory trigger.
+The user confirmed the final installed build passes right-click zoom, G item use,
+movement, aim, fire and cursor capture with AnyDesk Gaming Mode enabled.
+
+Single-axis WASD previously sent 1/100 of the intended movement into mouse
+deadzone compensation, while diagonals sent about 70/100 on each axis. Digital
+movement now uses full signed 16-bit axes with normalized diagonals and opposing
+keys cancel. Movement is independent of mouse sensitivity. Raw mouse button
+state is read without consuming it on each USB poll. Mouse motion is accumulated
+and held over 60-Hz sampling windows, normalized by elapsed time. F1/menu/text
+ownership, F9 release and foreground gates reset pending motion/button state.
+
+The native launcher and F2 controls page expose 0.25x–5x sensitivity. Older
+settings files retain their existing preferences and default to 1x. F2 includes
+an authored WASD/mouse diagram; original tutorial textures are **not** replaced.
+Direct camera input bypassing the game's analog turn-speed limit is unfinished.
+Cursor hiding now runs on the framebuffer window thread through WM_SETCURSOR
+and its presentation loop. The pointer is confined to the client rectangle,
+not the title bar, and released for overlays, menus, F9, focus loss and minimize.
+The USB poller no longer changes another thread's ShowCursor counter.
+
+The scene backend uploads authored mip levels for 2D/cube textures, validates
+the full chain, decodes levels at their own dimensions, snapshots lower levels
+for cache invalidation, and maps independent MIN/MAG/mip filters and LOD bias.
+No physics, timing, saved progress, or original disc files were changed.
+The user still sees intermittent bright flicker throughout the map at certain
+camera angles, both while turning in place and while moving.
+Two focused rendering attempts have reached their limit: authored mip sampling
+did not resolve the reported flicker, and the reviewed additive-clipping
+experiment failed real-title QA despite passing synthetic fixtures. A second
+isolated run reached the tutorial with a visible HUD. An A/B/A change of only
+the renderer's diagnostic policy removed valid tutorial text in B and restored
+it in A2. The original policy was restored and the experiment was removed from
+the player/source candidate. Private captures are under
+`.local/flicker-qa/window-baseline/near-{A,B,A2}.bmp`; no assets are committed.
+The play log also reports unsupported 0x2E depth textures. This is a lead, not a
+proven flicker cause. The two-repair limit has been reached. The safest next step
+is to capture a reproducible affected camera angle and matched D3D11/D3D12
+evidence before another repair cycle; do not declare the flicker fixed.
+
+Local checks: 19 native CTests and launcher lifecycle pass. D3D11 hardware and
+D3D11/D3D12 WARP draw comparisons pass. Authored ARGB/P8 mip selection, lower-mip
+rewrite invalidation and level-zero filtering pass on the AMD RX 7600 through
+both scene APIs. D3D12 hardware still fails the existing CPU-reference image
+tolerance: all 12 shared baseline/candidate captures are byte-for-byte identical,
+so the mismatch predates this change. The tolerance was not widened. A 35-second
+isolated D3D12 boot captured visible movie frames and ended at its configured
+watchdog; this isolated run is not a campaign or physical-input pass. The separate
+user control smoke test passed on 2 November 2026, satisfying the user's condition
+for pushing these source changes to main. The installed player SHA-256 is
+`F18E88970073BE98072BCAFDFF329681E21FA4F81D11A8154A98A78130F0F12D`.
+
+Native 16:9 is also requested and remains unfinished. Static inspection of the
+authenticated XBE found the game's video-query wrapper reads the upper half of
+XC_VIDEO, whereas the pinned runtime advertises low-bit flags; merely toggling
+that report is insufficient because camera initialization/update still writes
+4:3 constants. The camera viewport/frustum and HUD need matched 4:3/16:9 title
+captures before enabling a native mode. No stretched-frame toggle is presented
+as native widescreen, and no camera/physics offsets were guessed or patched.
+
 The launch black screen was stale GPU color data overwriting CPU-decoded Bink
 frames. Guest/GPU surface ownership is now synchronized; a visible warm-cache
 test produced 42 nonblack captures and the user confirmed movies/menus visible.

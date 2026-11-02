@@ -31,6 +31,29 @@ For authentic local branding, run `python scripts/extract_branding.py --help` an
 
 ## Native graphics
 
+The desktop input update adds full-speed WASD with normalized
+diagonals, held mouse-button reports, and mouse sampling independent of USB
+poll frequency. **F2** opens an authored keyboard/mouse guide and live sensitivity
+control; the native launcher also exposes sensitivity under **Input & audio**.
+The original controller tutorial artwork is retained. This remains a virtual-pad
+camera adapter and retains the game's turn-speed limits; it is not a direct
+camera-memory patch. The user confirmed movement, aiming, firing, zoom,
+grenade/item input and cursor capture; complete campaign acceptance remains open.
+The cursor is hidden/confined by the game window while aiming, and released
+for menus, overlays, F9, focus loss and minimization.
+The user verified mouse motion and hidden cursor through **AnyDesk Gaming Mode**;
+standard AnyDesk control did not deliver the relative mouse behavior required
+for aiming. Keep Gaming Mode enabled for remote play. RMB maps to the game's
+right-stick click (toggle zoom); **G** uses the selected grenade/inventory item.
+
+The GPU texture path now uploads the game's authored mip chain, includes all
+levels in cache invalidation, and honors mip filtering. It does not generate HD
+textures or increase internal resolution. Bright additive effects and native
+AMD D3D12 rasterization differences remain separate unresolved rendering issues.
+The reviewed additive-clipping workaround was rejected: a matched tutorial
+test removed valid text and restored it when reverted. It is not included in
+the player. Location-dependent bright flicker remains unresolved.
+
 Windows selects hardware DX12 automatically and falls back to D3D11, then GDI when initialization fails. The native launcher exposes renderer and AMD FSR 1 settings under **Graphics**. Direct launches can use `BF_RENDER_BACKEND=auto`, `dx12`, `dx11`, or `gdi`, and `BF_UPSCALER=off` or `fsr1`.
 
 FSR 1 runs AMD's EASU and RCAS GPU compute passes when the window is at least the source size; smaller windows use bilinear downscaling. Aspect ratio is preserved. The default scene renderer is the CPU reference. Windows builds with `-DBF_EXPERIMENTAL_NV2A_D3D11=ON` can select **D3D11 GPU (experimental)** and GPU vertex programs in the launcher or F1's Renderer page. The scene is read back for the existing DX12/FSR presenter. This is spatial FSR 1, not temporal reconstruction or frame generation. DLSS integration remains pending because the renderer does not yet expose valid depth, motion vectors and camera history. Linux/Android do not use DX12; native graphics integration on those platforms remains separate. See [GPU backend evidence and limits](docs/GPU_SCENE_BACKEND.md).

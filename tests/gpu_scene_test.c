@@ -24,6 +24,7 @@
 #include "xbox_memory_layout.h"
 #include "gpu/d3d11_backend.h"
 #include "gpu/scene_device.h"
+#include "gpu/texture_decode.h"
 extern void bruteforce_d3d11_wait(void);
 
 
@@ -1002,6 +1003,51 @@ static int scene_bc(const char *out_path)
 
 /* Model Bink's actual ownership pattern: clear on GPU, write a whole frame
  * on CPU, then flip without a draw. Repeat with a partial CPU update. */
+static int scene_mips(const char *out_path)
+{
+    const uint32_t colors[7]={0xFFFF0000u,0xFFFFFF00u,0xFF0000FFu,0xFFFFFFFFu,0xFF00FFFFu,0xFFFF00FFu,0xFF808080u};
+    const uint32_t white[4]={0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu};
+    const Pos p[4]={{0,0,0,1},{16,0,0,1},{16,16,0,1},{0,16,0,1}};
+    const float uv[4][2]={{0,0},{1,0},{1,1},{0,1}};
+    uint32_t output=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),vb=xbox_ContiguousAlloc(4096,4096);
+    uint32_t source=xbox_ContiguousAlloc(32768,4096),palette=xbox_ContiguousAlloc(1024,4096);
+    unsigned format, level, i;
+    FILE *file;
+    REQUIRE(output&&vb&&source&&palette,"allocate mip fixture");
+    identity_matrix();method(0x0314,0);method(0x030C,0);
+    memcpy(guest(palette),colors,sizeof colors);
+    for(format=0;format<2;format++) {
+        Nv2aTexture t={0};t.width=t.height=64;t.levels=7;t.color=format?0x0B:0x06;t.offset=source;t.palette=palette;
+        size_t mip2=0;
+        for(level=0;level<7;level++) {
+            Nv2aTexture mip;size_t offset,bytes;
+            REQUIRE(gpu_texture_mip(&t,level,&mip,&offset,&bytes),"original mip layout");
+            if(level==2)mip2=offset;
+            if(format)memset((uint8_t *)guest(source)+offset,level,bytes);
+            else for(i=0;i<bytes/4;i++)((uint32_t *)((uint8_t *)guest(source)+offset))[i]=colors[level];
+        }
+        surface(output,B_SIZE,0);clear(0xF0,0xFF000000u,0);combiners(1);
+        method(0x1B00,source-XBOX_CONTIG_BASE);
+        method(0x1B04,2u<<4|t.color<<8|7u<<16|6u<<20|6u<<24);
+        method(0x1B08,3u|3u<<8);method(0x1B20,palette-XBOX_CONTIG_BASE);
+        method(0x1B14,1u<<24|3u<<16); /* point MIN, nearest mip */
+        draw(8,p,white,uv,4,vb);flip();
+        REQUIRE((((uint32_t *)guest(output))[8*B_SIZE+8]&0xFFFFFFu)==0x0000FFu,"minification must use authored blue mip 2, not red level 0");
+        if(format)memset((uint8_t *)guest(source)+mip2,1,16*16);
+        else for(i=0;i<16*16;i++)((uint32_t *)((uint8_t *)guest(source)+mip2))[i]=0xFFFFFF00u;
+        draw(8,p,white,uv,4,vb);flip();
+        REQUIRE((((uint32_t *)guest(output))[8*B_SIZE+8]&0xFFFFFFu)==0xFFFF00u,"lower-mip rewrite must invalidate cache");
+        method(0x1B14,1u<<24|1u<<16); /* no mip filtering */
+        draw(8,p,white,uv,4,vb);flip();
+        REQUIRE((((uint32_t *)guest(output))[8*B_SIZE+8]&0xFFFFFFu)==0xFF0000u,"non-mip filter must retain level 0");
+    }
+    { Nv2aTexture invalid={0};invalid.width=invalid.height=8;invalid.color=0x06;invalid.levels=5;
+      REQUIRE(!gpu_texture_span(&invalid,1),"reject mip count beyond original dimensions"); }
+    file=fopen(out_path,"wb");REQUIRE(file,"open mip output");
+    REQUIRE(fwrite(guest(output),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE&&fclose(file)==0,"write mip output");
+    puts("Authored ARGB/P8 mips, lower-level cache invalidation and non-mip filter passed.");return 1;
+}
+
 static int scene_hud(const char *out_path)
 {
     uint32_t va=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),vb=xbox_ContiguousAlloc(4096,4096);
@@ -1069,7 +1115,8 @@ int main(int argc, char **argv)
     } else if (strncmp(argv[2], "cpu", 3) != 0) {
         return 2;
     }
-    if (strstr(argv[2], "clear") ? !scene_clear_rect(argv[3], strstr(argv[2], "vsh") != NULL,
+    if (strstr(argv[2], "mips") ? !scene_mips(argv[3]) :
+        strstr(argv[2], "clear") ? !scene_clear_rect(argv[3], strstr(argv[2], "vsh") != NULL,
                                                      strstr(argv[2], "vertical") != NULL) :
         strstr(argv[2], "clip") ? !scene_window_clip(argv[3], strstr(argv[2], "vsh") != NULL) :
         strstr(argv[2], "depth") ? !scene_depth_texture(argv[3], strstr(argv[2], "vsh") != NULL) :

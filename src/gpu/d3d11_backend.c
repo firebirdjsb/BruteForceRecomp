@@ -946,6 +946,58 @@ static int ensure_decode(size_t texels)
     return s_decode != NULL;
 }
 
+/* Upload the title's original mip chain, never a generated/blurred substitute.
+ * Each cube face has its own complete chain and 128-byte-aligned stride.
+ * Decode each level independently so swizzle masks follow that level's size. */
+static int upload_mips(Tex *e, const Nv2aTexture *t, int cube, unsigned palette_entries)
+{
+    D3D11_TEXTURE2D_DESC td = {0};
+    D3D11_SUBRESOURCE_DATA init[6*13] = {{0}};
+    D3D11_SHADER_RESOURCE_VIEW_DESC sv = {0};
+    uint32_t *decoded[6*13] = {0};
+    unsigned levels = gpu_texture_mip_levels(t), faces = cube ? 6 : 1, face, level, i;
+    unsigned block = d3d8_format_dxt_block_bytes(t->color);
+    size_t stride = cube ? gpu_texture_face_stride(t) : 0;
+    HRESULT hr;
+    int ok = 0;
+    if (!levels || levels > 13) return 0;
+    td.Width=t->width;td.Height=t->height;td.MipLevels=levels;td.ArraySize=faces;
+    td.Format=block?(t->color==0x0C?DXGI_FORMAT_BC1_UNORM:t->color==0x0E?DXGI_FORMAT_BC2_UNORM:DXGI_FORMAT_BC3_UNORM):DXGI_FORMAT_B8G8R8A8_UNORM;
+    td.SampleDesc.Count=1;td.Usage=D3D11_USAGE_DEFAULT;td.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    td.MiscFlags=cube?D3D11_RESOURCE_MISC_TEXTURECUBE:0;
+    for(face=0;face<faces;face++)for(level=0;level<levels;level++) {
+        Nv2aTexture mip;
+        size_t offset, bytes;
+        i=face*levels+level;
+        if(!gpu_texture_mip(t,level,&mip,&offset,&bytes))goto done;
+        /* get_texture checked the entire chain against mapped guest RAM. */
+        mip.offset=t->offset+(uint32_t)(face*stride+offset);
+        if(block) {
+            init[i].pSysMem=GUEST(mip.offset);
+            init[i].SysMemPitch=((mip.width+3)/4)*block;
+        } else {
+            decoded[i]=(uint32_t *)malloc((size_t)mip.width*mip.height*4);
+            if(!decoded[i])goto done;
+            if(mip.color==0x0B) {
+                if(!gpu_texture_decode_p8_cpu(&mip,1,GUEST(mip.offset),GUEST(mip.palette),palette_entries,decoded[i]))goto done;
+            } else if(!nv2a_backend_decode_texture(&mip,decoded[i]))goto done;
+            init[i].pSysMem=decoded[i];init[i].SysMemPitch=mip.width*4;
+        }
+    }
+    hr=ID3D11Device_CreateTexture2D(s_dev,&td,init,&e->tex);
+    if(FAILED(hr))goto done;
+    sv.Format=td.Format;
+    if(cube){sv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURECUBE;sv.TextureCube.MipLevels=levels;}
+    else{sv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sv.Texture2D.MipLevels=levels;}
+    hr=ID3D11Device_CreateShaderResourceView(s_dev,(ID3D11Resource *)e->tex,&sv,&e->srv);
+    if(FAILED(hr))goto done;
+    s_st.uploads++;ok=1;
+done:
+    for(i=0;i<6*13;i++)free(decoded[i]);
+    if(!ok){fprintf(stderr,"[GPU-D3D11] original mip-chain upload rejected\n");release_tex(e);}
+    return ok;
+}
+
 /* Level 0 of a 2D texture (or all six faces of a cube) to the GPU. DXT
  * blocks go as they are (BC1-3 are the same S3TC blocks); everything else
  * through the framework's decoder, the same one the CPU path samples with. */
@@ -958,6 +1010,11 @@ static int upload(Tex *e, const Nv2aTexture *t, int cube, unsigned palette_entri
     size_t face_bytes = cube ? gpu_texture_face_stride(t) : tex_bytes(t, 1);
     HRESULT hr;
     int decoded_gpu = 0;
+
+    if(gpu_texture_mip_levels(t)>1) {
+        *path="original-mips";
+        return upload_mips(e,t,cube,palette_entries);
+    }
 
     memset(&td, 0, sizeof td);
     td.Width = t->width;
@@ -1113,7 +1170,7 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
                 && s_tex[i].color == t->color && s_tex[i].pitch == t->pitch
                 && s_tex[i].cube == (uint8_t)cube && s_tex[i].palette == t->palette
                 && s_tex[i].palette_entries == palette_entries
-                && (!cube || s_tex[i].levels == t->levels)) {
+                && s_tex[i].levels == t->levels) {
             e = &s_tex[i];
             break;
         }
@@ -1300,13 +1357,14 @@ static ID3D11DepthStencilState *get_ds(const Nv2aRenderState *rs, int has_depth)
     return s_ds[s_nds++].ds;
 }
 
-/* Address modes and the filter as the CPU path's rc_texel samples: bilinear
- * when MAG is 2 or MIN is 2, 4 or 6, else the nearest texel; level 0 only. */
+/* NV2A MIN modes 1/2: point/linear without mips; 3/4: point/linear with
+ * nearest mip; 5/6: point/linear with linear mip interpolation. MAG is
+ * independent. Retain the signed 13-bit 8-fractional-bit LOD bias. */
 static ID3D11SamplerState *get_sampler(uint32_t addr_u, uint32_t addr_v, uint32_t filter)
 {
     uint32_t mag = (filter >> 24) & 0xF, min = (filter >> 16) & 0xFF;
-    int linear = mag == 2 || min == 2 || min == 4 || min == 6;
-    uint32_t key[3] = { addr_u, addr_v, (uint32_t)linear };
+    int min_linear = min == 2 || min == 4 || min == 6;
+    uint32_t key[3] = { addr_u, addr_v, filter };
     D3D11_SAMPLER_DESC sd;
     int i;
 
@@ -1316,13 +1374,16 @@ static ID3D11SamplerState *get_sampler(uint32_t addr_u, uint32_t addr_v, uint32_
     if (s_nsamp == MAX_STATE)
         return NULL;
     memset(&sd, 0, sizeof sd);
-    sd.Filter = linear ? D3D11_FILTER_MIN_MAG_MIP_LINEAR : D3D11_FILTER_MIN_MAG_MIP_POINT;
+    sd.Filter = D3D11_ENCODE_BASIC_FILTER(min_linear?D3D11_FILTER_TYPE_LINEAR:D3D11_FILTER_TYPE_POINT,
+        mag==2?D3D11_FILTER_TYPE_LINEAR:D3D11_FILTER_TYPE_POINT,
+        min>=5?D3D11_FILTER_TYPE_LINEAR:D3D11_FILTER_TYPE_POINT,D3D11_FILTER_REDUCTION_TYPE_STANDARD);
     sd.AddressU = addr_u == 1 ? D3D11_TEXTURE_ADDRESS_WRAP : addr_u == 2 ? D3D11_TEXTURE_ADDRESS_MIRROR
                 : D3D11_TEXTURE_ADDRESS_CLAMP;
     sd.AddressV = addr_v == 1 ? D3D11_TEXTURE_ADDRESS_WRAP : addr_v == 2 ? D3D11_TEXTURE_ADDRESS_MIRROR
                 : D3D11_TEXTURE_ADDRESS_CLAMP;
     sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sd.MaxLOD = 0.0f;
+    sd.MaxLOD = min>=3 && min<=6 ? D3D11_FLOAT32_MAX : 0.0f;
+    { int bias=(int)(filter&0x1FFF);if(bias&0x1000)bias-=0x2000;sd.MipLODBias=bias/256.0f; }
     sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
     memcpy(s_samp[s_nsamp].key, key, sizeof key);
     ID3D11Device_CreateSamplerState(s_dev, &sd, &s_samp[s_nsamp].ss);

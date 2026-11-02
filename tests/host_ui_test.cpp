@@ -11,6 +11,15 @@
 int main(int argc,char **argv) {
     const auto settings=std::filesystem::temp_directory_path()/
         ("bf-f1-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".settings");
+    {
+        auto legacy=settings;legacy+=".legacy";
+        {std::ofstream file(legacy);file<<"BF_GRAPHICS 1\nauto d3d12 1 1 4 1080 1 1 0 70\n";}
+        auto loaded=bf::load_graphics(legacy);
+        if(loaded.scene!="d3d12"||loaded.volume!=70||loaded.scale!=4||loaded.mouse_sensitivity!=1.0f)return 32;
+        {std::ofstream file(legacy,std::ios::app);file<<"99\n";}
+        if(bf::load_graphics(legacy).scene!="cpu")return 33;
+        std::filesystem::remove(legacy);
+    }
 #ifdef _WIN32
     _putenv_s("BF_UI_SETTINGS",settings.string().c_str());_putenv_s("RECOMP_GPU","cpu");
 #else
@@ -63,8 +72,11 @@ int main(int argc,char **argv) {
     if(saved.scene!="d3d11"||saved.gpu_programs||saved.scale!=8||saved.height!=2160)return 28;
     bf_ui_mouse(200,132+8,640,480,1);
     if(bf::load_graphics(settings).scene!="d3d12")return 29;
-    bf_ui_key(9,0);
-    if(argc==3&&std::strcmp(argv[2],"renderer")==0)bf_ui_key(9,0);
+    bf_ui_key(113,0);
+    if(!bf_ui_open())return 30;
+    bf_ui_mouse(200,140,640,480,1);
+    if(bf_ui_mouse_sensitivity()!=1.25f||bf::load_graphics(settings).mouse_sensitivity!=1.25f)return 31;
+    if(argc==3&&std::strcmp(argv[2],"renderer")==0){bf_ui_key(33,0);}
     std::vector<uint32_t> image(640*480,0xff000000);bf_ui_paint(image.data(),640,480);
     if(image[62*640+94]!=0xff55c5e8)return 14;
     if(argc>=2) {

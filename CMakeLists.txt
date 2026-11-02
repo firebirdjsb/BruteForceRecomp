@@ -159,6 +159,7 @@ include(cmake/bink_trace.cmake)
 include(cmake/menu_trace.cmake)
 include(cmake/game_text_input.cmake)
 include(cmake/game_menu_input.cmake)
+include(cmake/desktop_input.cmake)
 include(cmake/physics_trace.cmake)
 add_executable(bruteforce_recomp src/main.cpp src/boot_trace.cpp src/file_hash.cpp
     src/native_media.cpp src/instruction_services.cpp src/startup_sampler.cpp

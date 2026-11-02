@@ -24,6 +24,7 @@ bf::GraphicsOptions preferences;
 std::filesystem::path settings_path;
 std::string settings_error;
 std::atomic<float> audio_gain{1.0f};
+std::atomic<float> mouse_sensitivity{1.0f};
 constexpr int rows=8,row_y=132,row_step=28;
 unsigned scale_index{},resolution_index{};
 bool resize_pending{};
@@ -35,7 +36,7 @@ uint64_t serial{};
 struct Prompt { BfUiRect rect;std::string key;Clock::time_point time; };
 std::array<Prompt,32> prompts;
 bool menu(){return mouse_menus&&Clock::now()-menu_seen<std::chrono::milliseconds(500);}
-int row_count(){return page?3:rows;}
+int row_count(){return page==2?1:page==1?3:rows;}
 void persist() {
     preferences.fsr1=fsr;preferences.scale=scales[scale_index];preferences.height=heights[resolution_index];
     preferences.mouse_menus=mouse_menus;preferences.prompts=prompts_on;preferences.muted=muted;preferences.volume=volume;
@@ -44,6 +45,11 @@ void persist() {
     catch(const std::exception &e){settings_error="SETTINGS SAVE FAILED";std::fprintf(stderr,"[UI] %s\n",e.what());}
 }
 void adjust(int row,int direction=1) {
+    if(page==2) {
+        preferences.mouse_sensitivity=std::clamp(preferences.mouse_sensitivity+direction*0.25f,0.25f,5.0f);
+        mouse_sensitivity.store(preferences.mouse_sensitivity,std::memory_order_relaxed);
+        persist();return;
+    }
     if(page) {
         if(row==0&&gpu_available) {
             const char *scenes[]={"cpu","d3d11","d3d12"};int index=0;
@@ -101,8 +107,9 @@ extern "C" void bf_ui_mouse(int x,int y,int w,int h,int action) try {
     float gx{},gy{};if(!bf_ui_point(x,y,w,h,&gx,&gy))return;
     std::lock_guard lock(guard);keyboard=true;
     if(opened) {
-        if(bf_ui_contains({112,105,194,22},gx,gy)) {if(action==1){page=0;selected=0;}return;}
-        if(bf_ui_contains({314,105,214,22},gx,gy)) {if(action==1){page=1;selected=0;}return;}
+        for(int tab=0;tab<3;++tab)if(bf_ui_contains({float(112+tab*140),105,136,22},gx,gy)) {
+            if(action==1){page=tab;selected=0;}return;
+        }
         for(int i=0;i<row_count();++i)if(bf_ui_contains({112,float(row_y+i*row_step),416,24},gx,gy)) {
             selected=i;if(action==1)adjust(i);else if(action==2)adjust(i,-1);break;
         }
@@ -118,10 +125,11 @@ extern "C" void bf_ui_mouse(int x,int y,int w,int h,int action) try {
 extern "C" int bf_ui_key(unsigned key,int repeat) try {
     std::lock_guard lock(guard);keyboard=true;
     if(key==112) {if(!repeat){opened=!opened;pointers.clear();pulses.clear();}return 1;}
+    if(key==113) {if(!repeat){opened=!(opened&&page==2);page=2;selected=0;pointers.clear();pulses.clear();}return 1;}
     if(!opened)return 0;
     if(!repeat) {
         if(key==27)opened=false;
-        else if(key==9||key==33||key==34){page=1-page;selected=0;}
+        else if(key==9||key==33||key==34){page=(page+(key==33?2:1))%3;selected=0;}
         else if(key==38)selected=(selected+row_count()-1)%row_count();
         else if(key==40)selected=(selected+1)%row_count();
         else if(key==13||key==32||key==39)adjust(selected);
@@ -183,6 +191,7 @@ extern "C" void bf_ui_settings_initial(int available) {
     }
     fsr=preferences.fsr1;mouse_menus=preferences.mouse_menus;prompts_on=preferences.prompts;
     muted=preferences.muted;volume=preferences.volume;
+    mouse_sensitivity.store(preferences.mouse_sensitivity,std::memory_order_relaxed);
     audio_gain.store(muted?0.0f:float(volume)/100.0f,std::memory_order_relaxed);
     for(unsigned i=0;i<4;++i)if(preferences.scale==scales[i])scale_index=i;
     for(unsigned i=0;i<5;++i)if(preferences.height==heights[i])resolution_index=i;
@@ -195,6 +204,7 @@ extern "C" int bf_ui_take_size(unsigned *width,unsigned *height) {
     if(!*height)*height=960;return 1;
 }
 extern "C" float bf_ui_audio_gain(){return audio_gain.load(std::memory_order_relaxed);}
+extern "C" float bf_ui_mouse_sensitivity(){return mouse_sensitivity.load(std::memory_order_relaxed);}
 extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try {
     if(!pixels||width!=640||height!=480)return;
     std::lock_guard lock(guard);bf::ui::Canvas c{pixels,width,height};
@@ -207,15 +217,19 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     if(!opened)return;
     c.box(92,60,456,374,0xff020e19);c.box(94,62,452,370,0xff102a3d);
     c.box(94,62,452,4,0xff55c5e8);c.text(112,82,"BRUTE FORCE",0xffe1f5ff,3);
-    c.box(112,105,194,22,page==0?0xff245978:0xff17394e);c.text(122,111,"LIVE SETTINGS",0xff69cae9,2);
-    c.box(314,105,214,22,page==1?0xff245978:0xff17394e);c.text(324,111,"RENDERER",0xff69cae9,2);
+    const char *tabs[]={"LIVE SETTINGS","RENDERER","CONTROLS"};
+    for(int tab=0;tab<3;++tab){c.box(112+tab*140,105,136,22,page==tab?0xff245978:0xff17394e);c.text(120+tab*140,111,tabs[tab],0xff69cae9,2);}
     const char *names[]={"MOUSE MENU SELECTION","KEYBOARD / MOUSE PROMPTS","AMD FSR 1 (DX12)","FSR OUTPUT SCALE","WINDOW RESOLUTION","MUTE AUDIO","MASTER VOLUME","RETURN TO GAME"};
     const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION"};
     for(int i=0;i<row_count();++i) {
         const int y=row_y+i*row_step;
         c.box(112,y,416,24,i==selected?0xff245978:0xff17394e);
-        c.text(122,y+7,page?renderer_names[i]:names[i],0xffd9efff,2);
+        c.text(122,y+7,page==2?"MOUSE SENSITIVITY":page==1?renderer_names[i]:names[i],0xffd9efff,2);
         std::string value;
+        if(page==2) {
+            char sensitivity_text[16];std::snprintf(sensitivity_text,sizeof sensitivity_text,"%.2fX",preferences.mouse_sensitivity);
+            c.text(454,y+7,sensitivity_text,0xff79dbb7,2);continue;
+        }
         if(page) {
             if(i==0)value=preferences.scene=="d3d12"?"DX12 GPU":preferences.scene=="d3d11"?"DX11 GPU":"CPU";
             if(i==1)value=gpu_available?(preferences.gpu_programs?"ON":"OFF"):"N/A";
@@ -234,7 +248,24 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         if(i==3&&!fsr_supported)value="N/A";
         c.text(458,y+7,value,0xff79dbb7,2);
     }
-    if(page) {
+    if(page==2) {
+        c.text(122,173,"KEYBOARD / MOUSE GUIDE",0xffe1f5ff,2);
+        const auto key=[&](int x,int y,const char *label){c.box(x,y,30,28,0xff245978);c.text(x+11,y+9,label,0xffe1f5ff,2);};
+        key(164,201,"W");key(130,233,"A");key(164,233,"S");key(198,233,"D");
+        c.text(126,277,"W/S: FORWARD / BACK",0xffd9efff);
+        c.text(126,291,"A/D: STRAFE",0xffd9efff);
+        c.text(126,305,"FULL SPEED WHILE HELD",0xff79dbb7);
+        c.text(126,319,"G: GRENADE / ITEM",0xffd9efff);
+        c.box(336,204,110,75,0xff17394e);c.box(336,204,53,29,0xff245978);c.box(393,204,53,29,0xff245978);
+        c.text(346,215,"LMB",0xffe1f5ff,2);c.text(403,215,"RMB",0xffe1f5ff,2);
+        c.text(351,250,"MOUSE",0xff69cae9,2);
+        c.text(322,291,"MOUSE: CAMERA",0xffd9efff);
+        c.text(322,305,"HOLD LMB: FIRE",0xff79dbb7);
+        c.text(322,317,"RMB: TOGGLE ZOOM",0xffd9efff);
+        c.text(122,332,"F9: RELEASE / CAPTURE MOUSE",0xffd9efff,2);
+        c.text(122,352,"F2: OPEN / CLOSE THIS GUIDE",0xff9bc0d5);
+    }
+    if(page==1) {
         c.text(122,233,"APPLIES ON NEXT LAUNCH",0xffe6b47e,2);
         c.text(122,260,"ACTIVE: "+active_scene,0xffd9efff,2);
         c.text(122,283,gpu_available?"GPU SCENE BACKEND AVAILABLE":"GPU BACKEND ABSENT IN THIS BUILD",0xff9bc0d5);
