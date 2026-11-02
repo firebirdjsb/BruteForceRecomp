@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 from launcher.library import Library
 from launcher.server import make_server
-from extract_disc import disc_path
+from extract_disc import disc_path, is_demo_payload
 
 
 class DiscPaths(unittest.TestCase):
@@ -22,6 +22,28 @@ class DiscPaths(unittest.TestCase):
                                 ('data', 'trailing.')):
             with self.subTest(directory=directory, name=name), self.assertRaises(ValueError):
                 disc_path(directory, name)
+
+
+class AncillaryDemoExclusion(unittest.TestCase):
+    def test_identified_demo_directories_and_loader_are_excluded(self):
+        for directory, filename in (
+            ('fx', 'fx.xbe'), ('fx/data', 'fx.jwad'),
+            ('Mech', 'Mech.xbe'), ('Mech/subfolder', 'resource.mgf'),
+            ('', 'demos.xbe'), ('', 'DEMOS.XBE'),
+        ):
+            with self.subTest(directory=directory, filename=filename):
+                self.assertTrue(is_demo_payload(disc_path(directory, filename)))
+
+    def test_original_game_resources_and_similarly_named_paths_remain(self):
+        for directory, filename in (
+            ('', 'default.xbe'), ('data', 'common.tgz'),
+            ('data', 'tutorial.tgz'), ('data/ml-sounds/en', 'voices.tgz'),
+            ('data/movies', 'intro.bik'), ('music', 'song.xwb'),
+            ('fxextra', 'game.tgz'), ('Mech-assets', 'models.bin'),
+            ('', 'update.xbe'), ('', 'dashupdate.xbe'),
+        ):
+            with self.subTest(directory=directory, filename=filename):
+                self.assertFalse(is_demo_payload(disc_path(directory, filename)))
 
 
 class LocalLauncher(unittest.TestCase):
