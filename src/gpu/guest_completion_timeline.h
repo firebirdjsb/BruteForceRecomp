@@ -71,7 +71,7 @@ public:
     bool device_lost() const { return lost_; }
 private:
     static constexpr std::uint64_t max_fence =
-        std::numeric_limits<std::uint64_t>::max();
+        (std::numeric_limits<std::uint64_t>::max)();
     std::deque<GuestSignal> pending_;
     std::uint64_t submitted_ = 0;
     std::uint64_t completed_ = 0;
