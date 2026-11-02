@@ -35,6 +35,19 @@ Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/
 
 Xbox executables use XBE headers, not Windows PE headers. `scripts/verify_offsets.py` validates the actual format, image bounds and this exact build. Guest virtual addresses in the host identify original code; host memory addresses are derived by the runtime loader.
 
+## Integration progress and validation
+
+The [upstream feature progress matrix](docs/UPSTREAM_INTEGRATION_PROGRESS.md)
+tracks renderer/HLSL work, synchronized presentation, texture decoding and
+shader caching, verified mono-HRTF audio, 1440p/4K scaling policies, USB
+lifecycle safety and actual frame benchmarking. A successful synthetic compile
+does **not** imply that DirectX 11/12 game rendering or full game boot passes.
+
+To inspect opt-in distinct-image frame statistics, set
+`RECOMP_FRAME_STATS` to a writable CSV filename while running your approved
+local original game, then run `python tools/frame_bench.py <trace.csv>`.
+Unidentified GPU-owned frames remain unknown, not counted as distinct.
+
 ## DirectX 12 compatibility foundation
 
 An isolated, **backend-neutral guest GPU fence timeline** and an optional
