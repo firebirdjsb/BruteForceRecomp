@@ -38,7 +38,7 @@ static void device_fault(int signal, siginfo_t *info, void *context) {
 #endif
 
 bool start_host_input() {
-    if (!std::getenv("RECOMP_USB")) return true;
+    if (!std::getenv("RECOMP_USB") && !std::getenv("RECOMP_AC97_READY")) return true;
 #ifdef _WIN32
     // The runtime's statically linked XAPI reaches USB through guest MMIO.
     // Install the actual register decoder before the OHCI model protects its
@@ -47,7 +47,7 @@ bool start_host_input() {
         std::fprintf(stderr, "[INPUT] Cannot install the guest device fault handler\n");
         return false;
     }
-    xbox_OhciInit();
+    if(std::getenv("RECOMP_USB"))xbox_OhciInit();
     std::fprintf(stderr, "[INPUT] Guest USB controller model initialized\n");
     return true;
 #elif defined(__linux__)
@@ -60,7 +60,7 @@ bool start_host_input() {
         sigaction(SIGSEGV, &previous_segv, nullptr);
         return false;
     }
-    xbox_OhciInit();
+    if(std::getenv("RECOMP_USB"))xbox_OhciInit();
     std::fprintf(stderr, "[INPUT] Guest USB controller model initialized (POSIX)\n");
     return true;
 #else

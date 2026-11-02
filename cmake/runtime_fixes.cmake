@@ -24,6 +24,9 @@ function(bf_apply_runtime_fixes toolkit)
     string(REPLACE "${read_log}"
         "if (getenv(\"BF_TRACE_FILE_IO\") || (uint32_t)ios.Status >= 0x80000000u) {\n        const uint8_t *p = (const uint8_t *)XBOX_TO_NATIVE(buffer_va);"
         source "${source}")
+    string(REPLACE "if (!bridge_buf_ok(buffer_va, length, \"NtReadFile\")) {"
+        "if (!bridge_buf_ok(buffer_va, length, \"NtReadFile\")) {\n        if (getenv(\"BF_TRACE_BINK\")) {\n            fprintf(stderr, \"[READ-FAILURE] caller=%08X esp=%08X\\n\", STACK_ARG(-1), g_esp);\n            for (int i = 0; i < 96; ++i) fprintf(stderr, \" %08X\", STACK_ARG(i));\n            fputc(10, stderr);\n        }"
+        source "${source}")
     set(patched "${CMAKE_BINARY_DIR}/runtime-fixes/kernel_bridge.c")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/runtime-fixes")
     # configure_file preserves timestamps when the replacement has not changed.
@@ -57,6 +60,10 @@ function(bf_apply_runtime_fixes toolkit)
     endif()
     string(REPLACE "${gpu_before}"
         "if (subch == 0 && method == 0x1D70) {\n        extern uint32_t bf_gpu_semaphore_target(void);\n        if (!s_sem_va) s_sem_va = bf_gpu_semaphore_target();"
+        gpu_source "${gpu_source}")
+    # Nonzero NO_OPERATION is an XDK software interrupt, not an empty draw.
+    string(REPLACE "case NV097_NO_OPERATION:"
+        "case NV097_NO_OPERATION:\n        { extern int bf_gpu_software_method(uint32_t, uint32_t);\n          if (bf_gpu_software_method(param, s_gpu.zstencil_clear)) return; }"
         gpu_source "${gpu_source}")
     set(gpu_patched "${CMAKE_BINARY_DIR}/runtime-fixes/nv2a_pb_exec.c")
     file(WRITE "${gpu_patched}.in" "${gpu_source}")

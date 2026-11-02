@@ -1,4 +1,4 @@
-// Experimental host; no game-function overrides or guessed global writes.
+// Experimental host bound to the authenticated retail executable.
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -12,12 +12,19 @@
 #include "instruction_services.h"
 #include "startup_sampler.h"
 #include "host_input.h"
+#include "host_audio.h"
+#include "guest_failure.h"
 extern "C" {
 #include "xbox/xboxrecomp.h"
 #include "video_player.h"
 using GuestFunction = void (*)(void);
 GuestFunction recomp_lookup(uint32_t);
 void sub_0037EE7C(void);
+void sub_002F04CB(void);
+void sub_002F04D2(void);
+void sub_002F04D5(void);
+void sub_002F04DC(void);
+void sub_002F04E3(void);
 int recomp_dispatch_init(void);
 void xbox_path_init(const char *, const char *);
 #ifdef _MSC_VER
@@ -25,18 +32,29 @@ extern __declspec(thread) uint32_t g_esp;
 #else
 extern __thread uint32_t g_esp;
 #endif
-// NULL delegates to the generated dispatcher. This host has no overrides.
+// Normal calls belong to the generated dispatcher; audited missing callbacks
+// and optional tracing entries are supplied here.
 GuestFunction recomp_lookup_manual(uint32_t target) {
     // Measured startup callback, recovered from its hash-verified XBE body.
     if (target == 0x0037EE7C) return sub_0037EE7C;
+    switch(target) {
+    case 0x002F04CB:return sub_002F04CB;
+    case 0x002F04D2:return sub_002F04D2;
+    case 0x002F04D5:return sub_002F04D5;
+    case 0x002F04DC:return sub_002F04DC;
+    case 0x002F04E3:return sub_002F04E3;
+    default:break;
+    }
     return boot_trace_lookup(target);
 }
 void recomp_icall_fail_log(uint32_t va) {
     std::fprintf(stderr, "Unresolved guest call at 0x%08X; stopping.\n", va);
+    report_guest_failure(va);
     std::exit(20);
 }
 void recomp_icall_not_code_log(uint32_t va) {
     std::fprintf(stderr, "Invalid guest code target 0x%08X; stopping.\n", va);
+    report_guest_failure(va);
     std::exit(21);
 }
 void recomp_unimpl(const char *instruction, uint32_t va) {
@@ -50,6 +68,7 @@ static bool memory_ready = false;
 static bool kernel_ready = false;
 static void cleanup() {
     if (kernel_ready) { kernel_ready = false; xbox_kernel_shutdown(); }
+    stop_host_audio();
     if (memory_ready) { memory_ready = false; xbox_MemoryLayoutShutdown(); }
 }
 
@@ -67,6 +86,23 @@ static int run_native(int argc, char **argv) {
         const auto saves = std::filesystem::absolute(argv[2]);
         if (game == saves) return 2;
         if (!native_media_initialize(game)) return 11;
+        // Enable both codec/MMIO and APU halves together. Actual menu PCM
+        // has been measured; BF_ENABLE_AUDIO=0 retains a diagnostic fallback.
+        const char *audio_setting=std::getenv("BF_ENABLE_AUDIO");
+        const bool audio=!audio_setting || (*audio_setting && *audio_setting!='0');
+        if(audio){
+#ifdef _WIN32
+            _putenv_s("RECOMP_AC97_READY","1");
+#else
+            setenv("RECOMP_AC97_READY","1",1);
+#endif
+        }else{
+#ifdef _WIN32
+            _putenv_s("RECOMP_AC97_READY","");
+#else
+            unsetenv("RECOMP_AC97_READY");
+#endif
+        }
         // This XDK builds its D3D notification event directly in guest RAM
         // (live device +0x195C). The runtime validates Type/Size and mirrors
         // its SignalState; a guest address must never become a host HANDLE.
@@ -76,6 +112,16 @@ static int run_native(int argc, char **argv) {
             _putenv_s("RECOMP_TITLE_KEVENTS", "1");
 #else
             setenv("RECOMP_TITLE_KEVENTS", "1", 0);
+#endif
+        }
+        // Follow actual FIFO JUMP/CALL/RETURN and submission boundaries. The
+        // XDK fence and reusable-buffer software methods now have handlers;
+        // inferred min/max PUT segments lose commands when the ring wraps.
+        if (!std::getenv("RECOMP_PB_WALK")) {
+#ifdef _WIN32
+            _putenv_s("RECOMP_PB_WALK", "dma");
+#else
+            setenv("RECOMP_PB_WALK", "dma", 0);
 #endif
         }
         std::filesystem::create_directories(saves);
@@ -100,11 +146,13 @@ static int run_native(int argc, char **argv) {
         std::atexit(cleanup);
         if (!xbox_MemoryLayoutInit(bytes.data(), bytes.size())) return 7;
         memory_ready = true;
+        install_guest_failure_diagnostics();
         xbox_kernel_init();
         kernel_ready = true;
         xbox_path_init(game.string().c_str(), saves.string().c_str());
         xbox_kernel_bridge_init();
         if (!start_host_input()) return 12;
+        if (audio && !start_host_audio()) return 13;
         boot_trace_init(bytes.data(), bytes.size());
         // ESP is a guest 32-bit register. The runtime owns its mapped stack.
         g_esp = XBOX_STACK_TOP;

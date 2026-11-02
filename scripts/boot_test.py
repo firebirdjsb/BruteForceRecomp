@@ -16,12 +16,13 @@ def main():
     parser.add_argument('--work-dir', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=15)
     parser.add_argument('--gpu-trace', action='store_true')
+    parser.add_argument('--headless', action='store_true', help='Run the engine diagnostic without creating the framebuffer window')
     parser.add_argument('--keyboard', action='store_true', help='Expose the runtime keyboard as controller port 0')
     parser.add_argument('--mouse-keyboard', action='store_true', help='Exercise the runtime raw-mouse/keyboard adapter; gameplay behavior requires QA')
     parser.add_argument('--sample-startup', action='store_true', help='Sample the Windows host main thread')
     args = parser.parse_args()
-    if not 1 <= args.seconds <= 120:
-        parser.error('--seconds must be between 1 and 120')
+    if not 1 <= args.seconds <= 600:
+        parser.error('--seconds must be between 1 and 600')
     try:
         game = args.game_dir.resolve()
         verify(game / 'default.xbe')
@@ -34,6 +35,10 @@ def main():
                    RECOMP_PB_EXEC='1', RECOMP_FB_WINDOW='1',
                    RECOMP_USB='1', RECOMP_VBLANK='1',
                    RECOMP_WATCHDOG_SECS=str(max(1, args.seconds - 2)))
+        if args.headless:
+            env.pop('RECOMP_FB_WINDOW', None)
+            env.pop('RECOMP_KEYBOARD', None)
+            env.pop('RECOMP_MKB', None)
         if args.gpu_trace:
             env['RECOMP_NV2A_TRACE'] = '1'
         if args.keyboard or args.mouse_keyboard:

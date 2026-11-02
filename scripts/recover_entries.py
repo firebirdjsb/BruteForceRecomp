@@ -1,4 +1,4 @@
-"""Lift a measured missing callback from authenticated original machine code."""
+"""Lift measured missing entries from authenticated original machine code."""
 import argparse
 import hashlib
 import json
@@ -6,6 +6,17 @@ from pathlib import Path
 import subprocess
 import sys
 from verify_offsets import verify
+
+# Original CRT x87 classification branches omitted by entry discovery. The
+# indirect table at 0x0040E81C reached 0x002F04DC during tutorial loading.
+# Boundaries include the original RET or shared tail jump, not guessed ABIs.
+CRT_ENTRIES = (
+    (0x002f04cb, 0x002f04d5, 'cc2d8f274cc3c1fb7e3989d9139da8a3d095efb586b7d89d23468eefa2f6b13e'),
+    (0x002f04d2, 0x002f04d5, '4c76c611ad8ed759ccc6bff73c101629808203063772b87dbea3e1ace2d6a9bf'),
+    (0x002f04d5, 0x002f04dc, 'c4a9e6065264eeb23acf409855fd591aa061920a1ba71326dbf62f0d8914ca25'),
+    (0x002f04dc, 0x002f04e3, 'ded8c9e4660670bcd7499da0525dfaa6827ce60e227ab2b4096857f1dc9ddaca'),
+    (0x002f04e3, 0x002f04ea, 'd6d08351d766f70d9b6c11cc1867e8baa26b5b0dd18b5dfe9cb3941ef9fd0491'),
+)
 
 
 def recover(xbe, toolkit, functions, output):
@@ -36,6 +47,14 @@ def recover(xbe, toolkit, functions, output):
         database[address] = row
     database[start] = {'start': hex(start), 'end': end, 'size': end - start,
                        'name': 'sub_0037EE7C', '_addr': start, 'section': 'XPP'}
+    for first, last, body_hash in CRT_ENTRIES:
+        owner = next(s for s in verified['sections'] if int(s['guest_va'],16) <= first
+                     and last <= int(s['guest_va'],16)+s['raw_size'])
+        position = owner['file_offset'] + first - int(owner['guest_va'],16)
+        if hashlib.sha256(data[position:position+last-first]).hexdigest() != body_hash:
+            raise ValueError(f'CRT branch {first:08X} differs from authenticated instructions')
+        database[first] = {'start': hex(first), 'end': last, 'size': last-first,
+                           'name': f'sub_{first:08X}', '_addr': first, 'section': '.text'}
     sys.path.insert(0, str(Path(toolkit).resolve()))
     from tools.recomp import config
     from tools.recomp.translator import FunctionTranslator
@@ -44,6 +63,12 @@ def recover(xbe, toolkit, functions, output):
     code = translator.translate_function(start, database[start])
     if not code:
         raise ValueError('Callback could not be translated; no replacement was emitted')
+    for first, _, _ in CRT_ENTRIES:
+        branch = translator.translate_function(first,database[first])
+        if not branch or any(marker in branch for marker in
+                             ('Unsupported instruction','FAILED:','RECOMP_UNIMPL(','recomp_unimpl(')):
+            raise ValueError(f'CRT branch {first:08X} could not be translated completely')
+        code += '\n' + branch
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     (output / 'recomp_recovered.c').write_text(
@@ -52,7 +77,9 @@ def recover(xbe, toolkit, functions, output):
         'entry': hex(start), 'end': hex(end), 'body_sha256': digest,
         'reason': 'Measured unresolved indirect call during native startup',
         'evidence': 'Original XBE bytes match the 268-byte Ghidra MU_Init body',
-        'runtime_equivalence': 'UNVERIFIED'
+        'runtime_equivalence': 'UNVERIFIED',
+        'crt_branches': [dict(entry=hex(first),end=hex(last),body_sha256=body_hash)
+                         for first,last,body_hash in CRT_ENTRIES]
     }, indent=2), encoding='utf-8')
 
 
@@ -62,4 +89,4 @@ if __name__ == '__main__':
         parser.add_argument('--' + name, type=Path, required=True)
     args = parser.parse_args()
     recover(args.xbe.resolve(), args.toolkit.resolve(), args.functions.resolve(), args.output.resolve())
-    print('Authenticated missing startup callback translated; output remains private.')
+    print('Authenticated startup and CRT entries translated; output remains private.')

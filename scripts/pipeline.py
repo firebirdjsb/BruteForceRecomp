@@ -47,9 +47,12 @@ def main():
         if args.stage == 'build':
             if not (work / 'generation-audit.json').exists():
                 raise ValueError('Generate and audit source before building')
+            from extract_branding import extract
+            extract(xbe, work / 'branding')
             run(['cmake', '-S', ROOT, '-B', work / 'game-build',
                  '-DXBOXRECOMP_DIR=' + str(toolkit),
                  '-DBF_RECOVERED_DIR=' + str(work / 'recovered'),
+                  '-DBF_PRIVATE_BRANDING_DIR=' + str(work / 'branding'),
                  '-DBF_GENERATED_DIR=' + str(work / 'generated')], work, work / 'game-configure.log')
             run(['cmake', '--build', work / 'game-build', '--config', args.configuration, '--parallel', '4'],
                 work, work / 'game-build.log')

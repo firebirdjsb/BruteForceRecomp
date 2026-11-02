@@ -1,0 +1,56 @@
+# Replace the host-RAM heuristic only in audited private runtime copies.
+set(original "${XBOXRECOMP_DIR}/src/kernel/xbox_memory_layout.c")
+file(READ "${original}" original_text)
+string(REPLACE "\r\n" "\n" original_text "${original_text}")
+string(SHA256 digest "${original_text}")
+if(NOT digest STREQUAL "9b62ad9fc0f1c6061faea61f71d2a58ee01d27b3e487e01601e8d44a251cea3d")
+    message(FATAL_ERROR "Unaudited memory layout; memory-statistics integration refused.")
+endif()
+get_target_property(sources xbox_kernel SOURCES)
+get_target_property(directory xbox_kernel SOURCE_DIR)
+set(replaced)
+foreach(item IN LISTS sources)
+    get_filename_component(absolute "${item}" ABSOLUTE BASE_DIR "${directory}")
+    get_filename_component(name "${absolute}" NAME)
+    if(name STREQUAL "xbox_memory_layout.c")
+        file(READ "${absolute}" source)
+        # This authenticated XBE requests a 128-KB stack commit at file+0x130.
+        # The runtime's 8-MB main-stack reservation was charged against the
+        # same 64-MB budget, starving the game's geometry heap. Keep a 1-MB
+        # main stack (8x that commit); spawned threads have separate 512-KB
+        # heap stacks in xbox_AllocThreadStack, not slices of the main stack.
+        set(stack_before "uint32_t stack_size = 8 * MB;")
+        string(FIND "${source}" "${stack_before}" stack_found)
+        if(stack_found EQUAL -1)
+            message(FATAL_ERROR "Expected audited main-stack reservation.")
+        endif()
+        string(REPLACE "${stack_before}" "uint32_t stack_size = 1 * MB;" source "${source}")
+        string(APPEND source "\n#include \"guest_memory_stats.inc\"\n")
+        set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/memory-statistics/xbox_memory_layout.c")
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/runtime-fixes/memory-statistics")
+        file(WRITE "${copy}.in" "${source}")
+        configure_file("${copy}.in" "${copy}" COPYONLY)
+        list(APPEND replaced "${copy}")
+    elseif(name STREQUAL "kernel_bridge.c")
+        file(READ "${absolute}" source)
+        set(before "g_eax = (uint32_t)xbox_MmQueryStatistics(XBOX_TO_NATIVE(stats_ptr));")
+        string(FIND "${source}" "${before}" found)
+        if(found EQUAL -1)
+            message(FATAL_ERROR "Expected memory-statistics bridge missing.")
+        endif()
+        string(REPLACE "${before}"
+            "extern NTSTATUS __stdcall bf_query_guest_memory(PXBOX_MM_STATISTICS);\n    g_eax = (uint32_t)bf_query_guest_memory(XBOX_TO_NATIVE(stats_ptr));"
+            source "${source}")
+        # Reuse the runtime's validated event table from the GPU consumer.
+        # No guest CPU register or stack is changed by a native notification.
+        string(APPEND source "\n#include \"gpu_event_bridge.inc\"\n")
+        set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/memory-statistics/kernel_bridge.c")
+        file(WRITE "${copy}.in" "${source}")
+        configure_file("${copy}.in" "${copy}" COPYONLY)
+        list(APPEND replaced "${copy}")
+    else()
+        list(APPEND replaced "${absolute}")
+    endif()
+endforeach()
+set_property(TARGET xbox_kernel PROPERTY SOURCES "${replaced}")
+target_include_directories(xbox_kernel PRIVATE "${directory}" "${PROJECT_SOURCE_DIR}/src")

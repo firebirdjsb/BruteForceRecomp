@@ -4,27 +4,52 @@ Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows,
 
 **This is not a finished or verified playable port.** Translation, compiling, booting, rendering and completing a mission are separate gates. Generated code and inferred calling conventions must be checked against the original executable and measured execution.
 
-See [STATUS.md](STATUS.md) for completed builds, the observed DVD-service startup blocker, validation evidence and remaining platform work.
+The immediate priority is a rendered, controllable campaign at a stable frame rate. The newest candidate renders the tutorial and responds to scripted movement after fixing geometry allocation, missing CRT entries and GPU software commands. The visible scene still drops to about 3–4 FPS, and audio underruns remain. See [STATUS.md](STATUS.md) for current evidence, isolated candidates and remaining platform work.
 
-## Desktop launcher
+## Desktop application
 
-On Windows, open **Launch Brute Force.cmd**. On Linux, run `sh launch.sh`. Python 3.10+ and an existing native build are required. The launcher finds the toolkit/executable in this checkout's known CMake build directories, or accepts explicit paths:
+The launcher is a native C++ SDL2/Dear ImGui application. It does not open a browser or require a local web server or Python at runtime. On Windows, open **Launch Brute Force.cmd** after building; on Linux use `sh launch.sh`.
 
-```powershell
-python -m launcher --toolkit "PATH_TO_PINNED_TOOLKIT" --exe "PATH_TO_NATIVE_EXECUTABLE"
+```sh
+cmake -S . -B .local/launcher-build -DBF_LAUNCHER_ONLY=ON
+cmake --build .local/launcher-build --config Release --parallel 2
 ```
 
-The Brute Force themed command center opens in your local browser. Choose your ISO with **Browse files**, select **Import disc**, then **Start Game** after validation. It extracts into `.local/launcher/imports`, keeps saves in its separate `.local/launcher/player-data` profile, and writes per-session game logs. Imported data is revalidated on restart and before launch. The real 685-file disc import and Windows native menu launch were tested. The UI uses original vector/CSS artwork; game textures/assets are never distributed with the launcher.
+Build dependencies are fetched from pinned public repositories. Linux also needs system SDL2 development files. The application asks for the local ISO, imports and verifies **497 core-game files**, and excludes 188 demo/update/promotional files. It retains a local library and separate player-data folder, validates supported native inputs before launch, and starts the compiled game directly. The original ISO and existing saves are preserved. The former website implementation has been removed.
 
-Only the authenticated local UI is exposed on loopback; game files are not HTTP assets. No upload, account or game-file download is involved. Linux's native chooser needs `python3-tk`; a full ISO path can also be pasted. This is currently a **desktop launcher**, not the pending native Android application UI. The keyboard checkbox enables the diagnostic controller mapping, not completed native mouse aim or rebinding. The Start button launches an experimental host; it does not imply playable campaign support.
+Use `BruteForceLauncher --workspace FOLDER --game-exe FILE` to select an explicit library and native build. Otherwise the app uses the platform application-data directory and searches for a native Release build. Keep the executable, SDL2 DLL on Windows, and assets folder together. A mouse/keyboard/gamepad navigable launcher does not establish complete input support inside the game.
 
-The current Debug build now renders the original Start screen and reaches the Campaign Type menu through scripted controller reports. It is not yet a verified playable release. [FEATURE_TARGETS.md](FEATURE_TARGETS.md) records the requested enhancement menu, full mouse/keyboard and controller support, cheats, HD/widescreen and expanded multiplayer scope.
+For authentic local branding, run `python scripts/extract_branding.py --help` and configure `-DBF_PRIVATE_BRANDING_DIR=PRIVATE_OUTPUT_FOLDER`. The tool validates the exact XBE and extracts its title icon. The game executable and launcher use the icon; the launcher also loads its title image. These extracted assets stay private and are never committed or bundled with public source.
+
+## Native graphics
+
+Windows selects hardware DX12 automatically and falls back to D3D11, then GDI when initialization fails. The native launcher exposes renderer and AMD FSR 1 settings under **Graphics**. Direct launches can use `BF_RENDER_BACKEND=auto`, `dx12`, `dx11`, or `gdi`, and `BF_UPSCALER=off` or `fsr1`.
+
+FSR 1 runs AMD's EASU and RCAS GPU compute passes when the window is at least the source size; smaller windows use bilinear downscaling. Aspect ratio is preserved. The Xbox scene is still rasterized by the current CPU runtime, so GPU presentation/scaling alone cannot remove a CPU rendering bottleneck. This is spatial FSR 1, not temporal reconstruction or frame generation. DLSS integration remains pending because the renderer does not yet expose valid depth, motion vectors and camera history. Linux/Android do not use DX12; native graphics integration on those platforms remains separate.
+
+A standalone hardware test requires no game data:
+
+```sh
+cmake -S . -B .local/graphics-test -DBF_GRAPHICS_ONLY=ON
+cmake --build .local/graphics-test --config Release
+.local/graphics-test/Release/bf_graphics_smoke.exe
+```
+
+It reads actual GPU output to check color/alpha, letterboxing, changing source images, FSR output differences, window resize, downscale fallback and resource shutdown. It does not validate gameplay or predict performance.
 
 Startup fixes apply only to hash-checked build copies of the public runtime; its checkout stays clean. The semaphore target is derived from the live D3D device, and the completion word changes only when the renderer consumes an actual semaphore-release command. `BF_TRACE_FILE_IO=1` restores successful-read payload tracing; failures remain visible by default.
 
 For an existing generated directory, run `scripts/recover_entries.py --xbe FILE --toolkit TOOLKIT --functions FUNCTIONS_JSON --output RECOVERED_DIR` and pass `-DBF_RECOVERED_DIR=RECOVERED_DIR` to CMake. The normal `generate` pipeline does this automatically. Recovery verifies the missing callback's original bytes and emits its complete lifted body privately. The public repository holds no recovered game-code body.
 
 Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/V = A/B/X/Y, Enter = Start); `--mouse-keyboard` also enables the existing raw-mouse adapter, with F9 capture toggle. This adapter is a bring-up path, not proof of the requested native mouse/keyboard experience. `--sample-startup` enables bounded Windows main-thread sampling; `--gpu-trace` records submissions. USB and vblank models are enabled by the boot-test launcher. Physical controllers, mouse aim and full gameplay still require validation.
+
+The game's profile/campaign name screens accept direct typing: letters/numbers/Space, Backspace (or Delete), Enter for Done, and Escape for the game's Back action. Original on-screen key labels, length limits, sounds and confirmation handlers still apply; the normal keyboard uses uppercase. Arrows and physical controllers retain the original grid navigation. Typing temporarily suppresses keyboard-to-controller actions and raw mouse capture, independently of the launcher's keyboard-test checkbox. Windows window messages and Linux SDL text events feed the same bounded queue. Scripted Windows tests edited both name screens and exercised Done/Back; complete physical-keyboard and Linux text-entry QA remain pending.
+
+Native mouse menu input now hit-tests the game's live buttons, lists and on-screen keyboard. It uses original focus/selection handlers, then the normal controller-report path for activation. Left click selects; right click or Escape goes Back. Enter selects and arrows navigate when a menu owns input. Mouse coordinates follow the actual letterboxed game image. A scripted Windows run hovered Options, entered it with a click and returned with Escape. Unique menu widgets, split-screen/player-specific screens and complete physical-device coverage still need QA. Mouse aiming/gameplay remain separate work.
+
+**F1** opens the live settings overlay; F1 or Escape closes it. Mouse or arrows/Enter change mouse menu selection, keyboard/mouse prompts, FSR 1, FSR output scale (Auto/2x/4x/8x), window resolution (Auto/720p/1080p/1440p/2160p), mute and master volume. These settings last for the process. Window presets fit within the desktop work area. Fixed FSR factors describe its intermediate output relative to the original 640x480 source; 8x is 5120x3840 before fitting to the window, not native scene rendering. DX12/FSR controls are unavailable on other backends. The common A/B/X/Y menu prompt glyphs gain keyboard/mouse keycaps while keyboard/mouse is active; unrecognized glyphs retain original rendering. Actual physical-controller switching still requires QA.
+
+The renderer retains the original 4:3 game image. The 16:9 window presets are **not native widescreen gameplay**. Correct projection/HUD behavior and cheats remain unavailable, and complete campaign/mission validation remains unfinished. The current menu is also below the requested solid 30 FPS. See STATUS.md for measured limits and test evidence.
 
 ## Exact input
 

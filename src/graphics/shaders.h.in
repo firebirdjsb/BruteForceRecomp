@@ -1,0 +1,6 @@
+#pragma once
+namespace bf::graphics::shaders {
+inline constexpr char source[] = R"BF_SHADER(@BF_PRESENT_HLSL@)BF_SHADER";
+inline constexpr char ffx_a[] = R"BF_SHADER(@BF_FFX_A@)BF_SHADER";
+inline constexpr char ffx_fsr1[] = R"BF_SHADER(@BF_FFX_FSR1@)BF_SHADER";
+}
