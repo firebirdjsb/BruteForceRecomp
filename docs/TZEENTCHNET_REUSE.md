@@ -90,6 +90,23 @@ Only compare captures whose scene, viewpoint, input, HUD phase and flip
 identity were independently verified to align. This supplies a validation
 gate for the next D3D11 renderer work without copying title-specific hooks.
 
+## DX12 compatibility foundation
+
+We are retaining the shared GPU correctness rules for future DX11 and DX12
+renderers, not copying DX11-specific handles or synchronization into DX12.
+`src/gpu/guest_completion_timeline.h` is a C++17, backend-independent,
+monotonic fence/guest-write model. `src/gpu/d3d12_fence_bridge.h` adapts
+real D3D12 command-queue fence completion. Optional D3D12 WARP and
+D3D11On12 interoperability tests run separately from the current game.
+No change to the original live Xbox semaphore integration was required.
+
+See [DX12 compatibility and phased bring-up](DX12_COMPATIBILITY.md) for
+the precise boundary and unmet full-renderer, resource-transition and
+frame-matching gates. DX11 can optionally be driven through D3D11On12,
+but using that bridge is not the same as implementing a native DX12
+renderer. The CPU texture fast path does not automatically accelerate
+DX12's hardware texture samplers.
+
 ## Follow-up candidates, ordered by risk and payoff
 
 | Priority | Upstream files / patches | Reuse path | Conditions |
