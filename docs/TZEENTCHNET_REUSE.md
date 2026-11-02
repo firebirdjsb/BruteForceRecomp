@@ -70,6 +70,26 @@ All five replacement spans were checked against the exact pinned
 validation remain necessary**; the CMake smoke workflow uses synthetic
 generated files and contains no proprietary XBE or game asset content.
 
+## CPU/GPU frame comparison (implemented tool)
+
+`tools/compare_frames.py` and its synthetic pytest fixtures were imported
+from upstream, with MIT attribution. The tool compares two **already-captured,
+same-resolution** PNG/BMP frames and reports exact RGB differences,
+per-channel tolerance counts, regional statistics and an optional difference
+mask. It never generates frames, launches game code, or claims to establish
+matching simulation states.
+
+Install optional, non-runtime analysis dependencies with
+`python -m pip install -r tools/analysis-requirements.txt`. Example:
+
+```sh
+python tools/compare_frames.py reference.png candidate.png --reference-label cpu --candidate-label d3d11 --tolerance 8 --diff mismatch.png
+```
+
+Only compare captures whose scene, viewpoint, input, HUD phase and flip
+identity were independently verified to align. This supplies a validation
+gate for the next D3D11 renderer work without copying title-specific hooks.
+
 ## Follow-up candidates, ordered by risk and payoff
 
 | Priority | Upstream files / patches | Reuse path | Conditions |
