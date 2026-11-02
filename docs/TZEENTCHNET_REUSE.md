@@ -34,6 +34,26 @@ device model and Android ARM64 compile audit. Do not copy an upstream
 - No claim of native runtime build, game visual fidelity, or FPS improvement
   until our pinned-toolkit build and matched-scene checks run.
 
+## Additional implemented changes on this review branch
+
+- Adapted the primitive-draw part of upstream `0019-cache-hot-getenv.patch`
+  into the existing pinned private build-copy transform. Our shared
+  executor already caches the per-method environment check; the cached
+  draw-path read is the only relevant uncached anchor in the pinned base.
+  The upstream `nv2a_pb_scan.c` addition is not portable as-is because
+  our pinned base has a different scanner implementation. No benchmark
+  claim is made yet.
+- New disc imports omit the independently identified ancillary demo
+  payload trees `fx/` (Tao Feng) and `Mech/` (MechAssault) and the root
+  `demos.xbe`. They continue to import Brute Force's `data/`, `music/`,
+  `media/`, and other unclassified paths. This decision is based on
+  upstream `docs/ARCHITECTURE.md` and does **not** modify the game
+  executable, resources already imported in old libraries, or the
+  original ISO. Reimport locally to obtain a demo-excluded library.
+  A runtime boot/replay of a filtered disc has not yet been confirmed.
+- Added `.github/workflows/recomp-source-checks.yml` for safe,
+  proprietary-free Python, path policy and C11/UBSan test checks.
+
 ## Follow-up candidates, ordered by risk and payoff
 
 | Priority | Upstream files / patches | Reuse path | Conditions |
