@@ -18,7 +18,7 @@ inline HRESULT signal_gpu_queue(ID3D12CommandQueue *queue, ID3D12Fence *fence,
                                 GuestCompletionTimeline &timeline,
                                 std::uint64_t value) {
     if (!queue || !fence || value == 0 ||
-        value == std::numeric_limits<std::uint64_t>::max() ||
+        value == (std::numeric_limits<std::uint64_t>::max)() ||
         value <= timeline.submitted())
         return E_INVALIDARG;
     const HRESULT result = queue->Signal(fence, value);
