@@ -102,6 +102,16 @@ function(bf_apply_runtime_fixes toolkit)
     string(REPLACE "${texture_u}" "u = bf_texture_wrap_coord(u, t->width,  t->addr_u);" gpu_source "${gpu_source}")
     string(REPLACE "${texture_v}" "v = bf_texture_wrap_coord(v, t->height, t->addr_v);" gpu_source "${gpu_source}")
     string(REPLACE "${texture_slot}" "size_t slot = bf_texture_dxt_slot(key, bb);" gpu_source "${gpu_source}")
+    # Tzeentchnet patch 0019: cache a draw-hot environment lookup once.
+    # The pinned runtime already caches the per-method form below; only this
+    # separate primitive-draw call is still uncached.
+    set(verbose_before "if (getenv(\"RECOMP_PB_EXEC_VERBOSE\")) {")
+    string(FIND "${gpu_source}" "${verbose_before}" verbose_found)
+    if(verbose_found EQUAL -1)
+        message(FATAL_ERROR "Expected uncached draw logging guard was not found.")
+    endif()
+    set(verbose_after "static int bf_verbose_draws = -1;\n    if (bf_verbose_draws < 0)\n        bf_verbose_draws = getenv(\"RECOMP_PB_EXEC_VERBOSE\") != NULL;\n    if (bf_verbose_draws) {")
+    string(REPLACE "${verbose_before}" "${verbose_after}" gpu_source "${gpu_source}")
     set(gpu_patched "${CMAKE_BINARY_DIR}/runtime-fixes/nv2a_pb_exec.c")
     file(WRITE "${gpu_patched}.in" "${gpu_source}")
     configure_file("${gpu_patched}.in" "${gpu_patched}" COPYONLY)
