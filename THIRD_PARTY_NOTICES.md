@@ -9,6 +9,18 @@ The source repository states its project-owned files are MIT licensed. This
 adaptation renames the functions to avoid a collision with the pinned runtime.
 It does not include any original game assets or generated game code.
 
+Further MIT-licensed adaptations from the same upstream repository:
+- The primitive-draw environment lookup portion of patch
+  `0019-cache-hot-getenv.patch`, implemented in our private runtime transform.
+- The Windows framebuffer publication synchronization from
+  `0005-synchronize-presented-frames.patch`, adapted into our private
+  build-copy transformation and preserving the Linux SDL path.
+- `tools/compare_frames.py` and `tests/test_compare_frames.py` from
+  upstream commit `24d2e58687c976390efa23ab8b83a6b80078f1ec`, to
+  compare externally captured CPU/GPU/xemu frames using synthetic tests.
+  Images and native game assets are never committed.
+
+
 MIT License
 
 Copyright (c) 2026 the Brute Force recompilation contributors
