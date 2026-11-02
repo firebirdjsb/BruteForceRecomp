@@ -62,4 +62,4 @@ jobs:
         run: cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target xbox_kernel xbox_video bf_gpu_timeline_test bf_d3d12_compat_test
       - name: Run GPU timeline and DX12 WARP compatibility checks
         shell: pwsh
-        run: ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(gpu_timeline|d3d12_compat)$" --output-on-failure
+        run: ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(gpu_timeline|d3d12_compat)$" --output-on-failure -V
