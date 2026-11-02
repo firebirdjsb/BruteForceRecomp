@@ -59,7 +59,7 @@ jobs:
           cmake -S . -B "${{ runner.temp }}/bf-smoke" -G "Visual Studio 17 2022" -A x64 "-DXBOXRECOMP_DIR=${{ runner.temp }}/xboxrecomp" "-DBF_GENERATED_DIR=${{ runner.temp }}/bf-generated" "-DBF_RECOVERED_DIR=${{ runner.temp }}/bf-recovered"
       - name: Build patched kernel, DX12 compatibility probe and Windows presenter
         shell: pwsh
-        run: cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target xbox_kernel xbox_video bf_gpu_timeline_test bf_d3d12_compat_test
+        run: cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target xbox_kernel xbox_video bf_gpu_timeline_test bf_d3d12_compat_test bf_d3d12_texture_test
       - name: Run GPU timeline and DX12 WARP compatibility checks
         shell: pwsh
-        run: ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(gpu_timeline|d3d12_compat)$" --output-on-failure -V
+        run: ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(gpu_timeline|d3d12_compat|d3d12_texture)$" --output-on-failure -V
