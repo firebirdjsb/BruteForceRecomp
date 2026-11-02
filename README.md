@@ -35,6 +35,20 @@ Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/
 
 Xbox executables use XBE headers, not Windows PE headers. `scripts/verify_offsets.py` validates the actual format, image bounds and this exact build. Guest virtual addresses in the host identify original code; host memory addresses are derived by the runtime loader.
 
+## DirectX 12 compatibility foundation
+
+An isolated, **backend-neutral guest GPU fence timeline** and an optional
+Windows D3D12 WARP/D3D11On12 compatibility fixture are now included. The
+future DX11 and DX12 renderers can reuse the original-Xbox synchronization
+semantics, same-resolution frame comparison, and original content validation
+without duplicating title-specific patches.
+
+**No DX12 gameplay renderer is built or selected yet.** Microsoft Direct3D12
+requires explicit command queues, resource transitions, descriptor management
+and confirmed fence completion. Passing the WARP interoperability smoke test
+does not establish rendered gameplay. Details are in
+[DX12 compatibility](docs/DX12_COMPATIBILITY.md).
+
 ## Renderer frame comparisons
 
 The independent MIT-licensed frame-difference tool can measure captured
