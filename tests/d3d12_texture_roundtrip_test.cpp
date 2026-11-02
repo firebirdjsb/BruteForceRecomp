@@ -139,10 +139,10 @@ int main() {
         }) == bf::gpu::RetireResult::ok);
     CHECK(signalValue == 0x1234u && timeline.pending() == 0);
 
-    const std::uint8_t *output = nullptr;
+    void *readMapped = nullptr;
     D3D12_RANGE readRange = {0, static_cast<SIZE_T>(total)};
-    CHECK(SUCCEEDED(readback->Map(0, &readRange, reinterpret_cast<void **>(
-        const_cast<std::uint8_t **>(&output)))));
+    CHECK(SUCCEEDED(readback->Map(0, &readRange, &readMapped)));
+    const auto *output = static_cast<const std::uint8_t *>(readMapped);
     bool same = true;
     for (UINT y = 0; y < height; ++y)
         if (std::memcmp(output + footprint.Offset + y * footprint.Footprint.RowPitch,
