@@ -119,6 +119,50 @@ function(bf_apply_runtime_fixes toolkit)
     list(REMOVE_ITEM patched_sources "${executor}")
     list(APPEND patched_sources "${gpu_patched}")
     set_property(TARGET xbox_kernel PROPERTY SOURCES "${patched_sources}")
+    # Adapt the minimal mono-HRTF stereo fix from upstream patch 0035.
+    # Preserve PCM source channel count; only filtered *output* is binaural.
+    # Patch the private pinned APU copy; applies to Windows and Linux.
+    set(apu_original "${toolkit}/src/apu/apu_vp.c")
+    file(READ "${apu_original}" apu_source)
+    string(REPLACE "\r\n" "\n" apu_source "${apu_source}")
+    set(hrtf_a [=[    unsigned int channels = stereo ? 2 : 1;
+    bool paused = voice_get_mask(d, v, NV_PAVS_VOICE_PAR_STATE,]=])
+    set(hrtf_b [=[    unsigned int channels = stereo ? 2 : 1;
+    unsigned int output_channels = channels;
+    bool paused = voice_get_mask(d, v, NV_PAVS_VOICE_PAR_STATE,]=])
+    set(hrtf_c [=[            hrtf_filter_process(&d->vp.filters[v].hrtf, samples, samples);
+        }
+    }]=])
+    set(hrtf_d [=[            hrtf_filter_process(&d->vp.filters[v].hrtf, samples, samples);
+            output_channels = 2;
+        }
+    }]=])
+    set(hrtf_e [=[mixbins[bin[b]][i] += (g0 + step * (i + 1)) * samples[i][b % channels];]=])
+    set(hrtf_f [=[mixbins[bin[b]][i] += (g0 + step * (i + 1)) * samples[i][b % output_channels];]=])
+    foreach(old IN ITEMS hrtf_a hrtf_c hrtf_e)
+        string(FIND "${apu_source}" "${${old}}" hrtf_found)
+        if(hrtf_found EQUAL -1)
+            message(FATAL_ERROR "Pinned APU mono-HRTF correction anchor ${old} not found.")
+        endif()
+    endforeach()
+    string(REPLACE "${hrtf_a}" "${hrtf_b}" apu_source "${apu_source}")
+    string(REPLACE "${hrtf_c}" "${hrtf_d}" apu_source "${apu_source}")
+    string(REPLACE "${hrtf_e}" "${hrtf_f}" apu_source "${apu_source}")
+    set(apu_patched "${CMAKE_BINARY_DIR}/runtime-fixes/apu_vp.c")
+    file(WRITE "${apu_patched}.in" "${apu_source}")
+    configure_file("${apu_patched}.in" "${apu_patched}" COPYONLY)
+    get_target_property(apu_sources xbox_apu SOURCES)
+    get_target_property(apu_directory xbox_apu SOURCE_DIR)
+    set(apu_replacements)
+    foreach(item IN LISTS apu_sources)
+        get_filename_component(absolute "${item}" ABSOLUTE BASE_DIR "${apu_directory}")
+        if(absolute STREQUAL apu_original)
+            list(APPEND apu_replacements "${apu_patched}")
+        else()
+            list(APPEND apu_replacements "${absolute}")
+        endif()
+    endforeach()
+    set_property(TARGET xbox_apu PROPERTY SOURCES "${apu_replacements}")
     # Windows-only correctness backport from Tzeentchnet patch 0005.
     # Leave the original toolkit and the Linux SDL presenter untouched.
     if(WIN32)
