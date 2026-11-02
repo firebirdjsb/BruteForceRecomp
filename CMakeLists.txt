@@ -32,6 +32,12 @@ add_test(NAME import_guard COMMAND bf_import_guard_test)
 add_executable(bf_texture_math_test tests/texture_math_test.c)
 target_include_directories(bf_texture_math_test PRIVATE src)
 add_test(NAME texture_math COMMAND bf_texture_math_test)
+add_executable(bf_render_scale_test tests/render_scale_policy_test.c)
+target_include_directories(bf_render_scale_test PRIVATE src)
+if(NOT WIN32)
+    target_link_libraries(bf_render_scale_test PRIVATE m)
+endif()
+add_test(NAME render_scale COMMAND bf_render_scale_test)
 # Pre-register the upstream NV2A combiner / vertex HLSL emitters as a
 # testable shared renderer component. They are not plugged into guest draw
 # dispatch until original-CPU and DX11/DX12 frame parity is established.
