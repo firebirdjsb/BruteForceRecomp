@@ -45,6 +45,12 @@ add_test(NAME render_scale COMMAND bf_render_scale_test)
 add_executable(bf_frame_stats_test tests/frame_stats_test.c src/gpu/nv2a_frame_stats.c)
 target_include_directories(bf_frame_stats_test PRIVATE src/gpu)
 add_test(NAME frame_stats COMMAND bf_frame_stats_test)
+# P8 palette unswizzle is shared, independent of D3D11/D3D12 host APIs.
+add_library(bf_nv2a_p8 STATIC src/gpu/nv2a_p8_decode.c)
+target_include_directories(bf_nv2a_p8 PUBLIC src "${XBOXRECOMP_DIR}/src")
+add_executable(bf_nv2a_p8_test tests/nv2a_p8_decode_test.c)
+target_link_libraries(bf_nv2a_p8_test PRIVATE bf_nv2a_p8)
+add_test(NAME nv2a_p8_decode COMMAND bf_nv2a_p8_test)
 # Pre-register the upstream NV2A combiner / vertex HLSL emitters as a
 # testable shared renderer component. They are not plugged into guest draw
 # dispatch until original-CPU and DX11/DX12 frame parity is established.
