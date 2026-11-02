@@ -60,6 +60,60 @@ The renderer retains the original 4:3 game image. The 16:9 window presets are **
 
 Xbox executables use XBE headers, not Windows PE headers. `scripts/verify_offsets.py` validates the actual format, image bounds and this exact build. Guest virtual addresses in the host identify original code; host memory addresses are derived by the runtime loader.
 
+## Integration progress and validation
+
+The [upstream feature progress matrix](docs/UPSTREAM_INTEGRATION_PROGRESS.md)
+tracks renderer/HLSL work, synchronized presentation, texture decoding and
+shader caching, verified mono-HRTF audio, 1440p/4K scaling policies, USB
+lifecycle safety and actual frame benchmarking. A successful synthetic compile
+does **not** imply that DirectX 11/12 game rendering or full game boot passes.
+
+To inspect opt-in distinct-image frame statistics, set
+`RECOMP_FRAME_STATS` to a writable CSV filename while running your approved
+local original game, then run `python tools/frame_bench.py <trace.csv>`.
+Unidentified GPU-owned frames remain unknown, not counted as distinct.
+
+## Graphics backend boundary
+
+The native DX12 presenter and FSR 1 are implemented in `src/graphics/` and
+operate on completed CPU-rendered images. The imported NV2A HLSL generators,
+P8 decoder, shader cache and completion timeline are compiled and tested,
+but are not yet connected to a hardware NV2A scene renderer. Connecting
+real guest draws is the next performance milestone. A native DX12 scene
+pipeline needs its own resource, descriptor, PSO and fence implementation.
+See [DX12 compatibility](docs/DX12_COMPATIBILITY.md).
+
+## Renderer frame comparisons
+
+The independent MIT-licensed frame-difference tool can measure captured
+CPU/reference and future GPU image differences without game data in Git.
+Install optional tools with `python -m pip install -r tools/analysis-requirements.txt`,
+then run `python tools/compare_frames.py reference.png candidate.png
+--diff mismatch.png`. Its JSON result reports changed pixels, thresholds and
+regions; it does not prove images are from the same game state.
+
+## Demo content policy
+
+New ISO imports deliberately skip the separately identified Tao Feng and
+MechAssault demo payload directories (`fx/`, `Mech/`) and the root
+`demos.xbe`. The original game's other files stay intact, and the
+importer never executes or changes the source disc. **Existing imported
+libraries are not silently altered**: reimport your disc to use the
+new demo-exclusion policy. The built-in Demos entry on the original game's
+menu is controlled by the separately authenticated private game adaptations.
+Do not distribute extracted game files or substitute another title's data.
+
+## External integration
+
+All commits from `integration/tzeentchnet-texture-math` are integrated into
+main alongside the native application and campaign fixes. The reference
+repository was checked at commit `24d2e58687c976390efa23ab8b83a6b80078f1ec`.
+Its different XBE fingerprint prevents transplanting its title hooks.
+[Reuse assessment](docs/TZEENTCHNET_REUSE.md),
+[feature status](docs/UPSTREAM_INTEGRATION_PROGRESS.md) and
+[third-party notices](THIRD_PARTY_NOTICES.md) distinguish runtime changes,
+tested reusable components and remaining integration gates.
+
 ## Public tools
 
 | Repository | Role / assessment |

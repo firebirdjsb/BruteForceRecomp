@@ -1,1 +1,5 @@
 * text=auto eol=lf
+# Preserve upstream source/license bytes, including their existing spacing.
+third_party/fsr1/* -whitespace
+native_launcher/assets/* -whitespace
+native_launcher/assets/fonts/* -whitespace
