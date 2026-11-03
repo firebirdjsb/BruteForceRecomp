@@ -1,5 +1,23 @@
 # Next-agent handoff prompt — 2 November 2026
 
+Newest milestone: opt-in up-to-60-FPS host presentation is in launcher Graphics
+and F1 > Renderer, live and persisted. Read `docs/FRAME_RATE.md` before continuing.
+D3D11 first-mission smoke improved 30.00 -> 54.17 distinct FPS; the actual
+saved setting through D3D12/11On12 measured 34.46. Physics clock ratios stayed
+approximately 1.000 and the original minimum step stayed 1/66. This does not
+verify all gameplay/animation/audio/multiplayer behavior. Default remains 30;
+do not enable speculative 120-Hz guest clocks or timestep modifications.
+The optional hash-gated timing probes are OFF in normal builds. The user's
+ordered remainder is native 16:9/resolution and temporal FSR/DLSS, Linux GPU
+and S24 Ultra APK, complete acceptance, cheats and expanded P2P. None is done.
+
+Final probes-OFF player smoke measured 51.72 distinct FPS. The player is
+installed at `work/diagnostic-build/Release/bruteforce_recomp.exe`, and the
+new launcher is `BruteForceLauncher.exe` at the workspace root, with its SDL2
+DLL/assets. Existing open older launchers were left alone. Rollback/hash
+record: `work/high-fps/install-manifest.json`; prior player under
+`work/high-fps/install-backup`. Select Original 30 FPS to revert pacing.
+
 Latest follow-up: main now includes newer desktop input, bloom-mask and tutorial
 artwork fixes documented at the top of STATUS.md; those supersede the historical
 details below. A further launcher fix resolves the native player from SDL paths

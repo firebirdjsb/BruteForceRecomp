@@ -5,6 +5,36 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Experimental higher-FPS mode
+
+The native launcher and F1 > Renderer now share an opt-in up-to-60-FPS mode.
+The host shortens TWO/TWO_OR_IMMEDIATE presentation waits while retaining the
+IMMEDIATE flag, 60-Hz vblank and original guest timing/physics code. Original
+pacing remains the default; the CPU reference path keeps original behavior.
+
+A bounded first-mission D3D11 comparison measured 30.00 versus 54.17 distinct
+frames/second in the last 25 seconds. The physics clock advanced at 0.999983
+versus 0.999989 game seconds per wall second; its original 1/66 minimum step
+was unchanged. The actual saved setting also reached the D3D12/11On12 path:
+34.46 distinct FPS and clock ratio 1.000008 on this RTX 3060 Ti. This bridge
+remains slower than D3D11. These are scratch-save smoke tests, not complete
+campaign, physics-fidelity or multiplayer validation, nor a solid-60 guarantee.
+
+The final normal player, with timing probes compiled out, then measured 51.72
+distinct FPS in another first-mission run with HUD and scripted fire visible.
+It is installed at `work/diagnostic-build/Release/bruteforce_recomp.exe`. The
+updated native launcher, SDL2 and themed assets are installed at the workspace
+root; `Launch Brute Force.cmd` prefers that executable. Older already-open
+launchers were not overwritten. Game data, saves and existing preferences were
+preserved. Private install hashes/rollback are under `work/high-fps`.
+
+All 21 Windows native checks, both GPU parity suites, Windows/Linux launcher
+tests and Linux pacing/UI checks pass. New read-only timing probes are optional
+and hash gated; normal player builds leave them off. See
+[frame-rate evidence and ordered remaining work](docs/FRAME_RATE.md). The user's
+native widescreen/temporal upscaling, Linux GPU, Android APK, complete QA,
+cheats and expanded P2P requests remain pending.
+
 ### Launcher Start recovery
 
 The normal SDL application path ends in a separator. The launcher's fixed

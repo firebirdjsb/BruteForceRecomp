@@ -86,9 +86,9 @@ static int run_native(int argc, char **argv) {
     try {
         if(argc==2 && std::string_view(argv[1])=="--capabilities") {
 #ifdef BF_EXPERIMENTAL_NV2A_D3D11
-            std::puts("nv2a_d3d11=1\nnv2a_d3d12=1");
+            std::puts("nv2a_d3d11=1\nnv2a_d3d12=1\nhost_fps60=1");
 #else
-            std::puts("nv2a_d3d11=0\nnv2a_d3d12=0");
+            std::puts("nv2a_d3d11=0\nnv2a_d3d12=0\nhost_fps60=0");
 #endif
             return 0;
         }

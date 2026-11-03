@@ -27,7 +27,7 @@ std::string read_tail(const std::filesystem::path &path, size_t limit) {
     file.seekg(size > std::streamoff(limit) ? size - std::streamoff(limit) : std::streamoff(0));
     return std::string(std::istreambuf_iterator<char>(file), {});
 }
-static const char *removed[] = {"RECOMP_WATCHDOG_SECS", "RECOMP_PAD_SCRIPT", "RECOMP_PAD_LIVE", "BF_SAMPLE_BOOT", "BF_TRACE_DELAY", "RECOMP_KEYBOARD", "RECOMP_MKB", "RECOMP_D3D11_WARP", "RECOMP_GPU_DEPTH_TEXTURE", "RECOMP_GPU_VSH_VERIFY", "RECOMP_GPU_VSH_SYNC"};
+static const char *removed[] = {"RECOMP_WATCHDOG_SECS", "RECOMP_PAD_SCRIPT", "RECOMP_PAD_LIVE", "BF_SAMPLE_BOOT", "BF_TRACE_DELAY", "RECOMP_KEYBOARD", "RECOMP_MKB", "RECOMP_D3D11_WARP", "RECOMP_GPU_DEPTH_TEXTURE", "RECOMP_GPU_VSH_VERIFY", "RECOMP_GPU_VSH_SYNC", "BF_TEST_FRAME_INTERVAL", "BF_FRAME_TIMING_CSV"};
 static std::map<std::string,std::string> game_environment(const std::filesystem::path &saves,bool keyboard,
         const GraphicsOptions &graphics,const std::filesystem::path &settings) {
     if(!valid_graphics(graphics))throw std::runtime_error("Invalid game graphics settings");

@@ -144,6 +144,8 @@ void Library::launch(bool keyboard) {
                 const auto capability=run_process(exe,{"--capabilities"},session,session/"capabilities.log");
                 if(capability.code || capability.detail.find("nv2a_"+options.scene+"=1")==std::string::npos)
                     throw std::runtime_error("This native build lacks the selected GPU scene backend. Select CPU reference or locate a build with that GPU scene backend enabled.");
+                if(options.frame_limit==60 && capability.detail.find("host_fps60=1")==std::string::npos)
+                    throw std::runtime_error("This game application predates the 60 FPS option. Locate the updated native game or select Original (30 FPS).");
             }
             const auto result = run_process(exe, {path_text(game_directory()), path_text(saves)}, session, session / "game.log", saves, keyboard, options,root_/"graphics.settings",[this,session] {
                 std::lock_guard guard(mutex_);state_.running=true;state_.phase="running";

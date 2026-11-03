@@ -4,11 +4,15 @@ Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows,
 
 **This is not a finished or verified playable port.** Translation, compiling, booting, rendering and completing a mission are separate gates. Generated code and inferred calling conventions must be checked against the original executable and measured execution.
 
-The immediate priority is a rendered, controllable campaign at a stable frame rate. The newest candidate renders the tutorial and responds to scripted movement after fixing geometry allocation, missing CRT entries and GPU software commands. The visible scene still drops to about 3–4 FPS, and audio underruns remain. See [STATUS.md](STATUS.md) for current evidence, isolated candidates and remaining platform work.
+The immediate priority is a rendered, controllable campaign at a stable frame rate. The current candidate renders the tutorial with its HUD and responds to scripted input. An opt-in up-to-60-FPS mode measured 54.17 distinct FPS in a bounded D3D11 first-mission test, versus 30.00 with original pacing; the original physics clock and minimum step were retained. This is not full campaign, audio or multiplayer acceptance. See [STATUS.md](STATUS.md) and [frame-rate evidence](docs/FRAME_RATE.md) for exact boundaries and remaining work.
 
 ## Desktop application
 
 The launcher is a native C++ SDL2/Dear ImGui application. It does not open a browser or require a local web server or Python at runtime. On Windows, open **Launch Brute Force.cmd** after building; on Linux use `sh launch.sh`.
+
+Windows GPU builds expose **Graphics > Frame rate > Up to 60 FPS (experimental)**.
+**F1 > Renderer > Frame rate** changes the same setting live. Original pacing
+remains the default; this is separate from window scaling or temporal upscaling.
 
 ```sh
 cmake -S . -B .local/launcher-build -DBF_LAUNCHER_ONLY=ON

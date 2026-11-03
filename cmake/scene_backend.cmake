@@ -22,6 +22,9 @@ if(NOT result EQUAL 0)
     message(FATAL_ERROR "Cannot apply audited NV2A draw overlay: ${error}")
 endif()
 file(READ "${overlay}/nv2a_pb_exec.c" connected)
+string(REPLACE "xbox_FlipHoldSwap(&s_flip_hold, param);"
+    "xbox_FlipHoldSwap(&s_flip_hold, bf_ui_swap_parameter(param));" connected "${connected}")
+string(PREPEND connected "extern unsigned bf_ui_swap_parameter(unsigned);\n")
 string(REPLACE "clock_ok && !nv2a_pb_scan_in_call()"
     "clock_ok && (nv2a_pb_dma_walk() || !nv2a_pb_scan_in_call())" connected "${connected}")
 file(WRITE "${overlay}/nv2a_pb_exec.c.in" "${connected}")

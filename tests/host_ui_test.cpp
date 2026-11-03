@@ -15,7 +15,7 @@ int main(int argc,char **argv) {
         auto legacy=settings;legacy+=".legacy";
         {std::ofstream file(legacy);file<<"BF_GRAPHICS 1\nauto d3d12 1 1 4 1080 1 1 0 70\n";}
         auto loaded=bf::load_graphics(legacy);
-        if(loaded.scene!="d3d12"||loaded.volume!=70||loaded.scale!=4||loaded.mouse_sensitivity!=1.0f)return 32;
+        if(loaded.scene!="d3d12"||loaded.volume!=70||loaded.scale!=4||loaded.mouse_sensitivity!=1.0f||loaded.frame_limit!=30)return 32;
         {std::ofstream file(legacy,std::ios::app);file<<"99\n";}
         if(bf::load_graphics(legacy).scene!="cpu")return 33;
         std::filesystem::remove(legacy);
@@ -98,6 +98,33 @@ int main(int argc,char **argv) {
     for(unsigned key:{113u,114u,115u,120u})if(bf_ui_key(key,0)||bf_ui_open())return 36;
     if(!bf_ui_menu_key(13,0))return 16;
     buttons=0;analog={};if(!bf_ui_pad(&buttons,analog.data())||analog[0]!=255)return 17;
+    // A live F1 change reaches the GPU software-method decoder, and both
+    // directions persist without changing the original IMMEDIATE flag.
+    auto parked=bf::load_graphics(settings);parked.frame_limit=60;bf::save_graphics(settings,parked);
+#ifdef _WIN32
+    _putenv_s("RECOMP_GPU","");
+#else
+    unsetenv("RECOMP_GPU");
+#endif
+    bf_ui_settings_initial(1);
+    if(bf_ui_swap_parameter(0x05600141u)!=0x05600141u)return 42;
+    parked.frame_limit=30;bf::save_graphics(settings,parked);
+#ifdef _WIN32
+    _putenv_s("RECOMP_GPU","d3d11");
+#else
+    setenv("RECOMP_GPU","d3d11",1);
+#endif
+    bf_ui_settings_initial(1);bf_ui_key(112,0);bf_ui_mouse(320,115,640,480,1);
+    if(bf_ui_swap_parameter(0x05600141u)!=0x05600141u)return 37;
+    bf_ui_mouse(200,132+3*28+8,640,480,1);
+    if(bf_ui_swap_parameter(0x05600141u)!=0x05600121u||bf::load_graphics(settings).frame_limit!=60)return 38;
+    bf_ui_mouse(200,132+3*28+8,640,480,1);
+    if(bf_ui_swap_parameter(0x05600141u)!=0x05600141u||bf::load_graphics(settings).frame_limit!=30)return 39;
+    bf_ui_mouse(200,132+3*28+8,640,480,1);
+    bf_ui_settings_initial(0);
+    if(bf_ui_swap_parameter(0x05600141u)!=0x05600141u)return 40;
+    auto invalid=bf::load_graphics(settings);invalid.frame_limit=120;
+    if(bf::valid_graphics(invalid))return 41;
     std::filesystem::remove(settings);
     std::puts("Menu coordinates, input ownership, click ordering, F1 focus and live audio settings passed.");
 }

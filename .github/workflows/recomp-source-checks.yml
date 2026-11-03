@@ -26,7 +26,7 @@ jobs:
           PYTHONPATH: scripts
         run: python3 -m unittest discover -s tests -v
       - name: Test frame comparison using synthetic reference/candidate images
-        run: python3 -m pytest -q tests/test_compare_frames.py
+        run: python3 -m pytest -q tests/test_compare_frames.py tests/test_frame_timing_analysis.py
       - name: Verify real-frame hash semantics and flip statistics
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -Isrc/gpu tests/frame_stats_test.c src/gpu/nv2a_frame_stats.c -o /tmp/bf-frame-stats
@@ -68,10 +68,10 @@ jobs:
           cmake -S . -B "${{ runner.temp }}/bf-smoke" -G "Visual Studio 17 2022" -A x64 "-DXBOXRECOMP_DIR=${{ runner.temp }}/xboxrecomp" -DBF_RUNTIME_CHECKS_ONLY=ON -DBF_EXPERIMENTAL_NV2A_D3D11=${{ matrix.scene }}
       - name: Build patched kernel, NV2A shaders, mono-HRTF audio and DirectX probes
         shell: pwsh
-        run: cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target xbox_kernel xbox_video xbox_apu bf_nv2a_hlsl_test bf_apu_hrtf_test bf_pscache_test bf_render_scale_test bf_frame_stats_test bf_nv2a_p8_test bf_gpu_timeline_test bf_d3d12_compat_test bf_d3d12_texture_test
+        run: cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target xbox_kernel xbox_video xbox_apu bf_nv2a_hlsl_test bf_apu_hrtf_test bf_pscache_test bf_render_scale_test bf_frame_stats_test bf_nv2a_p8_test bf_gpu_timeline_test bf_d3d12_compat_test bf_d3d12_texture_test bf_frame_interval_probe_test
       - name: Test NV2A GPU shader code, HRTF mixing and DX12 WARP compatibility
         shell: pwsh
-        run: ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(gpu_timeline|d3d12_compat|d3d12_texture|nv2a_hlsl|apu_mono_hrtf|shader_cache|render_scale|frame_stats|nv2a_p8_decode)$" --output-on-failure -V
+        run: ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(frame_interval_probe|gpu_timeline|d3d12_compat|d3d12_texture|nv2a_hlsl|apu_mono_hrtf|shader_cache|render_scale|frame_stats|nv2a_p8_decode)$" --output-on-failure -V
       - name: Build and compare real NV2A draws with the CPU reference on WARP
         if: matrix.scene == 'ON'
         shell: pwsh

@@ -55,6 +55,10 @@ include(cmake/pushbuffer_stream.cmake)
 include(cmake/frame_handoff.cmake)
 include(cmake/graphics.cmake)
 enable_testing()
+add_executable(bf_frame_interval_probe_test tests/frame_interval_probe_test.cpp
+    "${XBOXRECOMP_DIR}/src/kernel/nv2a_flip_hold.c")
+target_include_directories(bf_frame_interval_probe_test PRIVATE src "${XBOXRECOMP_DIR}/src/kernel")
+add_test(NAME frame_interval_probe COMMAND bf_frame_interval_probe_test)
 add_executable(bf_import_guard_test tests/import_guard_test.cpp)
 target_include_directories(bf_import_guard_test PRIVATE src)
 add_test(NAME import_guard COMMAND bf_import_guard_test)
@@ -161,6 +165,7 @@ include(cmake/game_text_input.cmake)
 include(cmake/game_menu_input.cmake)
 include(cmake/desktop_input.cmake)
 include(cmake/physics_trace.cmake)
+include(cmake/frame_timing_probe.cmake)
 add_executable(bruteforce_recomp src/main.cpp src/boot_trace.cpp src/file_hash.cpp
     src/native_media.cpp src/instruction_services.cpp src/startup_sampler.cpp
     src/gpu_completion.cpp src/gpu_pushbuffer_fixups.cpp src/host_input.cpp src/host_audio.cpp src/guest_failure.cpp "${BF_RECOVERED_DIR}/recomp_recovered.c" ${BF_GENERATED})

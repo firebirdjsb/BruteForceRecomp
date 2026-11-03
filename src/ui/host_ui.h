@@ -36,6 +36,8 @@ unsigned bf_ui_scale(void);
 int bf_ui_take_size(unsigned *width,unsigned *height);
 float bf_ui_audio_gain(void);
 float bf_ui_mouse_sensitivity(void);
+/* Applies only the host GPU presentation interval; preserves guest timing. */
+uint32_t bf_ui_swap_parameter(uint32_t parameter);
 int bf_ui_point(int x,int y,int width,int height,float *gx,float *gy);
 int bf_ui_contains(BfUiRect rect,float x,float y);
 #ifdef __cplusplus
