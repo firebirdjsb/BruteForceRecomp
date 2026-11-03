@@ -1,220 +1,158 @@
-# Next-agent handoff prompt — 2 November 2026
+# Next-agent handoff prompt — 3 November 2026
 
-Latest launcher follow-up: hide throughout the launch session (validation,
-startup and running game), restore on exit/failure, and allow one interactive
-owner per library using a cross-process OS file lock. Three older instances
-had been left open from tests and made the launcher appear to stay visible.
-Those were closed normally; both installed executable locations are updated.
-Windows/Linux now have three launcher tests, including actual child processes,
-startup failure, duplicates and abrupt-exit release. A Windows-driver run also
-checks actual HWND visibility. Game code and permanent saves are unchanged.
-Private launcher backups/installation record: `work/launcher-lifecycle-fix`.
+Continue the native Brute Force recompilation in
+`D:\Documents\ChatGPT\bfRecomp` (Windows/PowerShell). Read the user's AGENTS
+instructions, current source, STATUS.md and docs/FRAME_RATE.md before editing.
+The user authorizes pushing source to private firebirdjsb/BruteForceRecomp.
+Do not commit game files, generated/recovered game C, captures, saves or binaries.
+Keep original saves and permanent preferences. Do not reintroduce a website.
+Use at most two focused repair loops per issue and report remaining failures.
 
-Newest milestone: opt-in up-to-60-FPS host presentation is in launcher Graphics
-and F1 > Renderer, live and persisted. Read `docs/FRAME_RATE.md` before continuing.
-D3D11 first-mission smoke improved 30.00 -> 54.17 distinct FPS; the actual
-saved setting through D3D12/11On12 measured 34.46. Physics clock ratios stayed
-approximately 1.000 and the original minimum step stayed 1/66. This does not
-verify all gameplay/animation/audio/multiplayer behavior. Default remains 30;
-do not enable speculative 120-Hz guest clocks or timestep modifications.
-The optional hash-gated timing probes are OFF in normal builds. The user's
-ordered remainder is native 16:9/resolution and temporal FSR/DLSS, Linux GPU
-and S24 Ultra APK, complete acceptance, cheats and expanded P2P. None is done.
+## Latest requirement and correction
 
-Final probes-OFF player smoke measured 51.72 distinct FPS. The player is
-installed at `work/diagnostic-build/Release/bruteforce_recomp.exe`, and the
-new launcher is `BruteForceLauncher.exe` at the workspace root, with its SDL2
-DLL/assets. The later launcher follow-up above supersedes the old open instances. Rollback/hash
-record: `work/high-fps/install-manifest.json`; prior player under
-`work/high-fps/install-backup`. Select Original 30 FPS to revert pacing.
+The game must retain its original 30-FPS timing. The user rejected the previous
+native-60 experiment and wants interpolated 60–120 visual FPS. They also reported
+black Loading (GAME 0, GEN 0, draws 0 despite DISPLAY 180) and want compatibility
+across renderers. Playable campaign remains priority 1.
 
-Latest follow-up: main now includes newer desktop input, bloom-mask and tutorial
-artwork fixes documented at the top of STATUS.md; those supersede the historical
-details below. A further launcher fix resolves the native player from SDL paths
-ending in a separator and recovers missing saved executable paths. The normal
-AppData library's game files were valid but its player path was empty. Its path
-is now repaired without moving either library or any saves. Windows/Linux tests
-cover player discovery and launcher lifecycle; inspect STATUS.md and current
-source before treating an older artifact/hash below as the latest build.
+The former interval-2-to-1 override is removed from both normal and diagnostic
+paths. src/gpu/frame_interval.h and its test are retired. Actual runtime
+flip-hold tests now prove the original TWO_OR_IMMEDIATE interval is retained in
+Off/60/120 visual modes. Legacy native-60 preferences migrate to 30 while
+preserving other settings. Do not change guest clocks, physics or vblank.
 
-Continue the Brute Force native recompilation in
-`D:\Documents\ChatGPT\bfRecomp` on Windows/PowerShell. Read the user's AGENTS.md
-instructions and the current repository before editing. Fetch private
-`firebirdjsb/BruteForceRecomp`, inspect main and local changes, and preserve
-unrelated work. The user explicitly authorized pushing all source changes.
-The old review branch was merged into main; the browser/HTTP launcher was removed.
-The application is native SDL2/Dear ImGui. Do not reintroduce a website.
+## Latest startup fix and evidence
 
-## User priorities and latest reports
+A disabled control run stalled at original 0x00265B80/0x00265B87 in
+sub_00265AD0's file-completion busy loop, repeatedly calling original
+SleepEx(0) at 0x002F4B0E (kernel ordinal 99 KeDelayExecutionThread). The
+original file object byte +5 stayed busy. ReadFile/GetOverlappedResult wrappers
+are 0x002F33A0/0x002F5084; completion 0x00265910 clears it at 0x00265992.
+These evidence addresses belong only to the authenticated retail XBE.
 
-Playable campaign with reliable input and good frame rate is the first priority.
-The latest reports were: launch black screen; add D3D12 GPU support; no mouse
-movement; missing HUD; coarse/pixelated image; apparent gameplay freeze.
-The user confirmed **movies and menus became visible** after the movie fix.
-The missing HUD reference has health/ability bars, ammo, crosshair, radar,
-portrait and grenades. Screenshots are private and must not be committed.
+The pinned public bridge already has RECOMP_ASYNC_IO=1: existing read, completed
+IOSB/event, but STATUS_PENDING for tracked asynchronous handles. A paired run
+with that mode got through loading into the first mission. src/main.cpp now
+defaults it on; native_launcher/process.cpp passes it explicitly. A hash-gated
+private-copy edit fixes upstream's presence-only parser so explicit 0 works for
+direct diagnostic controls. No speculative physics, guest callback or
+completion-port implementation was added. Do not overstate Windows API rules;
+synchronous completion of an asynchronous request can be legal. This is a
+measured title/runtime compatibility profile.
 
-The user then asked to push all changes and write this handoff. Be candid about
-runtime QA. A build, synthetic fixture or frame counter does not establish
-complete gameplay, all missions, physics fidelity or physical-device support.
-Use at most two focused repair loops per issue, then report the failure and
-safest next step. Never guess physics, timestep or coordinate patches.
+New tests/async_io_test.c drives the actual patched NtCreateFile/NtReadFile
+bridge with synthetic local data, both async/synchronous handles, 0/1 profile,
+final IOSB/data, event transitions, handle cleanup and exact stdcall stack.
+Public-runtime-only CI links actual host UI code, not presenter function stubs.
+BF_TRACE_FILE_IO can log millions of tiny reads; leave it OFF during normal QA.
 
-## Current fixes and their evidence
+## Visual interpolation implementation
 
-1. **Black movies:** the GPU renderer had seeded a color surface once and
-   later overwrote CPU/Bink writes with stale black GPU pixels. The backend now
-   tracks guest color snapshots, mirrors complete clears, uploads changed
-   CPU-owned surfaces before drawing/readback, and records GPU color ownership.
-   The warm-cache baseline captured 30 black frames. The fixed visible run
-   `work/black-screen-qa/fixed-warm-gfa3z52v/` captured 42 nonblack images with
-   the user's DX12/FSR/window settings. Compared cache files matched the disc;
-   no cache reset or permanent-save change was performed. The user confirmed
-   visibility after the normal player was updated.
-2. **Invisible tutorial / HUD:** legacy programmable near clipping discarded
-   screen-depth-zero UI against viewport constant c[59].z. The mission was
-   actually paused at an invisible **Basic Controls** tutorial dialog. A
-   controlled `RECOMP_PROGRAM_NEAR_ZERO=1` run restored that dialog and the HUD.
-   The authenticated game's GPU boot path now defaults this existing generic
-   option to 1, with an explicit diagnostic override retained. This changes
-   rendering, not physics or simulation. Synthetic zero-depth HUD coverage was
-   added. Dismiss/skip the tutorial before judging movement.
-3. **Mouse launch wiring:** the launcher previously set RECOMP_KEYBOARD but
-   never RECOMP_MKB. Its checkbox now enables both and reads “Mouse and keyboard
-   controls.” WASD and raw mouse use the existing virtual-controller adapter;
-   F9 releases/toggles capture. Typing, F1 and menu ownership still gate that
-   adapter. Complete physical mouse/controller QA remains pending.
-4. **D3D12 scene option:** `RECOMP_GPU=d3d12` now creates a real D3D12 device,
-   direct queue and fence, then drives them through Microsoft's D3D11On12
-   bridge. Scene commands, shaders, visibility and readback use that device.
-   The separate DX12 presenter/FSR remains in `src/graphics/`. This is an
-   explicitly labeled bridge, **not a native D3D12 scene pipeline**. Both
-   launcher Graphics and F1 Renderer expose it. Both scene APIs pass synthetic
-   WARP and RTX 3060 Ti CPU/GPU comparisons. D3D12's initial real-title modal
-   run was roughly 13 FPS with synchronous visibility; do not promise a speedup.
-5. **Visibility stalls:** the synchronous path spent seconds waiting for
-   hundreds of occlusion results per frame. The existing asynchronous report
-   path publishes only after actual GPU query completion and is polled by the
-   NV2A consumer. The bounded 178-second
-   `work/gameplay-priority/hud-async-5pqd3d11/` run reached a visible HUD/world,
-   ammo changed from 48 to 35 after fire input, and late reports measured
-   29.99–30.01 presented frames/s with zero blocking visibility-read time.
-   It ended at its watchdog without invalid guest-code/native-crash diagnostics.
-   Async reports are now the GPU default; `RECOMP_GPU_ZPASS=sync` retains the
-   diagnostic reference. Explicit/default async synthetic cases were added.
+- src/graphics/interpolation_timeline.h: source sequence/timestamp history and
+  2x/4x phases, one source-frame latency, resets on skips/stalls/invalid clocks.
+- frame_interpolation.{h,cpp} and interpolation.hlsl: real DX12 bidirectional
+  image block matching plus motion warping, confidence fallback and stationary
+  pixel preservation. This is experimental image motion, NOT FSR 3 or DLSS.
+- cmake/frame_handoff.cmake publishes timestamps/IDs with locked framebuffer
+  copies. Repeat window presents do not advance source sequence.
+- dx12_presenter/present_dispatch run interpolation before existing spatial FSR1.
+  F1, verified tutorials and recently observed native menus bypass it.
+- Launcher Graphics and F1 > Renderer share Visual interpolation Off/60/120.
+  Off is default. Direct DX11/GDI presentation retains original frames; the
+  feature currently needs DX12 presentation regardless of scene renderer.
+- Title GAME = source flips, DISPLAY = presents including repeats, GEN = new
+  computed phases (not physics updates or proof all output pixels changed).
+  BF_PRESENT_STATS=1 logs these separately. Monitor refresh limits output.
 
-## Remaining defects: do not call this a finished playable release
+Real GPU readback reconstructs translated quarter/half/three-quarter synthetic
+frames with measured mean error 0 versus about 85 for unwarped pixels; stationary
+HUD, Off, skipped frames and stalls pass. Hardware test is not artifact acceptance.
+Fast motion, animated FX, occlusion/HUD transitions and one-frame visual latency
+remain risks. Higher internal resolution/native 16:9/temporal upscalers are not
+implemented by interpolation.
 
-- **Overbright/speckled world and low detail remain.** The scene is 640x480
-  before presentation scaling. Texture upload/sampling uses level 0 and no
-  mip filtering (`td.MipLevels=1`, sampler MaxLOD=0). FSR 2x/4x/8x is output
-  scaling, not higher internal resolution or HD textures. Respect original
-  texture metadata, palettes, mip/cube layouts and bounds when implementing
-  mip filtering. Do not merely blur the framebuffer and claim fidelity.
-- Near-zero compatibility also exposes bright additive effects. Upstream
-  generic patch `0029-hud-safe-near-plane.patch` is a **candidate to investigate**
-  against our exact XBE and matched captures; it is not applied. It distinguishes
-  additive draws from normal UI. Do not blindly import a different title build's
-  hooks or enable a clipping heuristic without checking the actual result.
-- The longer synchronous run
-  `work/gameplay-priority/hud-input-live-8c8po0tb/` showed HUD and firing, then
-  low FPS and late solid-blue captures (`frame.bmp00087.bmp`, etc.). Its earlier
-  frames 60/65/70 show a visible HUD and ammo response. The shorter async run's
-  final frame 86 still shows the world/HUD. These are **not matched A/B/A runs**;
-  the late blue-frame defect is not conclusively fixed. Reproduce it with
-  equivalent state/input and a longer run before declaring it gone.
-- Full walking/camera/control progression, physical keyboard/mouse/controller
-  behavior, mission completion, all characters/abilities, all levels/multiplayer,
-  crisp audio and sustained minimum FPS remain unverified. Depth texture format
-  0x2E/shadows remain incomplete. Original prompt glyphs in tutorial artwork
-  have not all been dynamically replaced.
-- Native widescreen/projection/HUD, high internal resolution, DLSS, interpolation
-  beyond the original simulation rate, cheats, expanded P2P multiplayer and a
-  native Android APK are unfinished. Canadian S24 Ultra is the Android target.
-  NDK r30 is locally approved/installed; an object audit is not an APK.
-- The invasive upstream USB lifecycle overhaul remains gated on real devices
-  and cross-platform shutdown testing. Preserve the working original USB,
-  IRQ, software-command and semaphore fixes.
+Bounded visible runs with separate scratch saves:
 
-## Source map
+- work/interpolation/interval-original-3i0p3nxa: disabled control, startup stall.
+- interval-original-e3xgaior: D3D11 scene/120; first mission, scripted input;
+  late reports about 30 source + 90 generated phases per second.
+- interval-original-v9iwi1b4: D3D12/11On12 scene/60, default async profile;
+  first mission, HUD, movement/camera/fire, ammo35; about 30 source +30 generated.
+- interval-original-_uy4k0oj: CPU scene/120; reached mission but scene2–3FPS;
+  stale-history safeguard correctly stopped interpolation. No performance claim.
 
-- `src/gpu/d3d11_backend.c`: surfaces/coherence, shaders, texture cache,
-  draws, visibility, readback and completion.
-- `src/gpu/scene_device.{cpp,h}`: D3D12 device/queue/11On12/fence ownership.
-- `cmake/scene_backend.cmake`, `patches/nv2a-d3d11/executor.patch`:
-  hash-checked private executor integration. `BF_EXPERIMENTAL_NV2A_D3D11=ON`
-  compiles both GPU scene choices; the source default remains OFF/CPU.
-- `src/main.cpp`: authenticated startup, capabilities and title HUD default.
-- `native_launcher/{app,library,process,main}.cpp`: controls, persistence,
-  capability checks, child environment and hide/return lifecycle.
-- `src/ui/{host_ui.cpp,graphics_options.h}`: F1 tabs and shared preferences.
-- `tests/check_gpu_scene.py`, `tests/gpu_scene_test.c`: real synthetic draws,
-  CPU movies, zero-depth HUD, async reports and GPU vertex-program comparisons.
-- `tests/launcher_lifecycle_test.cpp`: actual child environment and SDL
-  hide/restore for normal/failed exits. `tests/host_ui_test.cpp`: F1 persistence.
+Monitor was 180 Hz / RTX3060Ti, so successful presents include repeated pictures.
+Runs ended at their bounded watchdogs without native/invalid-code failures.
+Manual mission completion, all-level/physics/audio/controller acceptance remains
+open. Inspect final native window output; sparse report-time BMPs can contain
+intermediate targets and are not all presented pictures.
 
-## Local applications, data and rollback
+## Build, installation and checks
 
-- Normal launcher:
-  `work/native-launcher/build/native_launcher/Release/BruteForceLauncher.exe`
-- Normal game: `work/diagnostic-build/Release/bruteforce_recomp.exe`
-- Latest source-built player:
-  `work/diagnostic-build/final-handoff/Release/bruteforce_recomp.exe`
-  and the normal player now both have SHA-256
-  `AB5D540B407A61357D73F2F46418F1B182F6CC5F82F9E169A530BA5749345607`.
-  It includes the async default and was copied only after the normal player
-  exited. The launcher remains open, with the user's settings preserved.
-- Intermediate HUD/input player:
-  `work/diagnostic-build/hud-input-fix/Release/bruteforce_recomp.exe`, SHA-256
-  `9AD2E23D2F64123063D2A9F56F483D42C7551DD9B452837F8CA177A3C7D34F8B`.
-  It was installed before async became the default. Verify the normal player's
-  hash against the latest artifact before replacing or making runtime claims.
-- Local app preferences: `work/native-launcher/core-qa/launcher.settings` and
-  `graphics.settings`. Preserve the user's choices. Renderer changes require
-  a restart. F1/live preferences share the latter file. D3D11 is the conservative
-  local scene choice; D3D12 bridge is optional.
-- Imported filtered game: `work/native-launcher/core-qa/game-core` (497 files).
-- **Permanent saves:** `work/native-launcher/core-qa/player-data`. Never reset,
-  delete, patch or overwrite them to make tests pass. Use scratch saves.
-- Backups: `work/black-screen-qa/rollback-before-movie-fix/`,
-  `work/black-screen-qa/rollback-before-hud-input/`,
-  `work/black-screen-qa/rollback-before-async/`, and earlier
-  `work/gpu-integration/rollback-before-gpu-f1/`.
-- Check Get-Process with exact executable paths before replacing files. The
-  user may be actively testing. Never kill their session to deploy a build.
-  The launcher hides during its child process and returns after exit/failure.
+Normal player: work/diagnostic-build/Release/bruteforce_recomp.exe.
+Launcher: workspace-root BruteForceLauncher.exe plus SDL2.dll/assets; legacy copy
+under work/native-launcher/build/native_launcher/Release is also kept current.
+Use Launch Brute Force.cmd. Latest interpolation candidates/build logs and
+install backups/manifest are under work/interpolation. Check actual installed
+hashes and current processes before replacing anything; never kill user gameplay.
+BF_HOST_OUTPUT_DIR currently selects work/interpolation/player for isolated
+builds. Launcher candidate output is work/interpolation/launcher.
 
-## Rebuild and verify
+24 Windows native tests, both public GPU scene parity suites, all3 launcher
+tests on Windows/Linux, 17 Linux native tests, and 70 Python tests (3skipped)
+passed in this work. Standalone bf_interpolation_smoke and bf_graphics_smoke
+pass on hardware with D3D12 debug validation. GitHub checks should be verified
+against the exact pushed commit; local passes are not remote CI evidence.
 
 Pinned clean toolkit:
-`C:\Users\fireb\Documents\Codex\2026-10-31\le\work\xboxrecomp`, commit
-`f0f8a461496a4f23d9b0aeaa284b8d70ba7ab82b`. Do not modify it.
-Private generated C:
-`C:\Users\fireb\Documents\Codex\2026-10-31\le\work\bf-analysis\generated`.
-Private recovered bodies: `work/recovered`.
-Supported XBE: `D:\Downloads\BruteForce-Decompilation\default.xbe`, SHA-256
-`B6EA5D4DD6500AE86C3F5E3E4618BC9B1E3FACDDCB483170DFEE7A787087C721`.
-The other upstream repository supports a different checksum. Never copy its
-title-specific addresses/bodies without our original-byte evidence.
+C:\Users\fireb\Documents\Codex\2026-10-31\le\work\xboxrecomp
+commit f0f8a461496a4f23d9b0aeaa284b8d70ba7ab82b. Never modify that checkout.
+Private generated C is sibling bf-analysis/generated; recovered bodies are
+work/recovered. Supported default.xbe SHA256:
+B6EA5D4DD6500AE86C3F5E3E4618BC9B1E3FACDDCB483170DFEE7A787087C721.
+python scripts/verify_offsets.py --target <default.xbe> verifies its XBE layout,
+not host PE offsets or runtime equivalence. No code injection/caves are used.
 
-Build existing cache with
-`cmake --build work/diagnostic-build --config Release --parallel 4`.
-Use a separate BF_HOST_OUTPUT_DIR when a player is running. Windows passes
-17 CTests, native WSL Linux passes 14, and Windows/Linux launcher lifecycle
-tests pass. Public `work/public-runtime-smoke` builds with no proprietary game
-code and runs both `nv2a_gpu_scene_parity` and `nv2a_d3d12_scene_parity`.
-`python tests/check_gpu_scene.py EXE PUBLIC_TEST_XBE OUTPUT --hardware --d3d12`
-uses actual hardware; omit --d3d12 for D3D11. RGB tolerance is 2/255 with 42
-known rasterizer-edge pixels in the baseline scenes, not whole-game parity.
+WSL distro BruteForceBuild; source /mnt/d/Documents/ChatGPT/bfRecomp;
+/var/tmp/bruteforce-build and /var/tmp/bf-native-launcher hold Linux builds.
+Linux game remains CPU/SDL only. NDK r30 is installed under work/tools, but
+Android CMake intentionally rejects unsupported integration; there is no APK.
 
-WSL distro: BruteForceBuild; source `/mnt/d/Documents/ChatGPT/bfRecomp`;
-game build `/var/tmp/bruteforce-build`; launcher `/var/tmp/bf-native-launcher`.
-Private state-driven runners/logs are under `work/black-screen-qa/` and
-`work/gameplay-priority/`; inspect their exact inputs before comparing runs.
-Use the game's own bounded input/frame fixtures. Avoid desktop input automation
-that could interfere with the user's session.
+Default interactive library is
+C:\Users\fireb\AppData\Roaming\Firebird\BruteForceRecomp.
+Another QA library is work/native-launcher/core-qa. Both have permanent
+player-data: never reset or overwrite it. Tests use disposable scratch saves.
+Launcher defaults currently select D3D12 scene / auto presentation / FSR1;
+preserve user volume, sensitivity and other preferences.
 
-After a focused fix, run relevant checks, inspect real captures, update honest
-status/provenance, commit scoped source and push main. Never commit XBE/ISO,
-assets, generated game code, saves, private dumps, credentials or binaries.
-No production service or permanent progress has been modified.
+## Existing working fixes to preserve
+
+CPU/Bink color ownership (black movies), zero-depth HUD compatibility,
+asynchronous zpass completion, real FIFO DMA CALL/JUMP/RETURN/fences,
+original 1-MiB guest stack, native MKB/raw mouse, full authored mip chains,
+and confirmed depth/stencil alias bloom-mask synchronization. The additive
+clip heuristic was rejected because it removed valid tutorial text; do not
+reintroduce it. Basic Controls artwork switches with input device. F1 is the
+only settings/capture hotkey. User confirmed visible input/bloom candidate on
+2 November. Remote AnyDesk requires Gaming Mode for relative mouse aiming.
+
+Launcher hides throughout validation/startup/game and restores on normal/error
+exit. A per-library OS lock prevents duplicate owners across installed paths;
+reopening while game runs does not expose the hidden launcher. Lifecycle tests
+cover actual children, failures, HWND visibility, stale metadata and abrupt exit.
+Keep the finite-ancestor player-discovery fix that resolved gray Start.
+
+## Ordered remaining work
+
+1. Interpolation artifact/latency/pacing QA across hardware/refresh rates and
+   HUD/FX/cuts; direct DX11/GDI/non-Windows generation remains separate.
+2. True internal-resolution color/depth/alias integration + native16:9 and HUD;
+   temporal FSR/DLSS with valid scene motion/depth/jitter/history.
+3. Linux NV2A GPU integration and native ARM64 Android lifecycle/package/APK;
+   target Canadian Samsung Galaxy S24 Ultra. Object audits are not an APK.
+4. Complete every mission/multiplayer map, character/ability, crisp audio and
+   real controller/hotplug/shutdown matrix. USB overhaul remains unapplied.
+5. Authenticated live cheats and real peer host/join lifecycle; audit original
+   fixed arrays, replication/UI/mission assumptions before raising player limits.
+
+No production service, original disc assets or permanent progress was changed.

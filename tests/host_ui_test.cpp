@@ -98,31 +98,24 @@ int main(int argc,char **argv) {
     for(unsigned key:{113u,114u,115u,120u})if(bf_ui_key(key,0)||bf_ui_open())return 36;
     if(!bf_ui_menu_key(13,0))return 16;
     buttons=0;analog={};if(!bf_ui_pad(&buttons,analog.data())||analog[0]!=255)return 17;
-    // A live F1 change reaches the GPU software-method decoder, and both
-    // directions persist without changing the original IMMEDIATE flag.
-    auto parked=bf::load_graphics(settings);parked.frame_limit=60;bf::save_graphics(settings,parked);
-#ifdef _WIN32
-    _putenv_s("RECOMP_GPU","");
-#else
-    unsetenv("RECOMP_GPU");
-#endif
-    bf_ui_settings_initial(1);
-    if(bf_ui_swap_parameter(0x05600141u)!=0x05600141u)return 42;
-    parked.frame_limit=30;bf::save_graphics(settings,parked);
+    // Visual-rate preferences never opt into the retired game-rate override.
+    {std::ofstream legacy(settings);legacy<<"BF_GRAPHICS 1\nauto d3d12 1 1 4 1080 1 1 0 70 2.5 60\n";}
+    const auto migrated=bf::load_graphics(settings);
+    if(migrated.frame_limit!=30||migrated.interpolation||migrated.mouse_sensitivity!=2.5f||migrated.volume!=70)return 42;
 #ifdef _WIN32
     _putenv_s("RECOMP_GPU","d3d11");
 #else
     setenv("RECOMP_GPU","d3d11",1);
 #endif
     bf_ui_settings_initial(1);bf_ui_key(112,0);bf_ui_mouse(320,115,640,480,1);
-    if(bf_ui_swap_parameter(0x05600141u)!=0x05600141u)return 37;
+    bf_ui_fsr_supported(1);
+    if(bf_ui_interpolation()!=0||bf_ui_interpolation_allowed())return 37;
     bf_ui_mouse(200,132+3*28+8,640,480,1);
-    if(bf_ui_swap_parameter(0x05600141u)!=0x05600121u||bf::load_graphics(settings).frame_limit!=60)return 38;
+    if(bf_ui_interpolation()!=60||bf::load_graphics(settings).interpolation!=60||bf::load_graphics(settings).frame_limit!=30)return 38;
     bf_ui_mouse(200,132+3*28+8,640,480,1);
-    if(bf_ui_swap_parameter(0x05600141u)!=0x05600141u||bf::load_graphics(settings).frame_limit!=30)return 39;
+    if(bf_ui_interpolation()!=120||bf::load_graphics(settings).interpolation!=120)return 39;
     bf_ui_mouse(200,132+3*28+8,640,480,1);
-    bf_ui_settings_initial(0);
-    if(bf_ui_swap_parameter(0x05600141u)!=0x05600141u)return 40;
+    if(bf_ui_interpolation()!=0)return 40;
     auto invalid=bf::load_graphics(settings);invalid.frame_limit=120;
     if(bf::valid_graphics(invalid))return 41;
     std::filesystem::remove(settings);

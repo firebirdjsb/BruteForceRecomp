@@ -8,6 +8,17 @@ function(bf_apply_runtime_fixes toolkit)
         message(FATAL_ERROR "Kernel bridge differs from the audited pinned source; runtime fix was not applied.")
     endif()
     string(REPLACE "#include \"kernel.h\"" "#include \"kernel.h\"\n#include \"import_guard.h\"" source "${source}")
+    # The public bridge treats even RECOMP_ASYNC_IO=0 as enabled. Preserve a
+    # real disabled control for title-profile comparisons, without changing
+    # the existing read, event, APC or IOSB completion implementation.
+    set(async_before "on = getenv(\"RECOMP_ASYNC_IO\") ? 1 : 0;")
+    string(FIND "${source}" "${async_before}" async_found)
+    if(async_found EQUAL -1)
+        message(FATAL_ERROR "Expected asynchronous-read mode guard was not found.")
+    endif()
+    string(REPLACE "${async_before}"
+        "{ const char *value = getenv(\"RECOMP_ASYNC_IO\"); on = value && *value && *value != '0'; }"
+        source "${source}")
     set(before "if (!(current & 0x80000000)) {")
     string(FIND "${source}" "${before}" found)
     if(found EQUAL -1)

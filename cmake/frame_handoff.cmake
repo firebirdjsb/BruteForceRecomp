@@ -9,8 +9,9 @@ if(WIN32)
     if(NOT hash STREQUAL "f0a3f553ccf4afc2e1bcfc1020030bfe76a1fc584caefc3d2367ba87f8ed9782")
         message(FATAL_ERROR "Framebuffer source differs from the audited pinned revision.")
     endif()
+    string(PREPEND source "#include <stdint.h>\nextern uint64_t gpu_present_clock_ns(void);\nextern void gpu_present_source(uint64_t,uint64_t);\nextern double gpu_present_display_fps(void);\nextern double gpu_present_generated_fps(void);\n")
     string(REPLACE "static volatile LONG s_present_idx = -1;"
-        "static SRWLOCK s_present_lock = SRWLOCK_INIT;\nstatic volatile LONG s_present_idx = -1;" source "${source}")
+        "static SRWLOCK s_present_lock = SRWLOCK_INIT;\nstatic uint64_t s_present_count,s_present_ids[2],s_present_times[2];\nstatic volatile LONG s_present_idx = -1;" source "${source}")
     string(REPLACE "wc.hInstance     = GetModuleHandleA(NULL);"
         "wc.hInstance     = GetModuleHandleA(NULL);\n        wc.hIcon = LoadIconA(wc.hInstance, MAKEINTRESOURCEA(101));" source "${source}")
     string(REPLACE "SetWindowTextW(hwnd, tb);"
@@ -20,11 +21,13 @@ if(WIN32)
     string(REPLACE "if (!s_present[next])\n            return;"
         "if (!s_present[next]) {\n            ReleaseSRWLockExclusive(&s_present_lock);\n            return;\n        }" source "${source}")
     string(REPLACE "InterlockedExchange(&s_present_idx, next);"
-        "InterlockedExchange(&s_present_idx, next);\n    ReleaseSRWLockExclusive(&s_present_lock);" source "${source}")
+        "s_present_ids[next]=++s_present_count;\n    s_present_times[next]=gpu_present_clock_ns();\n    InterlockedExchange(&s_present_idx, next);\n    ReleaseSRWLockExclusive(&s_present_lock);" source "${source}")
     string(REPLACE "LONG idx = s_present_idx;"
         "AcquireSRWLockExclusive(&s_present_lock);\n            LONG idx = s_present_idx;" source "${source}")
     string(REPLACE "(size_t)s_fb_width * s_fb_height * 4);\n            if (!fb_pinned)"
-        "(size_t)s_fb_width * s_fb_height * 4);\n            ReleaseSRWLockExclusive(&s_present_lock);\n            if (!fb_pinned)" source "${source}")
+        "(size_t)s_fb_width * s_fb_height * 4);\n            gpu_present_source(s_present_ids[idx],s_present_times[idx]);\n            ReleaseSRWLockExclusive(&s_present_lock);\n            if (!fb_pinned)" source "${source}")
+    string(REPLACE "L\"%ls | FPS: %.1f | draws: %ld\"" "L\"%ls | GAME %.1f | DISPLAY %.1f | GEN %.1f | draws: %ld\"" source "${source}")
+    string(REPLACE "(long)s_frame_draws);" "gpu_present_display_fps(),gpu_present_generated_fps(),(long)s_frame_draws);" source "${source}")
     set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/fb_present.c")
     file(WRITE "${copy}.in" "${source}")
     configure_file("${copy}.in" "${copy}" COPYONLY)

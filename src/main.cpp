@@ -86,9 +86,15 @@ static int run_native(int argc, char **argv) {
     try {
         if(argc==2 && std::string_view(argv[1])=="--capabilities") {
 #ifdef BF_EXPERIMENTAL_NV2A_D3D11
-            std::puts("nv2a_d3d11=1\nnv2a_d3d12=1\nhost_fps60=1");
+            std::puts("nv2a_d3d11=1\nnv2a_d3d12=1\nhost_fps60=0");
 #else
             std::puts("nv2a_d3d11=0\nnv2a_d3d12=0\nhost_fps60=0");
+#endif
+#ifdef _WIN32
+            // DX12 presentation also accepts the CPU scene's final image.
+            std::puts("frame_interpolation=1");
+#else
+            std::puts("frame_interpolation=0");
 #endif
             return 0;
         }
@@ -128,6 +134,18 @@ static int run_native(int argc, char **argv) {
             _putenv_s("RECOMP_TITLE_KEVENTS", "1");
 #else
             setenv("RECOMP_TITLE_KEVENTS", "1", 0);
+#endif
+        }
+        // This title's overlapped pack reader marks its request busy and polls
+        // GetOverlappedResult. The pinned bridge's pending-status mode preserves
+        // that path while delivering the completed IOSB and event. Paired boot
+        // runs otherwise stall in the original SleepEx(0) completion loop.
+        // An explicit 0 remains available for diagnostic comparisons.
+        if (!std::getenv("RECOMP_ASYNC_IO")) {
+#ifdef _WIN32
+            _putenv_s("RECOMP_ASYNC_IO", "1");
+#else
+            setenv("RECOMP_ASYNC_IO", "1", 0);
 #endif
         }
         // Follow actual FIFO JUMP/CALL/RETURN and submission boundaries. The

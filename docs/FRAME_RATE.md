@@ -1,105 +1,152 @@
-# Frame-rate work and remaining milestones
+# Visual interpolation, startup fix and remaining milestones
 
-## Player controls
+## Player controls and timing
 
-Windows GPU builds have an opt-in **Up to 60 FPS (experimental)** setting in
-the launcher's Graphics section and **F1 > Renderer > Frame rate**. F1 applies
-it live. Original pacing remains the default. The setting is unavailable in
-the active CPU reference renderer. Renderer/device changes still need a restart.
+Launcher **Graphics > Visual interpolation** and **F1 > Renderer > Visual
+interpolation** share Off / 60 / 120. Off is the default. The old native-60
+option is retired: it changed the title's presentation waits, which does not
+meet the user's requirement to retain original game updates. Both normal and
+diagnostic interval overrides are removed. Original TWO/TWO_OR_IMMEDIATE
+commands, 60-Hz vblank and guest timing/physics remain unchanged in all modes.
 
-The shared version-1 preferences append `frame_limit` after mouse sensitivity.
-Files ending after volume or sensitivity retain all their old values and use
-30 FPS. Only 30 and 60 are accepted. Launchers check `host_fps60=1` before
-launching an older game application with the new setting selected.
+Interpolation operates on completed scene color images in Windows DX12
+presentation. It accepts CPU, D3D11 and D3D12/11On12 scene images; it does not
+require that the scene itself use D3D12. Direct D3D11/GDI presentation and Linux
+SDL output retain original frames. Interpolation is not integrated on Android.
+The D3D12 scene option still uses D3D11On12, not a separate native scene pipeline.
 
-This shortens the host's TWO/TWO_OR_IMMEDIATE presentation interval to ONE,
-preserving the framebuffer address, method number, IMMEDIATE flag, other
-intervals and software commands. Vblank remains 60 Hz. Original guest clocks,
-physics instructions and memory fields are unchanged. It does not implement
-render interpolation, frame generation or 120+ FPS gameplay.
+Version-1 preferences keep the legacy frame-limit field after sensitivity,
+normalize its old 60 value to 30, and append an interpolation field (0/60/120).
+Other valid old settings are retained. Missing interpolation means Off.
 
-## Evidence from 2 November 2026
+## What the implementation does
 
-Bounded, state-driven first-mission runs used separate scratch saves, authored
-HUD captures, scripted movement/camera/fire and actual NV2A flip hashes on an
-RTX 3060 Ti. The table uses the last 25 seconds, after tutorial dismissal and
-the input sequence. These are automated smoke tests, not completed missions.
+A shared framebuffer lock publishes each actual source flip's sequence and
+monotonic timestamp with its image. Repeated window presents do not create new
+source frames. The presenter keeps two GPU image histories, estimates forward
+and backward block motion, then warps intermediate phases. At an original
+30-FPS source, 60 mode has one intermediate phase and 120 mode has three.
 
-| Mode | Presented FPS | Distinct pictures | Physics seconds / wall second | P95 frame gap |
-| --- | ---: | ---: | ---: | ---: |
-| Original D3D11 pacing, control | 30.00 | 100% | 0.999983 | 35.31 ms |
-| D3D11, one-vblank experiment | 54.17 | 100% | 0.999989 | 19.69 ms |
-| D3D12/11On12, saved 60-FPS setting | 34.46 | 100% | 1.000008 | 36.20 ms |
-| Final D3D11 player, probes compiled out | 51.72 | 100% | Not instrumented | 20.65 ms |
+It displays the previous/current pair one source frame late (about 33 ms at
+30 FPS). This is additional visual latency, not reduced input latency. Motion
+is estimated from final color, without engine motion vectors or depth. Low
+confidence, inconsistent motion and occluded/out-of-bounds samples use current
+source pixels; stationary pixels remain exact. Fast motion, disocclusion,
+animated effects and HUD transitions can still show artifacts. This is an
+experimental image-motion implementation, not AMD FSR 3 or NVIDIA DLSS.
 
-The minimum original physics step stayed `0.0151515156` seconds (1/66) in
-both modes. This rules out a doubled physics clock in the sampled window;
-it does not establish complete movement, collision, AI, animation, audio,
-cutscene or multiplayer equivalence. The bridge remains slower on this host.
-The 60-FPS label is a target, not a performance guarantee.
+F1, verified tutorial screens and recently observed native menus bypass
+interpolation. Source gaps over 100 ms, skipped sequence IDs, invalid clocks,
+resizes and mode changes reset history. It cannot make a slow CPU scene into
+smooth gameplay. Existing FSR 1 spatial scaling can run after interpolation.
+Original 4:3 scene resolution/projection remains unchanged.
 
-Private traces are under `work/high-fps/interval-1-gxn0k3eq` (control;
-the first probe did not change TWO_OR_IMMEDIATE), `interval-1-ubkn9kn8`
-(corrected D3D11 interval), `interval-original-j34sz557` (saved setting
-through D3D12), and `interval-original-zb5oc_fi` (final normal player). The
-normal player reached the mission with HUD and ammo reduced from 48 to 35
-after scripted fire. Some sparse BMPs are report-time intermediate targets
-when the capture flag is off; use actual per-flip hashes for presented-frame
-metrics. Captures, original code and game data are not tracked.
+The title reports GAME (source flips), DISPLAY (successful presents, including
+repeats) and GEN (newly computed intermediate phases). GEN is not a count of
+new simulation updates or a proof that every output pixel changed. Output is
+limited by monitor refresh, source pacing and GPU time. For example, a 180-Hz
+monitor repeats images even when the visual target is 120.
 
-All 21 Windows native tests, both GPU image-parity suites, both Windows/Linux
-launcher tests, and Linux pacing/UI tests pass. Python checks include fixtures
-where a 60-FPS presentation incorrectly doubles simulation or repeats pictures,
-so the analyzer cannot silently call either a successful gameplay result.
+## Black Loading screen: diagnosis and correction
 
-## Reproducing timing diagnostics
+The paired disabled control stopped before the movies with GAME 0, GEN 0 and
+no draws while the presenter repeated Loading at 180 Hz. Read-only sampling
+found original sub_00265AD0 waiting at 0x00265B80/0x00265B87 through original
+SleepEx(0) (0x002F4B0E, kernel KeDelayExecutionThread ordinal 99). The original
+file object's byte at +5 remained busy. Its ReadFile/GetOverlappedResult path
+uses original 0x002F33A0/0x002F5084 and completion 0x00265910, with the busy
+byte cleared at original 0x00265992. These are evidence addresses for the
+exact authenticated retail XBE, not portable host pointers or injected hooks.
 
-Use an isolated build output and disposable saves, never the permanent player
-library. Configure `BF_FRAME_TIMING_DIAGNOSTICS=ON` on a private GPU build.
-`BF_FRAME_TIMING_CSV=<absolute path>` records body samples plus a sibling
-`.clock.csv` for scheduler samples. `BF_TEST_FRAME_INTERVAL=1` is an isolated
-interval experiment; leave it unset to test the actual saved user preference.
-The launcher strips both diagnostic variables from child environments.
+Enabling the pinned public runtime's existing RECOMP_ASYNC_IO=1 mode on the
+same build got through loading and into the mission. The native profile now
+enables it by default, and the launcher passes it explicitly. The bridge still
+performs its existing read, writes final IOSB and signals the supplied event;
+its tracked asynchronous handles return STATUS_PENDING. No speculative physics,
+resource-pointer, title callback or completion-port patch was applied.
+This is a measured title/runtime compatibility profile, not a claim that every
+Windows asynchronous read must always return pending.
 
-The probes are exact generated-source SHA-256 gated. Original 0x002C6A7B
-observes the effective timestep before `FSTP [ESI+0x78]`; original 0x002C7D00
-observes the scheduler's incoming target double at ESP+12. Dynamic world/body
-pointers are read within committed low guest RAM. No code injection, guest
-stack modification or allocated memory cave is used. The retail XBE layout
-and bytes were separately checked with `scripts/verify_offsets.py` and local
-disassembly. The normal player is built with diagnostics **OFF**.
+Only the private hash-checked runtime copy is changed. Its environment parser
+now treats an explicit RECOMP_ASYNC_IO=0 as disabled (upstream treated presence,
+including string "0", as enabled). Use that only for direct diagnostic controls;
+the launcher deliberately enables the working title profile. Successful read
+payload logging remains opt-in via BF_TRACE_FILE_IO=1 because it can issue
+millions of host writes and severely distort loading/performance.
+
+## Evidence from 3 November 2026
+
+All title runs used the user's existing core-game files with separate disposable
+saves. They ended at bounded watchdogs, not native crash diagnostics. Scripted
+movement/camera/fire and visible HUD do not establish complete manual gameplay.
+
+| Scene / visual target | Observed result |
+| --- | --- |
+| D3D11 / 120, async disabled control | Loading stall; no source draws; display repeats only |
+| D3D11 / 120, async enabled | First mission; late reports about 30 source + 90 generated phases/s |
+| D3D12/11On12 / 60, native default profile | First mission, visible HUD; movement/camera/fire; ammo 35; about 30 source + 30 generated phases/s |
+| CPU / 120, native default profile | Passed loading/reached mission; scene about 2-3 FPS; stale-history safeguard disables interpolation |
+
+The display was 180 Hz on RTX 3060 Ti. These measurements are a first-mission
+smoke test, not a 60/120 guarantee, complete physics comparison, all-level test
+or subjective smoothness/artifact acceptance. The source keeps the game's
+original waits; title cutscenes/loading may publish at different rates.
+Private logs are under work/interpolation/interval-original-3i0p3nxa (stalled
+control), interval-original-e3xgaior (D3D11/120), interval-original-v9iwi1b4
+(D3D12/60), and interval-original-_uy4k0oj (CPU/120). Captures and game code
+are not tracked. Arbitrary report-time BMPs can contain intermediate render
+targets; native-window screenshots inspect the final presented output.
+
+Focused verification includes:
+
+- GPU readback reconstructs translated synthetic pixels at quarter, half and
+  three-quarter phases (mean RGB error 0 in the measured test versus about 85
+  for an unwarped endpoint), with stationary HUD, stall/reset and Off checks.
+- API-neutral timeline checks cover 60/120 phases, gaps, skips and invalid clocks.
+- Actual runtime flip-hold checks prove interval 2 is retained for every visual mode.
+- Real patched file-bridge fixtures exercise pending versus synchronous status,
+  completed data/IOSB, unsignalled-to-signalled event, exact stdcall cleanup and
+  both explicit environment modes, using synthetic local files.
+- Windows native tests, CPU/D3D11/D3D12 synthetic scene parity, Windows/Linux
+  launcher lifecycle/discovery/ownership tests and Linux native checks pass.
+
+Build the standalone GPU checks without private game data:
 
 ```powershell
-python scripts/analyze_frame_timing.py --frames <frames.csv> --clock <timing.csv.clock.csv> --json <report.json>
+cmake -S . -B .local/graphics-test -DBF_GRAPHICS_ONLY=ON
+cmake --build .local/graphics-test --config Release
+.local/graphics-test/Release/bf_interpolation_smoke.exe
+.local/graphics-test/Release/bf_graphics_smoke.exe
 ```
 
-The report includes picture-hash availability, real flip rate, frame-gap
-distribution and each observed physics-clock rate. It always marks manual
-gameplay verification false. Choose a window outside loading, pause and
-tutorial screens before interpreting the clock slope.
+BF_PRESENT_STATS=1 enables source/display/generated-rate logs. Optional read-only
+BF_FRAME_TIMING_DIAGNOSTICS probes remain hash-gated and OFF in the normal
+player. BF_TEST_FRAME_INTERVAL no longer changes timing. The original XBE and
+section layout were checked with scripts/verify_offsets.py; no code injection
+or allocated guest memory cave is used.
 
 ## Ordered remaining work
 
-1. **Higher FPS:** broaden 30/60 comparisons across movement distance, camera
-   rotation, fire cadence, AI, collision, abilities, audio and cutscenes. Profile
-   the D3D12 bridge separately. Real 120+ render interpolation needs render
-   history and simulation/render separation; do not raise the 60-Hz clock.
-2. **Native image quality:** add actual higher-resolution color/depth targets
-   with coherent render-to-texture aliases, then adjust scene projection for
-   16:9 while keeping HUD/menu coordinates correct. Temporal FSR/DLSS need
-   valid scene depth, motion vectors, jitter/history, reset handling and HUD
-   separation. Current FSR 1 and window sizes only scale the finished 4:3 image.
-3. **Platforms:** connect actual NV2A draws to a Linux GPU backend. Android
-   additionally needs the native runtime, SDL/activity lifecycle, storage import,
-   input, audio, ARM64 linking and packaging; validate a real APK on the user's
-   Canadian Galaxy S24 Ultra. Existing NDK/object audits are not an APK.
-4. **Acceptance:** record each campaign mission and multiplayer map, four
-   characters/abilities, audio transitions, physical controllers, hotplug,
-   disconnect and shutdown. Synthetic coverage never marks those complete.
-5. **Enhancements/networking:** authenticated runtime cheat integration and
-   live F1 controls; then host/join lifecycle, two real peers, disconnect/rejoin
-   and packet/state compatibility. Raise player limits only after auditing
-   original fixed arrays, allocation, replication, UI and mission scripts.
+1. Broaden 60/120 visual testing: camera pans, motion boundaries, HUD/effects,
+   cutscene transitions, latency, stable pacing on 60/120/144-Hz displays and
+   slower GPUs. Direct DX11/GDI and non-Windows interpolation remain separate.
+2. Add actual higher-resolution color/depth targets and coherent aliases, then
+   16:9 projection with correct HUD/menu coordinates. Current FSR 1/window
+   sizes only scale the finished 4:3 image. Temporal FSR/DLSS need scene depth,
+   engine motion vectors, jitter/camera history, reset handling and HUD handling;
+   they are not implemented by this image-motion prototype. See AMD's official
+   [frame-interpolation inputs](https://gpuopen.com/manuals/fidelityfx_sdk/reference_documentation/structs/ffx_frame_interpolation_dispatch_description/).
+3. Connect NV2A draws to a Linux GPU backend. Android additionally needs runtime,
+   SDL/activity lifecycle, storage import, input, audio, ARM64 linking/packaging
+   and actual APK testing on the Canadian Galaxy S24 Ultra. NDK r30 is installed;
+   existing NDK/object audits are not an APK.
+4. Validate every campaign mission/multiplayer map, all characters/abilities,
+   audio transitions, physical controllers, hotplug and shutdown. Preserve
+   permanent saves and use disposable QA progress. The invasive upstream USB
+   lifecycle overhaul remains unapplied pending real-device testing.
+5. Implement authenticated runtime cheats and live F1 controls, then real-peer
+   host/join/disconnect/rejoin. Raising player limits requires auditing original
+   fixed arrays, replication, UI, allocation and mission scripts first.
 
-No expanded player limit, P2P implementation, cheats, Linux GPU support,
-Android APK, temporal reconstruction or native widescreen is claimed here.
+No expanded player limit, P2P implementation, cheat suite, Linux GPU, Android
+APK, temporal reconstruction or native widescreen is claimed here.

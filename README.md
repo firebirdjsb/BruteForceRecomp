@@ -4,15 +4,19 @@ Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows,
 
 **This is not a finished or verified playable port.** Translation, compiling, booting, rendering and completing a mission are separate gates. Generated code and inferred calling conventions must be checked against the original executable and measured execution.
 
-The immediate priority is a rendered, controllable campaign at a stable frame rate. The current candidate renders the tutorial with its HUD and responds to scripted input. An opt-in up-to-60-FPS mode measured 54.17 distinct FPS in a bounded D3D11 first-mission test, versus 30.00 with original pacing; the original physics clock and minimum step were retained. This is not full campaign, audio or multiplayer acceptance. See [STATUS.md](STATUS.md) and [frame-rate evidence](docs/FRAME_RATE.md) for exact boundaries and remaining work.
+The immediate priority is a rendered, controllable campaign at a stable frame rate. The latest startup fix enables the pinned runtime's asynchronous-read completion mode: a paired run changed from a loading-screen stall to first-mission gameplay. The game retains original 30-FPS pacing; optional motion interpolation generates 60/120-FPS visuals separately. D3D11 and D3D12 scene smoke tests reached the mission with HUD and scripted input. This is not full campaign, audio or multiplayer acceptance. See [STATUS.md](STATUS.md) and [frame-rate evidence](docs/FRAME_RATE.md) for exact boundaries and remaining work.
 
 ## Desktop application
 
 The launcher is a native C++ SDL2/Dear ImGui application. It does not open a browser or require a local web server or Python at runtime. On Windows, open **Launch Brute Force.cmd** after building; on Linux use `sh launch.sh`.
 
-Windows GPU builds expose **Graphics > Frame rate > Up to 60 FPS (experimental)**.
-**F1 > Renderer > Frame rate** changes the same setting live. Original pacing
-remains the default; this is separate from window scaling or temporal upscaling.
+Windows builds expose **Graphics > Visual interpolation > Off / 60 / 120**.
+**F1 > Renderer > Visual interpolation** changes the same setting live. This
+experimental image-motion path requires DX12 presentation and accepts CPU,
+D3D11 or D3D12 scene images. Direct D3D11/GDI presentation retains original
+frames. Original pacing remains unchanged in every mode. Interpolation adds
+one source frame of latency and can show artifacts; Off is the default.
+The former native-60 option is retired, and its saved setting migrates to 30.
 
 ```sh
 cmake -S . -B .local/launcher-build -DBF_LAUNCHER_ONLY=ON
@@ -89,11 +93,12 @@ Mouse/keyboard launches enable mouse capture; F1 settings releases it automatica
 cmake -S . -B .local/graphics-test -DBF_GRAPHICS_ONLY=ON
 cmake --build .local/graphics-test --config Release
 .local/graphics-test/Release/bf_graphics_smoke.exe
+.local/graphics-test/Release/bf_interpolation_smoke.exe
 ```
 
-It reads actual GPU output to check color/alpha, letterboxing, changing source images, FSR output differences, window resize, downscale fallback and resource shutdown. It does not validate gameplay or predict performance.
+These tests read actual GPU output to check color/alpha, letterboxing, changing source images, FSR output differences, window resize, downscale fallback and resource shutdown, plus reconstructed quarter/half/three-quarter motion frames, stationary HUD pixels and history resets. They do not validate gameplay or predict performance.
 
-Startup fixes apply only to hash-checked build copies of the public runtime; its checkout stays clean. The semaphore target is derived from the live D3D device, and the completion word changes only when the renderer consumes an actual semaphore-release command. `BF_TRACE_FILE_IO=1` restores successful-read payload tracing; failures remain visible by default.
+Startup fixes apply only to hash-checked build copies of the public runtime; its checkout stays clean. The native title profile enables `RECOMP_ASYNC_IO=1`; an explicit `0` is a direct-run diagnostic control. It preserves completed read data, final IOSB and event notification while returning the runtime's pending status for asynchronous handles. This prevents the observed original pack-reader busy loop. The semaphore target is derived from the live D3D device, and the completion word changes only when the renderer consumes an actual semaphore-release command. `BF_TRACE_FILE_IO=1` restores successful-read payload tracing; failures remain visible by default.
 
 For an existing generated directory, run `scripts/recover_entries.py --xbe FILE --toolkit TOOLKIT --functions FUNCTIONS_JSON --output RECOVERED_DIR` and pass `-DBF_RECOVERED_DIR=RECOVERED_DIR` to CMake. The normal `generate` pipeline does this automatically. Recovery verifies the missing callback's original bytes and emits its complete lifted body privately. The public repository holds no recovered game-code body.
 

@@ -61,10 +61,6 @@ void App::command() {
         if(ImGui::Combo("Scene renderer",&scene,"CPU reference\0D3D11 GPU (experimental)\0D3D12 GPU via D3D11On12 (experimental)\0")){options.scene=scenes[scene];changed=true;}
         ImGui::BeginDisabled(scene==0);
         changed|=ImGui::Checkbox("GPU vertex programs",&options.gpu_programs);
-        int frame_rate=options.frame_limit==60?1:0;
-        if(ImGui::Combo("Frame rate",&frame_rate,"Original (30 FPS)\0Up to 60 FPS (experimental)\0")) {
-            options.frame_limit=frame_rate?60:30;changed=true;
-        }
         ImGui::EndDisabled();
         static const char *backends[]={"auto","dx12","dx11","gdi"};
         int selected=0;for(int i=0;i<4;++i)if(options.backend==backends[i])selected=i;
@@ -72,6 +68,10 @@ void App::command() {
             options.backend=backends[selected];changed=true;
         }
         ImGui::BeginDisabled(selected==2 || selected==3);
+        int interpolation=options.interpolation==120?2:options.interpolation==60?1:0;
+        if(ImGui::Combo("Visual interpolation",&interpolation,"Off (original 30 FPS)\0 60 FPS visuals (experimental)\0 120 FPS visuals (experimental)\0")) {
+            const unsigned rates[]={0,60,120};options.interpolation=rates[interpolation];changed=true;
+        }
         changed|=ImGui::Checkbox("AMD FSR 1 upscaling",&options.fsr1);
         const unsigned factors[]={0,2,4,8};int factor=0;
         for(int i=0;i<4;++i)if(options.scale==factors[i])factor=i;
@@ -85,10 +85,10 @@ void App::command() {
         if(ImGui::Combo("Window resolution",&resolution,"Automatic\0 720p\0 1080p\0 1440p\0 2160p (4K)\0")){options.height=heights[resolution];changed=true;}
         if(changed)library_.set_graphics(options);
         ImGui::PushFont(theme_.small);
-        ImGui::TextWrapped("Original pacing is the default; 60 FPS is experimental. Texture validation and shader caching run automatically. Device changes apply on the next launch.");
+        ImGui::TextWrapped("The game keeps its original 30 FPS timing. Visual interpolation generates extra presentation frames on DX12; it adds one source frame of latency. Device changes apply on the next launch.");
         ImGui::TextWrapped("The D3D12 scene option uses Microsoft's D3D11On12 bridge. Presentation is a separate choice below the scene renderer.");
         ImGui::TextWrapped("The original 4:3 picture is preserved. Window size and FSR output scale do not enable native widescreen or increase scene resolution.");
-        ImGui::TextWrapped("60 FPS shortens GPU presentation waits and keeps the original physics timing code. Complete mission, animation and multiplayer validation is pending. F1 > Renderer can change frame rate live.");
+        ImGui::TextWrapped("Interpolation can produce artifacts around occlusion and fast motion. Menus use original frames. Actual output depends on display refresh. This is motion interpolation, separate from temporal FSR/DLSS, which remain unfinished.");
         ImGui::PopFont();
         ImGui::EndDisabled();
     }

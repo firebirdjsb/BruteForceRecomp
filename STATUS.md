@@ -1,4 +1,4 @@
-# Current state - 2 November 2026
+# Current state - 3 November 2026
 
 This remains an experimental native recompilation. It is not a completed
 Windows/Linux/Android release.
@@ -32,35 +32,41 @@ root launcher was open left only that same root process/window alive, verifying
 the duplicate guard across installed paths. This follow-up changes launcher behavior only;
 it does not change game code, rendering, performance or mission validation.
 
-### Experimental higher-FPS mode
+### Loading stall and original-timing visual interpolation
 
-The native launcher and F1 > Renderer now share an opt-in up-to-60-FPS mode.
-The host shortens TWO/TWO_OR_IMMEDIATE presentation waits while retaining the
-IMMEDIATE flag, 60-Hz vblank and original guest timing/physics code. Original
-pacing remains the default; the CPU reference path keeps original behavior.
+The reported black Loading screen showed GAME 0, GEN 0 and no draws despite
+180 display presents/second. A paired run traced the stall to the original
+pack-reader completion loop, not to GPU rendering or physics. Its asynchronous
+file object stayed busy while the main thread repeatedly executed SleepEx(0).
+Enabling the pinned runtime's existing RECOMP_ASYNC_IO mode got the same player
+through loading and into the first mission. This is now the native title
+profile's default and is passed explicitly by the launcher. Direct diagnostic
+runs can set RECOMP_ASYNC_IO=0; the hash-gated private bridge now parses 0 as
+disabled. The public toolkit checkout is unchanged.
 
-A bounded first-mission D3D11 comparison measured 30.00 versus 54.17 distinct
-frames/second in the last 25 seconds. The physics clock advanced at 0.999983
-versus 0.999989 game seconds per wall second; its original 1/66 minimum step
-was unchanged. The actual saved setting also reached the D3D12/11On12 path:
-34.46 distinct FPS and clock ratio 1.000008 on this RTX 3060 Ti. This bridge
-remains slower than D3D11. These are scratch-save smoke tests, not complete
-campaign, physics-fidelity or multiplayer validation, nor a solid-60 guarantee.
+The former native-60 interval override is removed, including the diagnostic
+BF_TEST_FRAME_INTERVAL override. Legacy 60 preferences migrate to original 30
+without discarding other settings. A separate Off/60/120 visual interpolation
+control is in launcher Graphics and F1 > Renderer. It performs GPU image-motion
+estimation and warping after the completed scene, with one source-frame delay;
+it does not change guest timing, vblank, physics, input or simulation updates.
+This experimental implementation is separate from temporal FSR/DLSS.
 
-The final normal player, with timing probes compiled out, then measured 51.72
-distinct FPS in another first-mission run with HUD and scripted fire visible.
-It is installed at `work/diagnostic-build/Release/bruteforce_recomp.exe`. The
-updated native launcher, SDL2 and themed assets are installed at the workspace
-root; `Launch Brute Force.cmd` prefers that executable. Older already-open
-launchers were not overwritten. Game data, saves and existing preferences were
-preserved. Private install hashes/rollback are under `work/high-fps`.
+D3D11 and D3D12/11On12 scene runs reached the first mission with HUD, scripted
+movement/camera input and ammo reduced to 35 after firing. Representative late
+reports measured 30 source + 90 generated phases/s for the D3D11 scene at 120
+visuals, and 30 + 30 for D3D12 at 60 visuals on RTX 3060 Ti. The 180-Hz display
+also repeats pictures; its present count is not the game's update rate. This
+is bounded first-mission evidence, not complete campaign/physics/audio QA.
+The CPU scene reached the mission but fell to about 2-3 source FPS; the history
+safeguard then disabled interpolation. It is not a viable high-FPS game renderer.
 
-All 21 Windows native checks, both GPU parity suites, Windows/Linux launcher
-tests and Linux pacing/UI checks pass. New read-only timing probes are optional
-and hash gated; normal player builds leave them off. See
-[frame-rate evidence and ordered remaining work](docs/FRAME_RATE.md). The user's
-native widescreen/temporal upscaling, Linux GPU, Android APK, complete QA,
-cheats and expanded P2P requests remain pending.
+Interpolation currently requires Windows DX12 presentation, independently of
+CPU/D3D11/D3D12 scene selection. Direct DX11/GDI output retains original frames.
+F1 and recognized menus bypass interpolation; missed frames, long stalls,
+resizes, mode changes and invalid timestamps reset history. Fast motion and
+occlusion can still produce artifacts or fall back to original pixels. Off
+remains the default. See [frame-rate evidence](docs/FRAME_RATE.md).
 
 ### Launcher Start recovery
 

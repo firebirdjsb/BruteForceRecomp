@@ -2,7 +2,6 @@
 #include "ui_draw.h"
 #include "pad_pulses.h"
 #include "graphics_options.h"
-#include "../gpu/frame_interval.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -20,14 +19,13 @@ bool opened{},keyboard=true,mouse_menus=true,prompts_on=true,fsr{},fsr_supported
 int volume=100,selected{};
 int page{};
 bool gpu_available{};
-bool active_gpu{};
 std::string active_scene="CPU REFERENCE";
 bf::GraphicsOptions preferences;
 std::filesystem::path settings_path;
 std::string settings_error;
 std::atomic<float> audio_gain{1.0f};
 std::atomic<float> mouse_sensitivity{1.0f};
-std::atomic<unsigned> live_frame_limit{30};
+std::atomic<unsigned> interpolation_rate{0};
 constexpr int rows=8,row_y=132,row_step=28;
 unsigned scale_index{},resolution_index{};
 bool resize_pending{};
@@ -101,9 +99,9 @@ void adjust(int row,int direction=1) {
             preferences.scene=scenes[(index+3+direction)%3];
         }
         if(row==1&&gpu_available)preferences.gpu_programs=!preferences.gpu_programs;
-        if(row==3&&active_gpu) {
-            preferences.frame_limit=preferences.frame_limit==30?60:30;
-            live_frame_limit.store(preferences.frame_limit,std::memory_order_relaxed);
+        if(row==3&&fsr_supported) {
+            preferences.interpolation=preferences.interpolation==0?60:preferences.interpolation==60?120:0;
+            interpolation_rate.store(preferences.interpolation,std::memory_order_relaxed);
         }
 #ifdef _WIN32
         if(row==2) {
@@ -263,14 +261,13 @@ extern "C" void bf_ui_settings_initial(int available) {
     std::lock_guard lock(guard);gpu_available=available!=0;
     if(const auto *path=std::getenv("BF_UI_SETTINGS");path&&*path)settings_path=std::filesystem::u8path(path);
     preferences=settings_path.empty()?bf::GraphicsOptions{}:bf::load_graphics(settings_path);
-    active_gpu=false;active_scene="CPU REFERENCE";
+    active_scene="CPU REFERENCE";
     if(const auto *scene=std::getenv("RECOMP_GPU")) {
         auto candidate=preferences;candidate.scene=scene;if(bf::valid_graphics(candidate))preferences.scene=scene;
         active_scene=preferences.scene=="d3d12"?"DX12 GPU [11ON12]":preferences.scene=="d3d11"?"D3D11 GPU":"CPU REFERENCE";
-        active_gpu=gpu_available&&preferences.scene!="cpu";
     }
     if(const auto *programs=std::getenv("RECOMP_GPU_VSH"))preferences.gpu_programs=std::string(programs)!="0";
-    live_frame_limit.store(active_gpu?preferences.frame_limit:30,std::memory_order_relaxed);
+    interpolation_rate.store(preferences.interpolation,std::memory_order_relaxed);
     if(const auto *backend=std::getenv("BF_RENDER_BACKEND")) {
         auto candidate=preferences;candidate.backend=backend;if(bf::valid_graphics(candidate))preferences.backend=backend;
     }
@@ -290,9 +287,8 @@ extern "C" int bf_ui_take_size(unsigned *width,unsigned *height) {
 }
 extern "C" float bf_ui_audio_gain(){return audio_gain.load(std::memory_order_relaxed);}
 extern "C" float bf_ui_mouse_sensitivity(){return mouse_sensitivity.load(std::memory_order_relaxed);}
-extern "C" uint32_t bf_ui_swap_parameter(uint32_t parameter) {
-    return bf_swap_interval(parameter,live_frame_limit.load(std::memory_order_relaxed));
-}
+extern "C" unsigned bf_ui_interpolation(){return interpolation_rate.load(std::memory_order_relaxed);}
+extern "C" int bf_ui_interpolation_allowed(){std::lock_guard lock(guard);return !opened&&!tutorial_active()&&Clock::now()-menu_seen>std::chrono::milliseconds(500);}
 extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try {
     if(!pixels||width!=640||height!=480)return;
     std::lock_guard lock(guard);bf::ui::Canvas c{pixels,width,height};
@@ -309,7 +305,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     const char *tabs[]={"LIVE SETTINGS","RENDERER","CONTROLS"};
     for(int tab=0;tab<3;++tab){c.box(112+tab*140,105,136,22,page==tab?0xff245978:0xff17394e);c.text(120+tab*140,111,tabs[tab],0xff69cae9,2);}
     const char *names[]={"MOUSE MENU SELECTION","KEYBOARD / MOUSE PROMPTS","AMD FSR 1 (DX12)","FSR OUTPUT SCALE","WINDOW RESOLUTION","MUTE AUDIO","MASTER VOLUME","RETURN TO GAME"};
-    const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION","FRAME RATE (EXPERIMENTAL)"};
+    const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION","VISUAL INTERPOLATION"};
     for(int i=0;i<row_count();++i) {
         const int y=row_y+i*row_step;
         c.box(112,y,416,24,i==selected?0xff245978:0xff17394e);
@@ -323,7 +319,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
             if(i==0)value=preferences.scene=="d3d12"?"DX12 GPU":preferences.scene=="d3d11"?"DX11 GPU":"CPU";
             if(i==1)value=gpu_available?(preferences.gpu_programs?"ON":"OFF"):"N/A";
             if(i==2)value=preferences.backend;
-            if(i==3)value=active_gpu?std::to_string(preferences.frame_limit)+" FPS":"N/A";
+            if(i==3)value=fsr_supported?(preferences.interpolation?std::to_string(preferences.interpolation):"OFF"):"N/A";
 #ifndef _WIN32
             if(i==2)value="SDL";
 #endif
@@ -360,9 +356,9 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     if(page==1) {
         c.text(122,251,"DEVICE CHANGES: NEXT LAUNCH",0xffe6b47e,2);
         c.text(122,274,"ACTIVE: "+active_scene,0xffd9efff,2);
-        c.text(122,297,"FRAME RATE CHANGES APPLY LIVE",0xff79dbb7);
-        c.text(122,313,"30 ORIGINAL / UP TO 60 EXPERIMENTAL",0xff9bc0d5);
-        c.text(122,329,"NO PHYSICS OR CLOCK OVERRIDES",0xff9bc0d5);
+        c.text(122,297,"GAME TIMING: ORIGINAL 30 FPS",0xff79dbb7);
+        c.text(122,313,"INTERPOLATION: 60 / 120 VISUALS",0xff9bc0d5);
+        c.text(122,329,"EXPERIMENTAL / ADDS ONE FRAME LATENCY",0xff9bc0d5);
         c.text(122,345,preferences.scene=="d3d12"?"D3D12 SCENES USE D3D11ON12 BRIDGE":"EXACT TEXTURE VALIDATION / AUTO CACHE",0xff9bc0d5);
         c.text(122,359,settings_path.empty()?"DIRECT RUN: SESSION SETTINGS ONLY":"SETTINGS SHARED WITH LAUNCHER",0xff9bc0d5);
     }

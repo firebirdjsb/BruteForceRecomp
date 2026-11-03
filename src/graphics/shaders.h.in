@@ -2,6 +2,7 @@
 #include <string>
 namespace bf::graphics::shaders {
 inline constexpr char source[] = R"BF_SHADER(@BF_PRESENT_HLSL@)BF_SHADER";
+inline constexpr char interpolation[] = R"BF_SHADER(@BF_INTERPOLATION_HLSL@)BF_SHADER";
 inline const std::string ffx_a = [] {
     std::string result;
 @BF_FFX_A_CHUNKS@    return result;

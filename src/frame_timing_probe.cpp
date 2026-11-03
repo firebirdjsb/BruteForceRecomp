@@ -1,4 +1,3 @@
-#include "gpu/frame_interval.h"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -24,19 +23,6 @@ bool read(uint64_t address, void *out, size_t bytes) {
     std::memcpy(out, source, bytes); return true;
 #endif
 }
-}
-
-extern "C" uint32_t bf_frame_probe_swap(uint32_t parameter) {
-    static const unsigned interval = [] {
-        const char *value = std::getenv("BF_TEST_FRAME_INTERVAL");
-        return value && std::strcmp(value, "1") == 0 ? 1u : 0u;
-    }();
-    const uint32_t changed=bf_swap_interval(parameter, interval?60:30);
-    static unsigned logged{};
-    if (interval && (parameter & 31u)==1u && logged++<8)
-        std::fprintf(stderr,"[FRAME-PROBE] swap %08X -> %08X (interval %u -> %u, immediate %u)\n",
-            parameter,changed,(parameter>>5)&7u,(changed>>5)&7u,(parameter>>8)&1u);
-    return changed;
 }
 
 extern "C" void bf_frame_probe_body(uint32_t world, uint32_t body, uint32_t stack) noexcept try {

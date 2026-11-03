@@ -23,16 +23,19 @@ function(bf_add_dx12_library)
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${PROJECT_SOURCE_DIR}/src/graphics/present.hlsl"
+        "${PROJECT_SOURCE_DIR}/src/graphics/interpolation.hlsl"
         "${PROJECT_SOURCE_DIR}/third_party/fsr1/ffx_a.h"
         "${PROJECT_SOURCE_DIR}/third_party/fsr1/ffx_fsr1.h")
     file(READ "${PROJECT_SOURCE_DIR}/src/graphics/present.hlsl" BF_PRESENT_HLSL)
+    file(READ "${PROJECT_SOURCE_DIR}/src/graphics/interpolation.hlsl" BF_INTERPOLATION_HLSL)
     file(READ "${PROJECT_SOURCE_DIR}/third_party/fsr1/ffx_a.h" BF_FFX_A)
     file(READ "${PROJECT_SOURCE_DIR}/third_party/fsr1/ffx_fsr1.h" BF_FFX_FSR1)
     bf_shader_chunks(BF_FFX_A BF_FFX_A_CHUNKS)
     bf_shader_chunks(BF_FFX_FSR1 BF_FFX_FSR1_CHUNKS)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/graphics")
     configure_file("${PROJECT_SOURCE_DIR}/src/graphics/shaders.h.in" "${CMAKE_BINARY_DIR}/graphics/shaders.h" @ONLY)
-    add_library(bf_dx12 STATIC "${PROJECT_SOURCE_DIR}/src/graphics/dx12_presenter.cpp")
+    add_library(bf_dx12 STATIC "${PROJECT_SOURCE_DIR}/src/graphics/dx12_presenter.cpp"
+        "${PROJECT_SOURCE_DIR}/src/graphics/frame_interpolation.cpp")
     target_include_directories(bf_dx12 PRIVATE "${CMAKE_BINARY_DIR}/graphics" "${PROJECT_SOURCE_DIR}/third_party/fsr1")
     target_include_directories(bf_dx12 PUBLIC "${PROJECT_SOURCE_DIR}/src/graphics")
     target_link_libraries(bf_dx12 PUBLIC d3d12 dxgi dxguid d3dcompiler)

@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include "dx12_presenter.h"
 #include "shaders.h"
+#include "frame_interpolation.h"
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
 #include <dxgi1_6.h>
@@ -81,6 +82,8 @@ struct Presenter {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT readback_layout{};
     UINT64 readback_bytes{};
     D3D12_RESOURCE_STATES input_state{D3D12_RESOURCE_STATE_COPY_DEST};
+    std::unique_ptr<FrameInterpolation> interpolation;
+    PresentationStats stats;uint64_t last_source{};
 
     ~Presenter() {
         // All resources referenced by a command list remain owned until its fence.
@@ -204,6 +207,7 @@ struct Presenter {
     }
     void resize(UINT w, UINT h) {
         wait(); has_frame = false;
+        if(interpolation)interpolation->reset();
         for (auto &image : back) image.Reset();
         intermediate.Reset(); scaled.Reset(); readback_buffer.Reset();
         check(swap->ResizeBuffers(2, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0), "Resize swap chain");
@@ -303,7 +307,7 @@ struct Presenter {
         resize(std::max(1L, rect.right), std::max(1L, rect.bottom));
         valid = true;
     }
-    bool frame(const uint32_t *bgra) {
+    bool frame(const uint32_t *bgra,FrameStamp stamp={}) {
         if (!valid || !bgra) return false;
         RECT rect{}; if (!GetClientRect(window, &rect)) throw std::runtime_error("Cannot read client size");
         if (rect.right <= 0 || rect.bottom <= 0 || IsIconic(window)) return false;
@@ -319,6 +323,16 @@ struct Presenter {
         D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource = upload.Get(); src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; src.PlacedFootprint = upload_layout;
         D3D12_TEXTURE_COPY_LOCATION dest{}; dest.pResource = input.Get(); dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         commands->CopyTextureRegion(&dest, 0, 0, 0, &src, nullptr);
+        ID3D12Resource *sampled=input.Get();
+        bool generated=false;
+        if(stamp.output_fps==60||stamp.output_fps==120) {
+            if(!interpolation)interpolation=std::make_unique<FrameInterpolation>(device.Get(),width,height);
+            transition(input.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            if(auto *image=interpolation->record(commands.Get(),input.Get(),stamp))sampled=image;
+            generated=interpolation->generated();
+            transition(input.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_COPY_DEST);
+        } else if(interpolation)interpolation->reset();
+        srv(sampled,0);
         input_state = scaled ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         transition(input.Get(), D3D12_RESOURCE_STATE_COPY_DEST, input_state);
         ID3D12DescriptorHeap *heaps[] = {descriptors.Get()}; commands->SetDescriptorHeaps(1, heaps);
@@ -368,6 +382,10 @@ struct Presenter {
         // Resize/shutdown must wait for these too, not just the draw submission.
         check(queue->Signal(fence.Get(), ++serial), "Signal present fence");
         check(result, "Present"); has_frame = result != DXGI_STATUS_OCCLUDED;
+        if(has_frame) {
+            stats.presents++;stats.generated+=generated;
+            if(stamp.sequence&&stamp.sequence!=last_source){stats.source_frames++;last_source=stamp.sequence;}
+        }
         return has_frame && vsync;
     }
     void readback(std::vector<uint32_t> &rgba, uint32_t &w, uint32_t &h) {
@@ -404,6 +422,7 @@ bool dx12_init(HWND window, uint32_t width, uint32_t height, bool fsr) {
     } catch (const std::exception &error) { std::fprintf(stderr, "[DX12] %s; falling back\n", error.what()); return false; }
 }
 bool dx12_active() { return presenter && presenter->valid; }
+PresentationStats dx12_stats(){return presenter?presenter->stats:PresentationStats{};}
 bool dx12_scale(unsigned factor) {
     if(!dx12_active() || (factor!=0&&factor!=2&&factor!=4&&factor!=8))return false;
     if(presenter->scale_factor==factor)return true;
@@ -420,6 +439,11 @@ bool dx12_frame(const uint32_t *bgra) {
     catch (const std::exception &error) {
         std::fprintf(stderr, "[DX12] %s; disabling presenter\n", error.what()); presenter.reset(); return false;
     }
+}
+bool dx12_frame_timed(const uint32_t *bgra,FrameStamp stamp) {
+    if(!dx12_active())return false;
+    try{return presenter->frame(bgra,stamp);}
+    catch(const std::exception &error){std::fprintf(stderr,"[DX12] interpolation: %s\n",error.what());presenter.reset();return false;}
 }
 void dx12_shutdown() { presenter.reset(); }
 bool dx12_readback(std::vector<uint32_t> &rgba, uint32_t &width, uint32_t &height) {
