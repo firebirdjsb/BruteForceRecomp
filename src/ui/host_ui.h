@@ -15,6 +15,7 @@ int bf_ui_menu_active(void);
 int bf_ui_capture(void);
 int bf_ui_open(void);
 int bf_ui_keyboard_mode(void);
+int bf_ui_keyboard_active(void);
 void bf_ui_controller_activity(void);
 void bf_ui_mouse_activity(void);
 void bf_ui_menu_seen(void);

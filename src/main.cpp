@@ -31,8 +31,12 @@ void sub_002F04D5(void);
 void sub_002F04DC(void);
 void sub_002F04E3(void);
 void sub_0001D8F0(void);
+void sub_0002E490(void);
 int recomp_dispatch_init(void);
 void xbox_path_init(const char *, const char *);
+#ifdef _WIN32
+void xbox_FramebufferWindowStop(void);
+#endif
 #ifdef _MSC_VER
 extern __declspec(thread) uint32_t g_esp;
 #else
@@ -45,6 +49,7 @@ GuestFunction recomp_lookup_manual(uint32_t target) {
     if (target == 0x0037EE7C) return sub_0037EE7C;
     switch(target) {
     case 0x0001D8F0:return sub_0001D8F0;
+    case 0x0002E490:return sub_0002E490;
     case 0x002F04CB:return sub_002F04CB;
     case 0x002F04D2:return sub_002F04D2;
     case 0x002F04D5:return sub_002F04D5;
@@ -74,6 +79,9 @@ void recomp_unimpl(const char *instruction, uint32_t va) {
 static bool memory_ready = false;
 static bool kernel_ready = false;
 static void cleanup() {
+#ifdef _WIN32
+    xbox_FramebufferWindowStop();
+#endif
     if (kernel_ready) { kernel_ready = false; xbox_kernel_shutdown(); }
     stop_host_audio();
     if (memory_ready) { memory_ready = false; xbox_MemoryLayoutShutdown(); }

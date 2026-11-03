@@ -206,6 +206,7 @@ extern "C" int bf_ui_menu_active(){std::lock_guard lock(guard);return menu();}
 extern "C" int bf_ui_capture(){std::lock_guard lock(guard);return opened||menu();}
 extern "C" int bf_ui_open(){std::lock_guard lock(guard);return opened;}
 extern "C" int bf_ui_keyboard_mode(){std::lock_guard lock(guard);return keyboard&&prompts_on;}
+extern "C" int bf_ui_keyboard_active(){std::lock_guard lock(guard);return keyboard;}
 extern "C" void bf_ui_controller_activity(){std::lock_guard lock(guard);keyboard=false;}
 extern "C" void bf_ui_mouse_activity(){std::lock_guard lock(guard);keyboard=true;}
 extern "C" void bf_ui_menu_seen(){std::lock_guard lock(guard);menu_seen=Clock::now();}

@@ -47,6 +47,9 @@ int main(int argc,char **argv) {
     bf_ui_controller_activity();if(bf_ui_keyboard_mode())return 8;
     if(!bf_ui_key(112,0)||!bf_ui_open()||!bf_ui_keyboard_mode())return 9;
     bf_ui_key(112,1);if(!bf_ui_open())return 10;
+    bf_ui_mouse(200,132+28+8,640,480,1);
+    if(bf_ui_keyboard_mode()||!bf_ui_keyboard_active())return 60;
+    bf_ui_mouse(200,132+28+8,640,480,1);
     if(bf_ui_pointer(&p))return 11;
     // Actual overlay mouse interaction toggles mute and master gain.
     bf_ui_mouse(200,132+5*28+8,640,480,1);

@@ -4,7 +4,7 @@ Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows,
 
 **This is not a finished or verified playable port.** Translation, compiling, booting, rendering and completing a mission are separate gates. Generated code and inferred calling conventions must be checked against the original executable and measured execution.
 
-The immediate priority is a rendered, controllable campaign at a stable frame rate. The latest checkpoint recovers the exact missing combat thunk reported in the crash log, moves native mouse aim after the original controller clamp, adds optional sampled-texture reconstruction and verifies locally bundled DLC. The game retains original 30-FPS pacing; optional motion interpolation generates 60/120-FPS visuals separately. Bounded runs reached the first mission with HUD and scripted input, but an intermittent startup file-completion stall and full combat/DLC-map acceptance remain open. See [STATUS.md](STATUS.md) and [frame-rate evidence](docs/FRAME_RATE.md) for exact boundaries.
+The immediate priority is a rendered, controllable campaign at a stable frame rate. The latest checkpoint recovers the measured missing combat/script entries, applies raw mouse counts after the camera's analog response, joins the window thread before resource teardown, and retains optional texture reconstruction and verified local DLC. The game retains original 30-FPS pacing; optional motion interpolation generates 60/120-FPS visuals separately. Bounded runs reached the first mission with HUD and scripted input, and the user accepted the new mouse feel. Intermittent startup and full combat/DLC-map acceptance remain open. See [STATUS.md](STATUS.md) and [frame-rate evidence](docs/FRAME_RATE.md) for exact boundaries.
 
 ## Desktop application
 
@@ -68,10 +68,12 @@ artwork while keyboard/mouse prompts are active. Controller activity restores
 the original artwork. The original title, panel and Accept/Skip actions remain.
 Recognition checks the actual lesson text and widget hierarchy; other lessons
 retain their original visuals until their content has been verified.
-The Windows player feeds raw mouse motion into the authenticated title input update after
-its adaptive stick filters, with elapsed-time-normalized gain and a separate
-motion queue. It still uses the game's original camera logic. The user confirmed
-the visible candidate was working on 2 November 2026. The preceding build passed movement,
+The Windows player consumes relative mouse counts at the authenticated camera
+update after the original stick clamps, response curve, ramp and aim assistance.
+Mouse motion no longer produces a virtual right-stick report. The original
+pitch limits and authored weapon/camera effects remain on their existing path.
+The user confirmed the corrected live build felt good on 3 November 2026.
+See [raw mouse implementation and evidence](docs/RAW_MOUSE.md). The preceding build passed movement,
 aiming, firing, zoom, grenade/item input and cursor capture; complete campaign
 acceptance remains open.
 The cursor is hidden/confined by the game window while aiming, and released

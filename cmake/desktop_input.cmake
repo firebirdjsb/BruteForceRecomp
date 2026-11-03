@@ -58,13 +58,16 @@ bf_mkb_replace([=[        if (mx && my) { mx = (int)(mx * 70.71); my = (int)(my 
         const int full = mx && my ? 23170 : 32767;
         mov_x = (SHORT)(mx * full); mov_y = (SHORT)(my * full);]=])
 bf_mkb_replace([=[    dx    = InterlockedExchange(&s_dx, 0);
-    dy    = InterlockedExchange(&s_dy, 0);]=] [=[    dx = dy = 0; /* Mouse deltas are drained only at the sampling boundary. */]=])
+    dy    = InterlockedExchange(&s_dy, 0);]=] [=[    dx = dy = 0; /* Mouse deltas are drained only at the sampling boundary. */
+    if (bf_ui_menu_active()) {
+        InterlockedExchange(&s_native_dx,0);InterlockedExchange(&s_native_dy,0);
+    }]=])
 bf_mkb_replace([=[    if (dx || dy) {
         double ax =  (double)dx / (double)s_cfg.full;
         double ay = -(double)dy / (double)s_cfg.full;
         if (s_cfg.invert_y) ay = -ay;
         mkb_aim_vector(ax, ay, &aim_x, &aim_y);
-    }]=] [=[    {
+    }]=] [=[    if (getenv("BF_MOUSE_RESPONSE") && !strcmp(getenv("BF_MOUSE_RESPONSE"),"legacy")) {
         LARGE_INTEGER tick, frequency;
         const double interval = 1000.0 / 60.0;
         if (QueryPerformanceCounter(&tick) && QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0) {
@@ -99,32 +102,30 @@ math(EXPR cursor_length "${cursor_end}-${cursor_start}")
 string(SUBSTRING "${BF_UI_SOURCE}" ${cursor_start} ${cursor_length} old_cursor)
 string(REPLACE "${old_cursor}" "static void mkb_manage_cursor(int capture) { (void)capture; }\n\nint bf_mkb_capture_requested(void) {\n    return mkb_enabled() && s_thread_up && s_active && game_is_foreground()\n        && !bf_text_active() && !bf_ui_capture();\n}\n\n" BF_UI_SOURCE "${BF_UI_SOURCE}")
 string(APPEND BF_UI_SOURCE [=[
-/* Called by the authenticated title input update, after its stick deadzones.
- * Positive raw Y points down; the title's processed stick Y does too.
- * Counts are scaled to one reference 30-Hz title update. Elapsed-time
- * normalization makes the accumulated rotation independent of report rate.
- * Values may exceed one stick throw; mouse motion has no stick-speed ceiling.
- * The bound rejects remote-pointer warps while retaining 32 full throws. */
-int bf_mkb_native_aim(float *x, float *y) {
+/* Relative-count displacement consumed only by the local camera update.
+ * No stick conversion, rate normalization, acceleration or count clipping.
+ * Absolute pointer packets remain excluded by the original raw reader. */
+int bf_mkb_raw_delta(float *x, float *y) {
     static double previous;
     static int ready;
-    LARGE_INTEGER tick,frequency;
     const char *legacy=getenv("BF_MOUSE_RESPONSE");
     if (!x || !y || (legacy && !strcmp(legacy,"legacy"))) return 0;
-    if (!bf_mkb_capture_requested() || !bf_ui_keyboard_mode()) {
+    if (!bf_mkb_capture_requested() || !bf_ui_keyboard_active() || bf_ui_menu_active()) {
         InterlockedExchange(&s_native_dx,0);InterlockedExchange(&s_native_dy,0);
         ready=0;return 0;
     }
+    LARGE_INTEGER tick,frequency;
     if (!QueryPerformanceCounter(&tick) || !QueryPerformanceFrequency(&frequency) || frequency.QuadPart<=0) return 0;
     double now=(double)tick.QuadPart*1000.0/(double)frequency.QuadPart;
-    double elapsed=ready?now-previous:1000.0/30.0;
-    previous=now;ready=1;
-    if (elapsed<1.0) elapsed=1.0;
     LONG dx=InterlockedExchange(&s_native_dx,0),dy=InterlockedExchange(&s_native_dy,0);
-    double gain=0.1*bf_ui_mouse_sensitivity()*(1000.0/30.0)/elapsed;
+    /* Discard motion accumulated while no gameplay camera consumed input
+     * (movies, loading or pause). Time never scales a live mouse count. */
+    if (!ready || now-previous>250.0 || now<previous) dx=dy=0;
+    previous=now;ready=1;
+    double gain=bf_ui_mouse_sensitivity();
     double ax=dx*gain,ay=dy*gain;
     if(s_cfg.invert_y)ay=-ay;
-    *x=(float)fmax(-32.0,fmin(32.0,ax));*y=(float)fmax(-32.0,fmin(32.0,ay));
+    *x=(float)ax;*y=(float)ay;
     return 1;
 }
 ]=])
@@ -144,17 +145,9 @@ foreach(file IN LISTS BF_GENERATED)
         if(NOT digest STREQUAL "8126887f51e22b1ae03f07a0d690bf98533315a074a07e0b5e90d1d8992bb2f1")
             message(FATAL_ERROR "Unaudited title input update; immediate mouse integration refused.")
         endif()
-        string(PREPEND text "extern void bf_mkb_apply_native_aim(unsigned);\n")
-        # sub_001F2CF0 subsequently accumulates and clamps report+0x1C/+0x20
-        # to [-1,1]. Inserting raw mouse before that call still imposes the
-        # original stick-speed ceiling. Replace only its final port-0 axes,
-        # after that exact original call, through a validated native writer.
-        string(REPLACE "loc_001F33DF: ;\n    POP32(esp, edi);"
-            "loc_001F33DF: ;\n    bf_mkb_apply_native_aim(edi);\n    POP32(esp, edi);" text "${text}")
-        set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/game-immediate-mouse.c")
-        file(WRITE "${copy}.in" "${text}")
-        configure_file("${copy}.in" "${copy}" COPYONLY)
-        set(mouse_fixture "#define RECOMP_GENERATED_CODE\n#include \"recomp_funcs.h\"\nextern void bf_mkb_apply_native_aim(unsigned);\n")
+        # Physical controller processing remains original. Native mouse
+        # counts are consumed at the final camera handoff below instead.
+        set(mouse_fixture "#define RECOMP_GENERATED_CODE\n#include \"recomp_funcs.h\"\n")
         foreach(entry IN ITEMS 001F2CF0 001F33B0)
             string(FIND "${text}" "void sub_${entry}(void)" fixture_start)
             string(SUBSTRING "${text}" ${fixture_start} -1 fixture_tail)
@@ -168,8 +161,6 @@ foreach(file IN LISTS BF_GENERATED)
         file(WRITE "${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c.in" "${mouse_fixture}")
         configure_file("${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c.in"
             "${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c" COPYONLY)
-        list(REMOVE_ITEM BF_GENERATED "${file}")
-        list(APPEND BF_GENERATED "${copy}")
         math(EXPR native_mouse_matches "${native_mouse_matches}+1")
     endif()
 endforeach()
@@ -177,6 +168,7 @@ if(NOT native_mouse_matches EQUAL 1)
     message(FATAL_ERROR "Expected exactly one audited title input update.")
 endif()
 list(APPEND BF_GENERATED "${PROJECT_SOURCE_DIR}/src/input/native_mouse.cpp")
+include("${PROJECT_SOURCE_DIR}/cmake/native_camera.cmake")
 
 bf_ui_read(xbox_video game-ui-window.c)
 string(PREPEND BF_UI_SOURCE "#include \"input/desktop_cursor.h\"\nextern int bf_mkb_capture_requested(void);\nstatic BfDesktopCursor s_desktop_cursor;\n")
@@ -193,10 +185,11 @@ target_include_directories(bf_desktop_input_test PRIVATE src
     "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/include")
 add_test(NAME desktop_input_reports COMMAND bf_desktop_input_test)
 add_executable(bf_native_mouse_test tests/native_mouse_test.cpp src/input/native_mouse.cpp
-    "${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c")
+    "${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c"
+    "${CMAKE_BINARY_DIR}/runtime-fixes/native-camera-fixture.c")
 target_include_directories(bf_native_mouse_test PRIVATE src "${BF_GENERATED_DIR}"
     "${XBOXRECOMP_DIR}/templates/runtime" "${XBOXRECOMP_DIR}/src/kernel")
-add_test(NAME native_mouse_after_clamp COMMAND bf_native_mouse_test)
+add_test(NAME native_mouse_camera COMMAND bf_native_mouse_test)
 add_executable(bf_desktop_cursor_test tests/desktop_cursor_test.c)
 target_include_directories(bf_desktop_cursor_test PRIVATE src)
 add_test(NAME desktop_cursor_ownership COMMAND bf_desktop_cursor_test)

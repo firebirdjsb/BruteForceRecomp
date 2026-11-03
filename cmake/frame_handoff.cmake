@@ -9,6 +9,7 @@ if(WIN32)
     if(NOT hash STREQUAL "f0a3f553ccf4afc2e1bcfc1020030bfe76a1fc584caefc3d2367ba87f8ed9782")
         message(FATAL_ERROR "Framebuffer source differs from the audited pinned revision.")
     endif()
+    include("${PROJECT_SOURCE_DIR}/cmake/frame_window_lifecycle.cmake")
     string(PREPEND source "#include <stdint.h>\nextern uint64_t gpu_present_clock_ns(void);\nextern void gpu_present_source(uint64_t,uint64_t);\nextern double gpu_present_display_fps(void);\nextern double gpu_present_generated_fps(void);\n")
     string(REPLACE "static volatile LONG s_present_idx = -1;"
         "static SRWLOCK s_present_lock = SRWLOCK_INIT;\nstatic uint64_t s_present_count,s_present_ids[2],s_present_times[2];\nstatic volatile LONG s_present_idx = -1;" source "${source}")

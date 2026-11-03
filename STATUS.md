@@ -5,6 +5,42 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Accepted raw mouse and new crash repair
+
+The latest screenshot/log stops at unresolved **0x0002E490**, reached from the
+original script-member dispatch at 0x00204159. Its omitted aligned-stack entry
+is now recovered from the exact authenticated 787-byte body through the original
+RET at 0x0002E7A2; all direct callees were already translated. The recovery test
+executes a neutral script path at both stack alignments and checks output,
+calls, arguments, callee-saved registers and stack cleanup on Windows/Linux.
+The captured log is preserved privately; the original long combat sequence has
+not been replayed to completion. This repair does not establish crash-free play.
+
+The earlier post-clamp mouse callback still passed through a second binding
+clamp and the camera's analog response. Windows mouse input now reaches the
+camera after the curve/ramp/aim-assistance stages, with no virtual right-stick
+report. Dynamic ownership includes the original virtual-pad proxy to physical
+port0 chain. Live traces show valid ownership and actual relative counts.
+The user confirmed “this is the fix” and “this feels good.” The exact accepted
+candidate is retained under work/crash-mouse-fix/verified-player. See
+[RAW_MOUSE.md](docs/RAW_MOUSE.md) for implementation, tests and latency limits.
+
+The framebuffer thread now retains its handle and is stopped/joined before
+guest-memory teardown and presenter static destruction. Internal window
+destruction during that shutdown does not terminate the process prematurely.
+Its regression test checks join-before-unmap ordering, duplicate starts, restart
+rejection and handle release. This addresses the identified shutdown race;
+the exact fatal gameplay/shutdown sequence still needs a runtime replay before
+claiming the reported DX12 command-list error can no longer occur.
+
+Current local validation: 29 Windows native checks, 18 Linux checks, 17 Python
+unittest checks (one skipped) and 59 frame/timing pytest cases passed. A
+four-minute D3D12 campaign run reached HUD/movement/fire without a guest failure;
+that scripted run did not initialize the real mouse adapter. A separate real
+mouse run exercised the accepted proxy ownership path. Permanent saves and
+preferences remain outside disposable test profiles. Broader mission, multiplayer,
+audio, Linux GPU, Android, native widescreen and temporal-upscaler work remains open.
+
 ### Combat, mouse, texture and DLC checkpoint
 
 The captured combat crash stopped at unresolved guest target **0x0001D8F0**,

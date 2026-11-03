@@ -23,6 +23,10 @@ CRT_ENTRIES = (
 # Preserve its exact instructions and tail-call stack; no guessed prototype.
 GAMEPLAY_ENTRIES = (
     (0x0001d8f0, 0x0001d8f8, 'ae24c26279f8dc7f0f1bff547ef015024d464df679265916ea8bf3e1265b8e64'),
+    # The script member dispatcher at 0x00204159 reaches this measured entry.
+    # Its aligned-stack prologue was omitted; all reachable branches end at
+    # the original RET at 0x0002E7A2. Every direct callee is already discovered.
+    (0x0002e490, 0x0002e7a3, '891f0f02b028b3a6c53885b24a9416a9ffb396b5bcf814108766a4bdb1635c6f'),
 )
 
 
@@ -97,7 +101,9 @@ def recover(xbe, toolkit, functions, output):
         'crt_branches': [dict(entry=hex(first),end=hex(last),body_sha256=body_hash)
                          for first,last,body_hash in CRT_ENTRIES],
         'gameplay_entries': [dict(entry=hex(first), end=hex(last), body_sha256=body_hash,
-                                 reason='Measured missing virtual tail-dispatch thunk during combat')
+                                 reason=('Measured missing virtual tail-dispatch thunk during combat'
+                                         if first == 0x0001d8f0 else
+                                         'Measured missing script callback at original 0x00204159'))
                              for first,last,body_hash in GAMEPLAY_ENTRIES]
     }, indent=2), encoding='utf-8')
 

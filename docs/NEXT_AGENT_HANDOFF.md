@@ -8,12 +8,84 @@ checkpoint and this handoff. Push source when requested; never commit original
 assets, DLC payloads, generated/recovered game C, captures, saves or binaries.
 Keep permanent saves/preferences and the native application launcher.
 
+## Latest accepted fix — read this before the historical checkpoint below
+
+The user reported another crash and said gameplay still felt like analog look.
+After the corrected live test they said **“this is the fix”** and **“this feels
+good.”** Do not restore the earlier post-clamp input callback or retune this
+accepted path without evidence. See docs/RAW_MOUSE.md for the current design.
+
+Installed player and exact accepted candidate now have SHA-256
+`d3424454778dae60177a92098b04d10d90b7da3ff123d7ef4aa990df0c017f93`.
+Installed path remains work/diagnostic-build/Release/bruteforce_recomp.exe;
+accepted candidate is work/crash-mouse-fix/verified-player/Release.
+The launcher binaries/assets are unchanged from checkpoint652115e.
+Backup: work/crash-mouse-fix/install-20261103-133522, with install-manifest.json
+and all179 existing save/settings hashes verified unchanged. No production
+service or original game/DLC file was modified. The previous binary paths and
+hashes later in this document describe the historical652115e checkpoint.
+
+Current missing-call repair: original0x0002E490, body787bytes ending0x0002E7A3,
+SHA `891f0f02b028b3a6c53885b24a9416a9ffb396b5bcf814108766a4bdb1635c6f`.
+Caller is original script dispatch0x00204159, return0x0020415B. The pinned
+translator now recovers the exact body into private recomp_gameplay.c and
+main.cpp registers it. All direct callees were already translated. A real
+recovered-body fixture checks a neutral script path, both stack alignments,
+outputs/calls/callee-saved registers/argument cleanup on Windows and Linux.
+The user's long running/killing sequence is still not fully replayed.
+
+Captured latest log: work/crashes/2026-11-03-17937183604452617/game.log,
+SHA `75c405e8aa632eb9fbbdf9f8192f681bda3a3c843ce8f6648f753b794bc6df75`.
+Read its target-analysis.json for exact CFG, return and direct-callee evidence.
+Do not call0x2E490 a thunk: it is a full aligned-stack script callback.
+
+Raw mouse now consumes relative counts at0x00133EA3 in original0x001332A0,
+after camera curve/ramp/aim assistance and before authored weapon motion.
+It produces no virtual right-stick reports. The original controller path,
+pitch limits and simulation timing remain. The input component+0x20 is a
+LOGICAL ID (observed1), not physical port0. The dynamic manager mapping points
+through a0x396868 virtual pad, whose+0xC4 points to a0x396840 physical pad with
+port DWORD+0xBC=0. Original0x001F0BB0 uses that same chain. A read-only live
+inspection confirmed it; work/crash-mouse-fix/input-owner.json holds evidence.
+The native helper validates this direct/proxy chain, writable stack slots,
+current frame seconds/model rate and active mouse ownership. Prompts can be
+disabled without disabling raw input. Menus/focus/F1/loading epochs drop stale
+motion. Time converts velocity units; it does not accelerate raw counts.
+BF_TRACE_NATIVE_MOUSE=1 is bounded opt-in telemetry, normally OFF.
+
+The window lifetime repair is in cmake/frame_window_lifecycle.cmake, applied
+only to the hash-checked private framebuffer copy. It retains and joins the
+thread handle before main cleanup unmaps guest memory. Shutdown-driven
+WM_DESTROY must not TerminateProcess. Tests check join-before-unmap, duplicate
+start, no restart after stop and no leaked thread handle. The exact fatal
+combat/shutdown sequence still needs replay before claiming the separate
+DX12 Close command list error cannot recur. Do not hide that error.
+
+Current local checks:29 Windows native tests,18 Linux tests, full Windows and
+Linux player links, unittest17(one skipped), pytest59 pass. No LinuxGPU/APK
+is established. work/combat-input-quality/interval-original-mdgyd6wh is a
+four-minute D3D12/scripted-input smoke without guest failure. Forced pad scripts
+bypass MKB startup, so it is NOT a raw-mouse test. The real adapter tests are
+work/crash-mouse-fix/live-mouse (old rejected ownership check) and
+work/crash-mouse-fix/verify-live/boot-g3700eq5 (corrected, user accepted), with
+actual nonzero counts and local ownership in the log. Both use disposable data.
+Do not overwrite real progress with these QA saves. The accepted live window
+was left open for the user's testing, with its announced ten-minute watchdog;
+check current processes rather than assuming it is still running.
+
+The Windows cache work/diagnostic-build now outputs to
+work/crash-mouse-fix/verified-player. Never rebuild over an open test executable.
+Source/binary installation does not change the user's interpolation120 or
+sensitivity preferences. Image interpolation still adds a source-frame delay.
+Continue long combat/crash replay, authored camera/zoom/controller coverage and
+remaining renderer/platform work. Historical checkpoint details follow.
+
 Use evidence-backed narrow repairs, at most two repair loops per issue.
 Do not claim compilation, synthetic tests or bounded smoke runs prove complete
 mission/combat/audio/controller acceptance. Do not apply speculative physics,
 coordinate, ABI or instruction patches. No subagents are requested.
 
-## Current requirements and checkpoint scope
+## Historical checkpoint652115e requirements and scope
 
 Playable campaign is priority 1. Preserve original 30-FPS simulation; the user
 wants interpolated 60–120 visuals, not faster guest timing. Other requested work:
