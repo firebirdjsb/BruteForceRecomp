@@ -25,6 +25,7 @@
 #include "gpu/d3d11_backend.h"
 #include "gpu/scene_device.h"
 #include "gpu/texture_decode.h"
+#include "ui/scene_boundary.h"
 extern void bruteforce_d3d11_wait(void);
 
 
@@ -1048,6 +1049,28 @@ static int scene_mips(const char *out_path)
     puts("Authored ARGB/P8 mips, lower-level cache invalidation and non-mip filter passed.");return 1;
 }
 
+static int scene_ui_aa(const char *out_path,int enabled)
+{
+    uint32_t va=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),vb=xbox_ContiguousAlloc(4096,4096);
+    const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
+    const Pos triangle[3]={{0,0,1000,1},{64,64,1000,1},{0,64,1000,1}};
+    const uint32_t white[4]={0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu};
+    unsigned x,y;FILE *file;
+    REQUIRE(va&&vb,"allocate scene/UI AA fixture");
+    identity_matrix();surface(va,B_SIZE,0);clear(0xF0,0xFF000000u,0);combiners(0);
+    method(0x030C,0);draw(5,triangle,white,uv,3,vb);
+    bf_scene_aa_set_enabled(enabled);method(0x0100,BF_UI_SCENE_BOUNDARY);
+    /* Independently authored one-pixel text strokes after the scene boundary.
+     * Repeated boundaries between strokes must never re-filter existing UI. */
+    for(y=8;y<24;y++)for(x=40;x<56;x++)if((x+y)&1) {
+        const Pos pixel[4]={{(float)x,(float)y,0,1},{(float)x+1,(float)y,0,1},
+                            {(float)x+1,(float)y+1,0,1},{(float)x,(float)y+1,0,1}};
+        draw(8,pixel,white,uv,4,vb);method(0x0100,BF_UI_SCENE_BOUNDARY);
+    }
+    flip();file=fopen(out_path,"wb");REQUIRE(file,"open scene/UI AA output");
+    REQUIRE(fwrite(guest(va),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE&&fclose(file)==0,"write scene/UI AA output");
+    return 1;
+}
 static int scene_hud(const char *out_path)
 {
     uint32_t va=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),vb=xbox_ContiguousAlloc(4096,4096);
@@ -1239,7 +1262,8 @@ int main(int argc, char **argv)
     } else if (strncmp(argv[2], "cpu", 3) != 0) {
         return 2;
     }
-    if (strstr(argv[2], "zcolor") ? !scene_depth_color_alias(argv[3],argv[2]) :
+    if (strstr(argv[2], "ui-aa") ? !scene_ui_aa(argv[3],strstr(argv[2],"off")==NULL) :
+        strstr(argv[2], "zcolor") ? !scene_depth_color_alias(argv[3],argv[2]) :
         strstr(argv[2], "ownership") ? !scene_color_ownership(argv[3],argv[2]) :
         strstr(argv[2], "mips") ? !scene_mips(argv[3]) :
         strstr(argv[2], "clear") ? !scene_clear_rect(argv[3], strstr(argv[2], "vsh") != NULL,

@@ -29,6 +29,7 @@ int bf_ui_tutorial_prepare(uint32_t root_tag,BfUiRect root,const BfUiTutorialNod
 int bf_ui_tutorial_hide(uint32_t tag,uint32_t vtable);
 void bf_ui_tutorial_clear(void);
 void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height);
+int bf_ui_antialiasing(void);
 int bf_ui_fsr(void);
 void bf_ui_fsr_initial(int enabled);
 void bf_ui_fsr_supported(int supported);

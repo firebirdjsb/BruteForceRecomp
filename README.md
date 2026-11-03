@@ -18,6 +18,14 @@ frames. Original pacing remains unchanged in every mode. Interpolation adds
 one source frame of latency and can show artifacts; Off is the default.
 The former native-60 option is retired, and its saved setting migrates to 30.
 
+**Graphics > Anti-aliasing** in the launcher and **F1 > Renderer > Anti-aliasing**
+share an experimental scene-edge filter. It runs before original text/UI draw
+commands, rather than filtering the completed frame. Synthetic CPU/D3D11/D3D12
+tests preserve subsequent UI pixels exactly; full in-game HUD/menu validation
+is still pending. Keyboard prompt and tutorial updates are also staged; the
+pause-menu click issue and squad-command artwork remain unfinished. See the
+[current checkpoint](STATUS.md) before choosing a local build.
+
 ```sh
 cmake -S . -B .local/launcher-build -DBF_LAUNCHER_ONLY=ON
 cmake --build .local/launcher-build --config Release --parallel 2

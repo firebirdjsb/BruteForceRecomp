@@ -44,6 +44,14 @@ static XBOX_INPUT_STATE poll(void) {
 int main(void) {
     _putenv_s("RECOMP_MKB", "1"); s_thread_up = 1;
     XBOX_INPUT_STATE state;
+    /* Resolve real reports from the same primary keys the glyphs display. */
+    for(unsigned control=0;control<7;control++) {
+        if(control==3)continue; /* Wheel/middle mouse has its packet path. */
+        memset((void *)s_vk_down,0,sizeof s_vk_down);
+        s_vk_down[bf_desktop_bindings[control].key]=1;
+        state=poll();CHECK(state.Gamepad.bAnalogButtons[control]==255);
+        CHECK(bf_desktop_bindings[control].label[0]);
+    }
     const int keys[4] = {'W','S','A','D'};
     for (int i=0;i<4;i++) {
         memset((void *)s_vk_down,0,sizeof s_vk_down); s_vk_down[keys[i]]=1;

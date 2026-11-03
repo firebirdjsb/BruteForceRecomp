@@ -186,6 +186,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_
     add_test(NAME posix_mmio_context COMMAND bf_posix_mmio_test)
 endif()
 include(cmake/scene_backend.cmake)
+include(cmake/scene_antialias.cmake)
 if(BF_RUNTIME_CHECKS_ONLY)
     return()
 endif()

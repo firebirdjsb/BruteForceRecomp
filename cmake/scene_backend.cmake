@@ -45,6 +45,9 @@ if(BF_RUNTIME_CHECKS_ONLY)
     add_test(NAME nv2a_d3d12_scene_parity COMMAND "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tests/check_gpu_scene.py" "$<TARGET_FILE:bf_gpu_scene_test>"
         "${XBOXRECOMP_DIR}/tools/conformance/test.xbe" "${CMAKE_BINARY_DIR}/gpu-parity-d3d12" --d3d12)
+    add_test(NAME scene_aa_ui_preservation COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/check_scene_aa.py" "$<TARGET_FILE:bf_gpu_scene_test>"
+        "${XBOXRECOMP_DIR}/tools/conformance/test.xbe" "${CMAKE_BINARY_DIR}/scene-aa-ui")
 endif()
 target_include_directories(xbox_kernel BEFORE PRIVATE "${PROJECT_SOURCE_DIR}/src/gpu/runtime" "${PROJECT_SOURCE_DIR}/src/gpu")
 target_include_directories(bf_nv2a_hlsl BEFORE PUBLIC "${PROJECT_SOURCE_DIR}/src/gpu/runtime")

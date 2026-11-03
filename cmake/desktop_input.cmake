@@ -51,6 +51,15 @@ bf_mkb_replace("if (btn & 0x02) analog[XBOX_BUTTON_LTRIGGER] = 255;  /* ADS/aim 
     "if (btn & 0x02) b |= XBOX_GAMEPAD_RIGHT_THUMB; /* Brute Force: toggle scope, not grenade trigger */\n    if (MK_VK('G')) analog[XBOX_BUTTON_LTRIGGER] = 255; /* grenade / inventory */")
 bf_mkb_replace("btn   = InterlockedExchange(&s_mouse_btn, 0);" [=[/* Buttons are held state, not a queue. Only raw UP releases them. */
     btn   = InterlockedCompareExchange(&s_mouse_btn, 0, 0);]=])
+# One primary-key table drives both reports and on-screen labels. These are
+# exact substitutions of the accepted profile; mouse motion stays unchanged.
+string(PREPEND BF_UI_SOURCE "#include \"input/desktop_bindings.h\"\n")
+foreach(pair IN ITEMS "VK_SPACE|0" "'E'|1" "'R'|2" "'F'|4" "'Q'|5" "'G'|6" "VK_TAB|13" "VK_LSHIFT|14")
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    list(GET fields 1 control)
+    bf_mkb_replace("MK_VK(${key})" "MK_VK(bf_desktop_bindings[${control}].key)")
+endforeach()
 bf_mkb_replace([=[        if (mx && my) { mx = (int)(mx * 70.71); my = (int)(my * 70.71); }
         if (mx || my) mkb_aim_vector(mx / 100.0, my / 100.0, &mov_x, &mov_y);]=] [=[        /* Full speed on key-down; opposite keys cancel. Diagonals have
          * the same vector length. Movement never uses mouse sensitivity,

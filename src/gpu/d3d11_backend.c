@@ -58,6 +58,8 @@
 #include "rc_hlsl.h"
 #include "texture_decode.h"
 #include "asset_upscale.h"
+#include "scene_antialias.h"
+#include "ui/scene_boundary.h"
 extern unsigned bf_ui_texture_scale(void);
 #include "vsh_hlsl.h"
 #include "shader_cache.h"
@@ -373,6 +375,7 @@ static int ensure_device(void)
 #define MAX_SURF 32
 typedef struct {
     uint32_t va, pitch, bpp, w, h;
+    uint32_t aa_generation;
     ID3D11Texture2D *tex, *snapshot;
     ID3D11RenderTargetView *rtv;
     ID3D11ShaderResourceView *srv, *snapshot_srv;
@@ -3109,6 +3112,21 @@ static int d3d_readback(uint32_t color_va)
     return 1;
 }
 
+static void d3d_before_ui(const Nv2aSurface *surface)
+{
+    Surf *sf;
+    if(!s_dev||!surface||(sf=get_surf(surface))==NULL||sf->aa_generation==s_gen)return;
+    /* Mark even when disabled, so enabling AA midway through interface draws
+     * cannot filter text that has already been painted into this surface. */
+    sf->aa_generation=s_gen;
+    if(!bf_scene_aa_enabled()||s_q_active||!sync_guest_surface(sf,1))return;
+    if(bf_scene_antialias(s_dev,s_ctx,sf->tex)) {
+        sf->gpu_dirty=1;
+        if(getenv("BF_TRACE_AA_UI")&&(s_gen<8||s_gen%300==0))
+            fprintf(stderr,"[AA] scene before UI frame=%u surface=%08X %ux%u\n",s_gen,sf->va,sf->w,sf->h);
+    }
+}
+
 static void d3d_flip(void)
 {
     s_gen++;
@@ -3119,7 +3137,7 @@ static const Nv2aBackend s_backend = { d3d_clear, d3d_draw, d3d_flip };
 static const Nv2aBackendExt s_backend_ext = { d3d_xdraw, d3d_xdraw_vsh, d3d_vsh_readback,
                                               d3d_vsh_raw_ok, d3d_readback, d3d_zpass,
                                               d3d_zpass_count, d3d_zpass_report, d3d_poll,
-                                              NV2A_BACKEND_CAP_WINDOW_CLIP };
+                                              NV2A_BACKEND_CAP_WINDOW_CLIP, d3d_before_ui };
 
 int bruteforce_d3d11_install(void)
 {

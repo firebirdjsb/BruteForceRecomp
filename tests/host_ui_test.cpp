@@ -125,6 +125,11 @@ int main(int argc,char **argv) {
     if(bf_ui_texture_scale()!=4||bf::load_graphics(settings).texture_scale!=4)return 44;
     bf_ui_mouse(200,132+4*28+8,640,480,1);
     if(bf_ui_texture_scale()!=1)return 45;
+    if(!bf::load_graphics(settings).antialiasing)return 61;
+    bf_ui_mouse(200,132+5*28+8,640,480,1);
+    if(bf::load_graphics(settings).antialiasing)return 62;
+    bf_ui_mouse(200,132+5*28+8,640,480,1);
+    if(!bf::load_graphics(settings).antialiasing)return 63;
     auto invalid=bf::load_graphics(settings);invalid.frame_limit=120;
     if(bf::valid_graphics(invalid))return 41;
     std::filesystem::remove(settings);

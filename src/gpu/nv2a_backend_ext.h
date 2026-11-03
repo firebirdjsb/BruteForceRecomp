@@ -149,6 +149,7 @@ typedef struct {
     int (*zpass_report)(uint32_t report_va, uint64_t stamp);
     void (*poll)(void);
     uint32_t capabilities;
+    void (*before_ui)(const Nv2aSurface *surface);
 } Nv2aBackendExt;
 
 enum { NV2A_BACKEND_CAP_WINDOW_CLIP = 1u };

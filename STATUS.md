@@ -5,6 +5,40 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Scene-only AA and keyboard prompt checkpoint
+
+The earlier uncommitted AA prototype filtered completed frames and softened
+game text. That path has been removed. AA now runs at an ordered NV2A boundary
+before original font/UI-quad commands, once per render surface and frame.
+CPU color and Windows D3D11/D3D12-through-11On12 scenes share the boundary;
+CPU 16-bit surfaces are left unchanged. Launcher Graphics and F1 > Renderer
+share the optional AA preference. This is spatial edge AA, not temporal AA,
+DLSS or a higher internal scene resolution.
+
+A real NV2A synthetic draw test changes 123 CPU / 127 GPU scene-edge pixels
+while keeping all 256 subsequently drawn UI pixels byte-identical to AA Off,
+including repeated UI boundaries. A disposable D3D12 game run reached the
+Basic Controls view and logged scene-before-UI execution. It ended at the
+watchdog, without verifying pause-menu clicks, complete gameplay or every HUD
+layer. The candidate has not replaced the installed accepted player.
+
+Prompt labels now share the actual primary desktop/menu key tables. The
+authenticated gameplay controller-font draw can replace inline Xbox X with R
+on Windows desktop input, with controller fallback and ordinary text preserved.
+Eight identified non-basic tutorials continue through the original input path
+only for keyboard/mouse; Basic Controls retains the mouse guide. These changes
+pass synthetic tests. Full in-game glyph placement, longer keycap fit and squad
+command artwork/text replacement remain open. Pause-menu diagnostics are added;
+the reported click failure is not yet fixed.
+
+Current checkpoint validation: full Windows/Linux player links; 32 Windows
+and 21 Linux native checks; four focused public-runtime checks including both
+GPU scene-parity suites and AA UI preservation; four Windows launcher checks;
+17 Python unittest cases (one skipped) and 59 pytest cases. The exact evidence,
+local build paths, rollback notes and continuation order are in
+[NEXT_AGENT_HANDOFF.md](docs/NEXT_AGENT_HANDOFF.md). Previous checkpoint test
+counts and installation statements below describe their historical builds.
+
 ### Accepted raw mouse and new crash repair
 
 The latest screenshot/log stops at unresolved **0x0002E490**, reached from the

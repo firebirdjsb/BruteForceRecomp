@@ -1,5 +1,6 @@
 #include "ui/host_ui.h"
 #include "text_events.h"
+#include "input/control_labels.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -156,6 +157,30 @@ struct TutorialMask {
         }
     }
 };
+struct ControllerFont { uint32_t address{};std::array<uint8_t,48> identity{}; };
+std::array<ControllerFont,8> controller_fonts;
+void remember_controller_font(uint32_t object) {
+    // Original text node +0xF0 is its resolved font, also read at 10A600.
+    // A button prompt's icon is the embedded text node at object+0x60.
+    uint32_t font{};ControllerFont record;
+    if(!read(object+0x150,&font,4)||!font||!read(font,record.identity.data(),record.identity.size()))return;
+    record.address=font;
+    for(auto &known:controller_fonts)if(!known.address||known.address==font){known=record;return;}
+}
+const char *prompt_label(uint32_t object,unsigned glyph) {
+    const int control=bf::input::glyph_control(glyph);
+    bool desktop=false;
+#ifdef _WIN32
+    const auto *mkb=std::getenv("RECOMP_MKB");desktop=mkb&&*mkb&&*mkb!='0';
+#endif
+    uint32_t owner=object;bool in_menu=false;
+    for(unsigned depth=0;owner&&depth<16;depth++) {
+        Node parent;if(!node(owner,parent))break;
+        if(parent.at(0)==0x0039E3D8&&managed_view(owner)){in_menu=true;break;}
+        owner=parent.at(8);
+    }
+    return bf::input::control_label(unsigned(control),in_menu,desktop);
+}
 void fixture() {
     static const char *path=std::getenv("BF_UI_INPUT_LIVE");static long consumed{};
     if(!path)return;
@@ -182,6 +207,14 @@ void tick(uint32_t view) {
     static uint32_t last_view;
     if(std::getenv("BF_TRACE_UI")&&view!=last_view) {
         std::fprintf(stderr,"[UI] active view=%08X tag=%08X\n",view,root.at(0x24));last_view=view;
+        if(root.at(0x24)==0xFDCD29B4) {
+            std::vector<uint32_t> entries;if(vector(view,0x74,entries))for(auto entry:entries) {
+                Node item;BfUiRect r;
+                if(node(entry,item)&&position(entry,r))std::fprintf(stderr,
+                    "[UI-PAUSE] node=%08X tag=%08X class=%08X flags=%02X state74=%08X rect=%.1f,%.1f %.1fx%.1f\n",
+                    entry,item.at(0x24),item.at(0),item.flags(),item.at(0x74),r.x,r.y,r.w,r.h);
+            }
+        }
     }
     bf_ui_menu_seen();fixture();
     BfUiPointer pointer{};
@@ -247,27 +280,56 @@ void tick(uint32_t view) {
 }
 extern "C" void *bf_game_tutorial_begin(uint32_t view) try {
     static uint32_t active_tutorial_view{};
+    static uint32_t dismissed_view{},dismissed_tag{};
     Node root;BfUiRect root_rect;
     if(!node(view,root)||root.at(0)!=0x0039E3D8||(root.flags()&6)!=6||!managed_view(view)) {
         // Nested unregistered panels must not disarm their enclosing dialog.
         // A later draw of the actual dialog after it closes clears at once.
         if(view==active_tutorial_view){bf_ui_tutorial_clear();active_tutorial_view=0;}
+        if(view==dismissed_view){dismissed_view=0;dismissed_tag=0;}
         return nullptr;
     }
     std::vector<uint32_t> children;
     if(!position(view,root_rect)||!vector(view,0x74,children)||children.size()>128){bf_ui_tutorial_clear();return nullptr;}
     std::vector<BfUiTutorialNode> descriptors;descriptors.reserve(children.size());
+    bool title_node=false,accept=false,skip=false;
     bool basic_title=false,left_thumbstick=false,right_thumbstick=false;
     for(auto child:children) {
         Node n;BfUiRect rect;
         if(!node(child,n)||!position(child,rect)){bf_ui_tutorial_clear();return nullptr;}
         descriptors.push_back({n.at(0x24),n.at(0),n.at(0x28),rect});
+        if((n.flags()&6)==6&&n.at(0)==0x0039E020) {
+            uint16_t glyph{};
+            if(read(child+0xC4,&glyph,2)) {
+                accept|=n.at(0x24)==0x0499CE0B&&glyph=='A';
+                skip|=n.at(0x24)==0x0E8204A4&&glyph=='C';
+            }
+        }
         if(n.at(0)==0x0039E0C0) {
+            title_node|=n.at(0x24)==0x0BB9C4AF&&(n.flags()&4);
             std::string text;
             if(n.at(0x24)==0x0BB9C4AF&&text_content(child,text)&&text=="BASIC CONTROLS")basic_title=true;
             if(n.at(0x24)==0xF1E4D812&&text_content(child,text)&&text.find("LEFT THUMBSTICK")!=std::string::npos)left_thumbstick=true;
             if(n.at(0x24)==0x09D15D91&&text_content(child,text)&&text.find("RIGHT THUMBSTICK")!=std::string::npos)right_thumbstick=true;
         }
+    }
+    // Authenticated common/game-options-{en,fr,de,es,it}.xmb help-page IDs.
+    // Exclude Basic Controls (F0EA44DC) and the same-sized Spirit of Vengar
+    // mission briefing (E83F2E8A). Geometry alone is unsafe.
+    constexpr uint32_t lessons[]={0xEBE31566,0xE2E425F0,0x0680B053,0x0F8780C5,
+        0x148ED17F,0x1D89E1E9,0x0736FC78,0x0E31CCEE};
+    if(bf_ui_keyboard_active()&&title_node&&accept&&skip&&root_rect.w==470&&root_rect.h==360&&
+       std::find(std::begin(lessons),std::end(lessons),root.at(0x24))!=std::end(lessons)) {
+        bf_ui_tutorial_clear();
+        auto mask=std::make_unique<TutorialMask>();
+        if(!write_flags(view,root.at(0x28)&~4u))return nullptr;
+        mask->items[mask->count++]={view,root.at(0x24),root.at(0),root.at(0x28)};
+        // Normal Continue input, once per active page: original pause and
+        // progression callbacks still run, without leaving a hidden modal.
+        if(dismissed_view!=view||dismissed_tag!=root.at(0x24)) {
+            bf_ui_pad_press(0);dismissed_view=view;dismissed_tag=root.at(0x24);
+        }
+        return mask.release();
     }
     if(!basic_title||!left_thumbstick||!right_thumbstick){bf_ui_tutorial_clear();return nullptr;}
     active_tutorial_view=view;
@@ -298,9 +360,30 @@ extern "C" int bf_game_prompt(uint32_t object) try {
     Node n;BfUiRect rect;uint16_t glyph{};
     if(!node(object,n)||n.at(0)!=0x0039E020||!(n.flags()&4)||
        !read(object+0xC4,&glyph,2)||!position(object+0x60,rect))return 0;
-    const char *key=glyph=='A'?"LMB":glyph=='B'?"ESC":glyph=='D'?"C":glyph=='C'?"V":nullptr;
+    remember_controller_font(object);
+    const char *key=prompt_label(object,glyph);
     if(!key)return 0; // Unknown glyph retains the original rendering.
     bf_ui_prompt(rect,key);return 1;
 } catch(const std::exception &e) {
     std::fprintf(stderr,"[UI] Original prompt retained: %s\n",e.what());return 0;
+}
+extern "C" int bf_game_text_prompt(uint32_t object) try {
+    if(!bf_ui_keyboard_mode())return 0;
+    Node n;BfUiRect rect;uint32_t font{};
+    if(!node(object,n)||n.at(0)!=0x0039E0C0||!(n.flags()&4)||!read(object+0xF0,&font,4)||!font)return 0;
+    ControllerFont candidate;candidate.address=font;
+    if(!read(font,candidate.identity.data(),candidate.identity.size()))return 0;
+    bool known=false;for(const auto &record:controller_fonts)
+        known|=record.address==font&&record.identity==candidate.identity;
+    if(!known)return 0; // Ordinary A/B/C/D text is never treated as a controller glyph.
+    std::string text;if(!text_content(object,text)||text.size()!=1||!position(object,rect))return 0;
+    if(std::getenv("BF_TRACE_GLYPHS")) {
+        static std::array<bool,128> seen{};
+        const auto ch=unsigned(uint8_t(text[0]));
+        if(ch<seen.size()&&!seen[ch]){seen[ch]=true;std::fprintf(stderr,"[GLYPH] inline '%c' font=%08X object=%08X\n",text[0],font,object);}
+    }
+    const char *key=prompt_label(object,unsigned(uint8_t(text[0])));if(!key)return 0;
+    bf_ui_prompt(rect,key);return 1;
+} catch(const std::exception &e) {
+    std::fprintf(stderr,"[UI] Original inline glyph retained: %s\n",e.what());return 0;
 }

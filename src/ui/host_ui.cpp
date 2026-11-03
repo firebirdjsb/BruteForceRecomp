@@ -2,6 +2,8 @@
 #include "ui_draw.h"
 #include "pad_pulses.h"
 #include "graphics_options.h"
+#include "scene_boundary.h"
+#include "../input/desktop_bindings.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -27,6 +29,7 @@ std::atomic<float> audio_gain{1.0f};
 std::atomic<float> mouse_sensitivity{1.0f};
 std::atomic<unsigned> interpolation_rate{0};
 std::atomic<unsigned> texture_scale{1};
+std::atomic<bool> antialiasing{true};
 constexpr int rows=8,row_y=132,row_step=28;
 unsigned scale_index{},resolution_index{};
 bool resize_pending{};
@@ -79,7 +82,7 @@ void paint_tutorial(bf::ui::Canvas &c) {
     c.text5x7(x+18,y+264,"TIP: ENEMIES CAN HEAR YOUR MOVEMENT.",muted_ink);
 }
 bool menu(){return mouse_menus&&Clock::now()-menu_seen<std::chrono::milliseconds(500);}
-int row_count(){return page==2?1:page==1?5:rows;}
+int row_count(){return page==2?1:page==1?6:rows;}
 void persist() {
     preferences.fsr1=fsr;preferences.scale=scales[scale_index];preferences.height=heights[resolution_index];
     preferences.mouse_menus=mouse_menus;preferences.prompts=prompts_on;preferences.muted=muted;preferences.volume=volume;
@@ -108,6 +111,11 @@ void adjust(int row,int direction=1) {
             preferences.texture_scale=preferences.texture_scale==1?2:preferences.texture_scale==2?4:1;
             texture_scale.store(preferences.texture_scale,std::memory_order_relaxed);
         }
+        if(row==5) {
+            preferences.antialiasing=!preferences.antialiasing;
+            antialiasing.store(preferences.antialiasing,std::memory_order_relaxed);
+            bf_scene_aa_set_enabled(preferences.antialiasing);
+        }
 #ifdef _WIN32
         if(row==2) {
             const char *backends[]={"auto","dx12","dx11","gdi"};int index=0;
@@ -134,9 +142,10 @@ extern "C" int bf_ui_menu_key(unsigned key,int repeat) {
     std::lock_guard lock(guard);
     if(opened||!menu())return 0;
     unsigned control;
-    switch(key) {
-    case 13:control=0;break;case 27:control=1;break;
-    case 'C':control=2;break;case 'V':control=3;break;
+    unsigned mapped=4;
+    for(unsigned i=0;i<4;i++)if(key==bf_menu_bindings[i].key)mapped=i;
+    if(mapped<4)control=mapped;
+    else switch(key) {
     case 38:control=8;break;case 40:control=9;break;
     case 37:control=10;break;case 39:control=11;break;
     default:return 0;
@@ -275,6 +284,8 @@ extern "C" void bf_ui_settings_initial(int available) {
     if(const auto *programs=std::getenv("RECOMP_GPU_VSH"))preferences.gpu_programs=std::string(programs)!="0";
     interpolation_rate.store(preferences.interpolation,std::memory_order_relaxed);
     texture_scale.store(preferences.texture_scale,std::memory_order_relaxed);
+    antialiasing.store(preferences.antialiasing,std::memory_order_relaxed);
+    bf_scene_aa_set_enabled(preferences.antialiasing);
     if(const auto *backend=std::getenv("BF_RENDER_BACKEND")) {
         auto candidate=preferences;candidate.backend=backend;if(bf::valid_graphics(candidate))preferences.backend=backend;
     }
@@ -296,6 +307,7 @@ extern "C" float bf_ui_audio_gain(){return audio_gain.load(std::memory_order_rel
 extern "C" float bf_ui_mouse_sensitivity(){return mouse_sensitivity.load(std::memory_order_relaxed);}
 extern "C" unsigned bf_ui_interpolation(){return interpolation_rate.load(std::memory_order_relaxed);}
 extern "C" unsigned bf_ui_texture_scale(){return texture_scale.load(std::memory_order_relaxed);}
+extern "C" int bf_ui_antialiasing(){return antialiasing.load(std::memory_order_relaxed);}
 extern "C" int bf_ui_interpolation_allowed(){std::lock_guard lock(guard);return !opened&&!tutorial_active()&&Clock::now()-menu_seen>std::chrono::milliseconds(500);}
 extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try {
     if(!pixels||width!=640||height!=480)return;
@@ -304,7 +316,8 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     if(tutorial_active())paint_tutorial(c);
     if(keyboard&&prompts_on)for(auto &p:prompts)if(now-p.time<std::chrono::milliseconds(250)) {
         const int x=int(p.rect.x),y=int(p.rect.y);
-        c.box(x,y+2,17,15,0xff59bfd9);c.box(x+1,y+3,15,13,0xff112d41);
+        const int key_width=std::max(17,int(p.key.size())*4+4);
+        c.box(x,y+2,key_width,15,0xff59bfd9);c.box(x+1,y+3,key_width-2,13,0xff112d41);
         c.text(x+2,y+7,p.key,0xffe1f5ff);
     }
     if(!opened)return;
@@ -313,7 +326,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     const char *tabs[]={"LIVE SETTINGS","RENDERER","CONTROLS"};
     for(int tab=0;tab<3;++tab){c.box(112+tab*140,105,136,22,page==tab?0xff245978:0xff17394e);c.text(120+tab*140,111,tabs[tab],0xff69cae9,2);}
     const char *names[]={"MOUSE MENU SELECTION","KEYBOARD / MOUSE PROMPTS","AMD FSR 1 (DX12)","FSR OUTPUT SCALE","WINDOW RESOLUTION","MUTE AUDIO","MASTER VOLUME","RETURN TO GAME"};
-    const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION","VISUAL INTERPOLATION","TEXTURE RECONSTRUCTION"};
+    const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION","VISUAL INTERPOLATION","TEXTURE RECONSTRUCTION","ANTI-ALIASING"};
     for(int i=0;i<row_count();++i) {
         const int y=row_y+i*row_step;
         c.box(112,y,416,24,i==selected?0xff245978:0xff17394e);
@@ -329,6 +342,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
             if(i==2)value=preferences.backend;
             if(i==3)value=fsr_supported?(preferences.interpolation?std::to_string(preferences.interpolation):"OFF"):"N/A";
             if(i==4)value=gpu_available?(preferences.texture_scale==1?"OFF":std::to_string(preferences.texture_scale)+"X"):"N/A";
+            if(i==5)value=preferences.antialiasing?"EDGE AA":"OFF";
 #ifndef _WIN32
             if(i==2)value="SDL";
 #endif
@@ -363,11 +377,10 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         c.text(122,357,"F1 SETTINGS RELEASES THE MOUSE",0xff9bc0d5);
     }
     if(page==1) {
-        c.text(122,279,"DEVICE CHANGES: NEXT LAUNCH",0xffe6b47e,2);
-        c.text(122,301,"ACTIVE: "+active_scene,0xffd9efff,2);
-        c.text(122,323,"GAME TIMING: ORIGINAL 30 FPS",0xff79dbb7);
-        c.text(122,335,"INTERPOLATION ADDS ONE FRAME LATENCY",0xff9bc0d5);
-        c.text(122,347,"TEXTURES: EXPERIMENTAL / ORIGINAL MIPS",0xff9bc0d5);
+        c.text(122,307,"DEVICE CHANGES: NEXT LAUNCH",0xffe6b47e);
+        c.text(122,319,"ACTIVE: "+active_scene,0xffd9efff);
+        c.text(122,331,"GAME TIMING: ORIGINAL 30 FPS",0xff79dbb7);
+        c.text(122,343,"AA: SPATIAL / BEFORE UPSCALING",0xff9bc0d5);
         c.text(122,359,settings_path.empty()?"DIRECT RUN: SESSION SETTINGS ONLY":"SETTINGS SHARED WITH LAUNCHER",0xff9bc0d5);
     }
     c.text(112,373,"MOUSE OR ARROWS / ENTER TO CHANGE",0xff9bc0d5);

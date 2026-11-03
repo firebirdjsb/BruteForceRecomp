@@ -1,4 +1,5 @@
 #include "ui/host_ui.h"
+#include "input/control_labels.h"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -116,6 +117,31 @@ int main(int argc,char **argv) {
     // Same generic view, class and tag layout with another lesson's text.
     text(0x0BB9C4AF,u"Squad Controls");CHECK(untouched());
     setup();text(0xF1E4D812,u"Another lesson without that controller instruction.");CHECK(untouched());
+    // All eight authored non-basic help pages continue through ordinary A
+    // input. Their root is hidden only for Draw; flags/data restore afterward.
+    for(uint32_t tag:{0xEBE31566u,0xE2E425F0u,0x0680B053u,0x0F8780C5u,
+                      0x148ED17Fu,0x1D89E1E9u,0x0736FC78u,0x0E31CCEEu}) {
+        setup();word(view+0x24,tag);const auto original=memory;
+        bf_ui_controller_activity();CHECK(untouched());bf_ui_mouse_activity();
+        token=bf_game_tutorial_begin(view);CHECK(token&&!(word(view+0x28)&4));
+        uint16_t bits=0;std::array<uint8_t,8> pad{};
+        CHECK(bf_ui_pad(&bits,pad.data())&&pad[0]==255);
+        bf_game_tutorial_end(token);CHECK(memory==original);
+        bf_ui_focus_lost();token=bf_game_tutorial_begin(view);CHECK(token);
+        pad={};CHECK(!bf_ui_pad(&bits,pad.data())); // No duplicate Continue queued.
+        bf_game_tutorial_end(token);
+        word(view+0x28,0xFFFFFF10);CHECK(untouched()); // Reset dismissal identity.
+    }
+    setup();word(view+0x24,0xE83F2E8A);CHECK(untouched()); // Mission briefing.
+    setup();word(view+0x24,0x12345678);CHECK(untouched()); // Unknown modal.
+    using bf::input::control_label;
+    CHECK(!std::strcmp(control_label(0,true,true),"ENTER"));
+    CHECK(!std::strcmp(control_label(0,false,true),"SPACE"));
+    CHECK(!std::strcmp(control_label(2,false,true),"R"));
+    CHECK(!std::strcmp(control_label(7,false,true),"LMB"));
+    CHECK(!std::strcmp(control_label(13,false,true),"TAB"));
+    CHECK(!std::strcmp(control_label(2,false,false),"C"));
+    CHECK(!control_label(16,false,true));
     setup();word(object(index(0xEE52EBAF))+0x24,0x12345678);CHECK(untouched());
     setup();word(0x1B108,0x12345);CHECK(untouched());
     setup();word(view+0x28,0xFFFFFF10);CHECK(untouched());

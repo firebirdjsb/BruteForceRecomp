@@ -88,6 +88,8 @@ void App::command() {
         }
         ImGui::EndDisabled();
         ImGui::TextWrapped("Reconstructs sampled color textures, including UI and cube faces, with original mip levels preserved. Uses up to 256 MiB extra VRAM; depth, movies and render targets retain their original path. This does not create an HD texture pack.");
+        changed|=ImGui::Checkbox("Anti-aliasing (Edge AA)",&options.antialiasing);
+        ImGui::TextWrapped("Smooths high-contrast edges before upscaling on every presenter. Spatial filtering can soften fine detail; it does not change game timing.");
         const unsigned heights[]={0,720,1080,1440,2160};int resolution=0;
         for(int i=0;i<5;++i)if(options.height==heights[i])resolution=i;
         if(ImGui::Combo("Window resolution",&resolution,"Automatic\0 720p\0 1080p\0 1440p\0 2160p (4K)\0")){options.height=heights[resolution];changed=true;}

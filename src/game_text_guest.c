@@ -4,6 +4,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_types.h"
 #include <string.h>
+#include "ui/scene_boundary.h"
 void bf_original_keyboard_draw(void);
 void bf_original_keyboard_update(void);
 void bf_game_text_seen(uint32_t keyboard);
@@ -40,6 +41,24 @@ static void restore_registers(const BfGuestRegisters *s) {
     memcpy(g_fp_stack,s->fp,sizeof s->fp);
     g_df=s->direction;g_fp_top=s->top;g_fp_cmp=s->comparison;
     g_fp_control_word=s->control;g_fp_cc=s->status;
+}
+void sub_00371E10(void);
+void bf_guest_ui_boundary(void) {
+    BfGuestRegisters state;save_registers(&state);
+    // Authenticated retail D3D global; the device and pushbuffer allocations
+    // are resolved anew. The helper validates all pages before writing.
+    uint32_t device=MEM32(0x0037DD88u);
+    if(bf_ui_try_scene_marker(device)==2) {
+        const uint32_t bytes=MEM32(0x0037EC88u);
+        if(bytes>=16&&bytes<=0x100000) {
+            // Exact original 0036CD63 reserve-space ABI: two DWORD args,
+            // original callee 00371E10 returns the cursor in EAX, RET 8.
+            PUSH32(g_esp,bytes);PUSH32(g_esp,bytes>>1);
+            PUSH32(g_esp,0x0036CD71u);sub_00371E10();
+            if(g_esp==state.integer[6])bf_ui_try_scene_marker(MEM32(0x0037DD88u));
+        }
+    }
+    restore_registers(&state);
 }
 void sub_0010D560(void) {
     const uint32_t keyboard=g_ecx;
