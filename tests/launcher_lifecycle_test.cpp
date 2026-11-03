@@ -32,10 +32,10 @@ int main(int argc,char **argv) try {
         ("bf-launch-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(root);
     bf::GraphicsOptions options;options.scene="d3d11";options.backend="dx12";options.fsr1=true;
-    options.gpu_programs=false;options.scale=4;options.height=1440;options.volume=70;options.interpolation=120;
+    options.gpu_programs=false;options.scale=4;options.height=1440;options.volume=70;options.interpolation=120;options.texture_scale=4;
     const auto settings=root/"graphics.settings";
     bf::save_graphics(settings,options);const auto loaded=bf::load_graphics(settings);
-    if(loaded.scene!="d3d11"||loaded.gpu_programs||loaded.scale!=4||loaded.height!=1440||loaded.volume!=70||loaded.frame_limit!=30||loaded.interpolation!=120)return 1;
+    if(loaded.scene!="d3d11"||loaded.gpu_programs||loaded.scale!=4||loaded.height!=1440||loaded.volume!=70||loaded.frame_limit!=30||loaded.interpolation!=120||loaded.texture_scale!=4)return 1;
     {std::ofstream invalid(settings);invalid<<"BF_GRAPHICS 1\ninvalid data\n";}
     if(bf::load_graphics(settings).scene!="cpu")return 2;
     bf::save_graphics(settings,options);

@@ -5,6 +5,59 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Combat, mouse, texture and DLC checkpoint
+
+The captured combat crash stopped at unresolved guest target **0x0001D8F0**,
+after running and killing enemies. Original authenticated bytes identify an
+eight-byte vtable tail thunk, not a physics routine. Recovery now translates
+that exact body with the pinned translator and registers its original address.
+A fixture executes the recovered body and checks dispatch, stack cleanup and
+preserved registers on Windows and Linux. A ten-minute first-mission scripted
+run ended at its watchdog without a guest-call failure; the user's exact enemy
+kill sequence has not been reproduced, so complete combat acceptance is pending.
+
+The original controller update clamped right-stick values after the former
+mouse callback. Native mouse aim now applies after that original clamp, using
+validated controller/state memory. The test executes the real translated
+controller update: an original 4/-3 input clamps to 1/-1, while native mouse aim
+retains 4/-3; other ports, invalid/read-only memory and stack cleanup are checked.
+Real mouse feel and end-to-end input latency still need player testing.
+
+GPU sampled textures can now use optional 2x/4x bounded cubic reconstruction.
+Original mip images are retained below the added levels, with a 256-MiB extra
+cache and original-resource fallback. Eligible HUD/color/cube textures are
+included; movie, depth and render-target aliases are excluded. Launcher Graphics
+and F1 > Renderer share the preference. Real GPU readback passed RGBA/BGRA,
+non-square/cube, alpha and exact-original-mip cases on D3D11 and D3D11On12,
+with WARP and hardware. Native UI inspection confirmed the live 2x-to-4x control
+and rendered mission/HUD. This is not an HD asset pack or higher scene resolution.
+
+The supplied BruteForceDLC.zip contains three packs and 51 data files. Local
+launcher packaging now installs them automatically into the original title's
+TDATA/4d53001e/$c directory, authenticates all sizes/SHA-256 hashes, stages new
+packages before publishing, and preserves existing differing content and saves.
+The actual launcher installed and verified the three packs in a scratch library;
+the game opened all three ContentMeta.xbx files, then reached first-mission
+gameplay with HUD and scripted movement/fire. DLC map selection/playthrough is
+not yet verified. Bundled Xbox installers and regional title-update XBEs are
+excluded: their entry point/code layout differs from the supported retail image.
+See [DLC.md](docs/DLC.md).
+
+The startup issue is **intermittent, not completely fixed**: one DLC-seeded
+D3D12 run stalled before movies at the previously observed file-completion
+loop even with the async profile enabled. A D3D11 retry and a subsequent
+D3D12 run progressed. Do not attribute that stall to DLC or claim reliable boot
+from these runs. A separate DX12 interpolation command-list error after runtime
+shutdown remains to investigate; it follows the combat failure in the captured
+log and is not its original cause.
+
+Checkpoint validation: 28 Windows native tests, 18 Linux native tests, four
+launcher tests on each platform, 17 Python unittest checks (one skipped), and
+59 frame/timing pytest cases passed. Installer tests cover corruption, duplicate
+inventory, traversal, cancellation after staging, link rejection where permitted,
+idempotence and save preservation. Build/fixture evidence does not validate all
+missions, DLC maps, audio, controllers, multiplayer or visual quality.
+
 ### Launcher visibility and duplicate-instance recovery
 
 Three interactive launchers were left open from earlier testing, with two

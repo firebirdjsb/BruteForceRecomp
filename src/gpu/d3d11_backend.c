@@ -57,6 +57,8 @@
 #include "d3d11_backend.h"
 #include "rc_hlsl.h"
 #include "texture_decode.h"
+#include "asset_upscale.h"
+extern unsigned bf_ui_texture_scale(void);
 #include "vsh_hlsl.h"
 #include "shader_cache.h"
 #include "xbox_memory_layout.h"
@@ -423,9 +425,11 @@ static void release_surf(Surf *s)
 /* The backend's device/cache lifetime is process-wide. Release the snapshot
  * references we own at normal process shutdown as well as on surface reuse.
  * Do not touch the single-threaded immediate context from an exit thread. */
+static void release_asset_cache(void);
 static void release_color_snapshots(void)
 {
     int i;
+    release_asset_cache();
     for(i=0;i<s_nsurf;i++) {
         if(s_surf[i].snapshot_srv)ID3D11ShaderResourceView_Release(s_surf[i].snapshot_srv);
         if(s_surf[i].snapshot)ID3D11Texture2D_Release(s_surf[i].snapshot);
@@ -911,6 +915,10 @@ typedef struct {
     uint8_t cube;
     ID3D11Texture2D *tex;
     ID3D11ShaderResourceView *srv;
+    ID3D11Texture2D *enhanced;
+    ID3D11ShaderResourceView *enhanced_srv;
+    uint64_t enhanced_bytes;
+    unsigned enhancement_factor;
 } Tex;
 
 static Tex *s_tex;
@@ -919,6 +927,36 @@ static uint32_t *s_decode;
 static size_t s_decode_cap;
 static GpuTextureDecoder s_texture_decoder;
 static int s_tex_gpu = 1, s_tex_log;
+static uint64_t s_asset_bytes;
+static void release_enhancement(Tex *e) {
+    if(e->enhanced_srv)ID3D11ShaderResourceView_Release(e->enhanced_srv);
+    if(e->enhanced)ID3D11Texture2D_Release(e->enhanced);
+    s_asset_bytes-=e->enhanced_bytes;e->enhanced_bytes=0;
+    e->enhanced=NULL;e->enhanced_srv=NULL;e->enhancement_factor=0;
+}
+static void release_asset_cache(void){int i;for(i=0;i<s_ntex;i++)release_enhancement(&s_tex[i]);}
+static ID3D11ShaderResourceView *asset_view(Tex *e,int eligible) {
+    static unsigned previous_factor=1;
+    const unsigned factor=bf_ui_texture_scale();
+    if(previous_factor!=factor){release_asset_cache();previous_factor=factor;}
+    if(!eligible){if(e->enhanced_srv)release_enhancement(e);return e->srv;}
+    if(e->enhancement_factor!=factor) {
+        D3D11_TEXTURE2D_DESC desc;uint64_t bytes=0;unsigned w,h,mip,levels;
+        release_enhancement(e);e->enhancement_factor=factor;
+        if(factor!=2&&factor!=4)return e->srv;
+        ID3D11Texture2D_GetDesc(e->tex,&desc);
+        w=desc.Width*factor;h=desc.Height*factor;levels=desc.MipLevels+(factor==4?2:1);
+        if(w>4096||h>4096)return e->srv;
+        for(mip=0;mip<levels;mip++){bytes+=(uint64_t)w*h*desc.ArraySize*4;w=w>1?w/2:1;h=h>1?h/2:1;}
+        /* A bounded 256-MiB optional cache. Original sampled images remain
+         * authoritative; allocation/budget failure simply retains them. */
+        if(bytes<=256ull*1024*1024-s_asset_bytes&&bf_asset_upscale(s_dev,s_ctx,e->tex,factor,&e->enhanced,&e->enhanced_srv)) {
+            e->enhanced_bytes=bytes;s_asset_bytes+=bytes;
+            if(getenv("BF_TRACE_ASSETS"))fprintf(stderr,"[ASSET] %ux %ux%u faces=%u mips=%u cache=%llu bytes\n",factor,desc.Width,desc.Height,desc.ArraySize,desc.MipLevels,(unsigned long long)s_asset_bytes);
+        }
+    }
+    return e->enhanced_srv?e->enhanced_srv:e->srv;
+}
 
 static uint64_t hash_bytes(const uint8_t *p, size_t n)
 {
@@ -970,6 +1008,7 @@ static uint64_t tex_sparse(const Nv2aTexture *t, int faces)
 
 static void release_tex(Tex *e)
 {
+    release_enhancement(e);
     if (e->srv) ID3D11ShaderResourceView_Release(e->srv);
     if (e->tex) ID3D11Texture2D_Release(e->tex);
     e->srv = NULL;
@@ -1175,7 +1214,7 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
     Nv2aTexture normalized;
     uint64_t h, palette_hash = 0;
     const char *path = NULL;
-    int rewritten;
+    int rewritten,asset_eligible=1;
     unsigned palette_entries = t && t->color == 0x0B ? 256u >> ((nv2a_backend_reg(0x1B20 + stage * 0x40) >> 2) & 3u) : 0;
     int i, faces = cube ? 6 : 1;
 
@@ -1225,7 +1264,7 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
             (palette_entries && (!t->palette || (uint64_t)(t->palette & 0x0FFFFFFFu) + palette_entries * 4 > g_xbox_total_ram))) {
             fprintf(stderr, "[GPU-D3D11] texture outside mapped guest RAM\n"); abort();
         }
-        if(resolve_depth_color_alias(t,cube)<0)return NULL;
+        { int alias=resolve_depth_color_alias(t,cube);if(alias<0)return NULL;if(alias)asset_eligible=0; }
         /* This includes interior aliases, exact format reinterpretations,
          * swizzled/mip textures and cube faces. Resolve every overlapping
          * GPU-owned span before cache comparison/hash/upload, leaving all
@@ -1236,6 +1275,7 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
             uint64_t start=source->va&0x0FFFFFFFu;
             uint64_t end=start+(uint64_t)source->pitch*source->h;
             if(source->tex && offset<end && start<offset+tex_bytes(t,faces)) {
+                asset_eligible=0;
                 s_st.overlap_rtt++;
                 if(source->gpu_dirty && !d3d_readback(source->va))return NULL;
             }
@@ -1257,7 +1297,7 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
         && !memcmp(e->source_copy, GUEST(t->offset), e->source_bytes)
         && (t->color != 0x0B || !memcmp(e->palette_copy, GUEST(t->palette), palette_entries * 4))) {
         e->last_use = s_gen;
-        return e->srv;
+        return asset_view(e,asset_eligible);
     }
     h = tex_hash(t, faces);
     rewritten = e != NULL;
@@ -1286,7 +1326,7 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
                         " faces=%d levels=%u palette=0x%08X\n",
                 rewritten ? "changed" : "new", path, t->offset, t->color, t->width,
                 t->height, t->pitch, faces, t->levels, t->palette);
-    return e->srv;
+    return asset_view(e,asset_eligible);
 }
 
 /* ---- state objects --------------------------------------------------------- */
@@ -1364,7 +1404,7 @@ static D3D11_STENCIL_OP map_sop(uint32_t o)
 #define MAX_STATE 256
 typedef struct { uint32_t key[5]; ID3D11BlendState *bs; } BlendEntry;
 typedef struct { uint32_t key[10]; ID3D11DepthStencilState *ds; } DsEntry;
-typedef struct { uint32_t key[3]; ID3D11SamplerState *ss; } SampEntry;
+typedef struct { uint32_t key[4]; ID3D11SamplerState *ss; } SampEntry;
 static BlendEntry s_blend[MAX_STATE];
 static int s_nblend;
 static DsEntry s_ds[MAX_STATE];
@@ -1442,7 +1482,8 @@ static ID3D11SamplerState *get_sampler(uint32_t addr_u, uint32_t addr_v, uint32_
 {
     uint32_t mag = (filter >> 24) & 0xF, min = (filter >> 16) & 0xFF;
     int min_linear = min == 2 || min == 4 || min == 6;
-    uint32_t key[3] = { addr_u, addr_v, filter };
+    const unsigned anisotropy=bf_ui_texture_scale()>1&&min_linear&&mag==2&&min>=3&&min<=6?16u:1u;
+    uint32_t key[4] = { addr_u, addr_v, filter, anisotropy };
     D3D11_SAMPLER_DESC sd;
     int i;
 
@@ -1455,6 +1496,8 @@ static ID3D11SamplerState *get_sampler(uint32_t addr_u, uint32_t addr_v, uint32_
     sd.Filter = D3D11_ENCODE_BASIC_FILTER(min_linear?D3D11_FILTER_TYPE_LINEAR:D3D11_FILTER_TYPE_POINT,
         mag==2?D3D11_FILTER_TYPE_LINEAR:D3D11_FILTER_TYPE_POINT,
         min>=5?D3D11_FILTER_TYPE_LINEAR:D3D11_FILTER_TYPE_POINT,D3D11_FILTER_REDUCTION_TYPE_STANDARD);
+    if(anisotropy>1)sd.Filter=D3D11_FILTER_ANISOTROPIC;
+    sd.MaxAnisotropy=anisotropy;
     sd.AddressU = addr_u == 1 ? D3D11_TEXTURE_ADDRESS_WRAP : addr_u == 2 ? D3D11_TEXTURE_ADDRESS_MIRROR
                 : D3D11_TEXTURE_ADDRESS_CLAMP;
     sd.AddressV = addr_v == 1 ? D3D11_TEXTURE_ADDRESS_WRAP : addr_v == 2 ? D3D11_TEXTURE_ADDRESS_MIRROR

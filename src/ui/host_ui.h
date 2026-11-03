@@ -37,6 +37,7 @@ int bf_ui_take_size(unsigned *width,unsigned *height);
 float bf_ui_audio_gain(void);
 float bf_ui_mouse_sensitivity(void);
 unsigned bf_ui_interpolation(void);
+unsigned bf_ui_texture_scale(void);
 int bf_ui_interpolation_allowed(void);
 int bf_ui_point(int x,int y,int width,int height,float *gx,float *gy);
 int bf_ui_contains(BfUiRect rect,float x,float y);

@@ -4,7 +4,7 @@ Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows,
 
 **This is not a finished or verified playable port.** Translation, compiling, booting, rendering and completing a mission are separate gates. Generated code and inferred calling conventions must be checked against the original executable and measured execution.
 
-The immediate priority is a rendered, controllable campaign at a stable frame rate. The latest startup fix enables the pinned runtime's asynchronous-read completion mode: a paired run changed from a loading-screen stall to first-mission gameplay. The game retains original 30-FPS pacing; optional motion interpolation generates 60/120-FPS visuals separately. D3D11 and D3D12 scene smoke tests reached the mission with HUD and scripted input. This is not full campaign, audio or multiplayer acceptance. See [STATUS.md](STATUS.md) and [frame-rate evidence](docs/FRAME_RATE.md) for exact boundaries and remaining work.
+The immediate priority is a rendered, controllable campaign at a stable frame rate. The latest checkpoint recovers the exact missing combat thunk reported in the crash log, moves native mouse aim after the original controller clamp, adds optional sampled-texture reconstruction and verifies locally bundled DLC. The game retains original 30-FPS pacing; optional motion interpolation generates 60/120-FPS visuals separately. Bounded runs reached the first mission with HUD and scripted input, but an intermittent startup file-completion stall and full combat/DLC-map acceptance remain open. See [STATUS.md](STATUS.md) and [frame-rate evidence](docs/FRAME_RATE.md) for exact boundaries.
 
 ## Desktop application
 
@@ -25,6 +25,14 @@ cmake --build .local/launcher-build --config Release --parallel 2
 
 Build dependencies are fetched from pinned public repositories. Linux also needs system SDL2 development files. The application asks for the local ISO, imports and verifies **497 core-game files**, and excludes 188 demo/update/promotional files. It retains a local library and separate player-data folder, validates supported native inputs before launch, and starts the compiled game directly. The original ISO and existing saves are preserved. The former website implementation has been removed.
 
+Locally packaged builds can include **Lockjaw, Cerulean and Prisoners' Lament**.
+The launcher automatically installs and SHA-256-verifies all 51 allowlisted DLC
+data files during import, verification and launch. Existing differing DLC is
+preserved and reported. Xbox installers and title-update executables are excluded.
+The supplied payload stays private; source contains only its inventory and hashes.
+See [DLC packaging and verification](docs/DLC.md) for the local build steps and
+the remaining in-game validation boundary.
+
 Use `BruteForceLauncher --workspace FOLDER --game-exe FILE` to select an explicit library and native build. Otherwise the app uses the platform application-data directory and searches for a native Release build. Keep the executable, SDL2 DLL on Windows, and assets folder together. A mouse/keyboard/gamepad navigable launcher does not establish complete input support inside the game.
 
 The launcher hides when Start begins game validation and startup, and returns when that
@@ -40,6 +48,14 @@ It records the installed builds, current evidence and unresolved gameplay issues
 For authentic local branding, run `python scripts/extract_branding.py --help` and configure `-DBF_PRIVATE_BRANDING_DIR=PRIVATE_OUTPUT_FOLDER`. The tool validates the exact XBE and extracts its title icon. The game executable and launcher use the icon; the launcher also loads its title image. These extracted assets stay private and are never committed or bundled with public source.
 
 ## Native graphics
+
+Windows GPU scenes expose **Texture reconstruction: Off / 2x / 4x** in launcher
+Graphics and F1 > Renderer. This reconstructs eligible sampled textures, including
+HUD artwork and cube faces, with original mip levels retained and a bounded
+256-MiB additional cache. It is spatial filtering, not an AI texture pack; it
+cannot recover missing artistic detail. Movies, depth and render targets keep
+their original path. The final scene still renders at its existing resolution;
+native higher resolution, 16:9 projection and temporal FSR/DLSS remain unfinished.
 
 The desktop input update adds full-speed WASD with normalized
 diagonals, held mouse-button reports, and mouse sampling independent of USB

@@ -43,6 +43,7 @@ void App::command() {
     ImGui::PushFont(theme_.small);ImGui::TextWrapped("%s",state.message.c_str());
     if(!state.file.empty())ImGui::TextWrapped("%s",state.file.c_str());ImGui::PopFont();
     ImGui::EndChild();
+    if(!state.dlc.empty()){ImGui::PushFont(theme_.small);ImGui::TextWrapped("%s",state.dlc.c_str());ImGui::PopFont();}
     if(!state.error.empty() || !ui_error_.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text,ImVec4{.95f,.66f,.51f,1});
         ImGui::PushFont(theme_.small);ImGui::TextWrapped("%s",ui_error_.empty()?state.error.c_str():ui_error_.c_str());ImGui::PopFont();ImGui::PopStyleColor();
@@ -80,6 +81,13 @@ void App::command() {
 #else
         ImGui::TextUnformatted("CPU scene renderer / native SDL presentation");
 #endif
+        ImGui::BeginDisabled(options.scene=="cpu");
+        int texture=options.texture_scale==4?2:options.texture_scale==2?1:0;
+        if(ImGui::Combo("Texture reconstruction",&texture,"Off (original assets)\0 2x (experimental)\0 4x (experimental)\0")) {
+            const unsigned values[]={1,2,4};options.texture_scale=values[texture];changed=true;
+        }
+        ImGui::EndDisabled();
+        ImGui::TextWrapped("Reconstructs sampled color textures, including UI and cube faces, with original mip levels preserved. Uses up to 256 MiB extra VRAM; depth, movies and render targets retain their original path. This does not create an HD texture pack.");
         const unsigned heights[]={0,720,1080,1440,2160};int resolution=0;
         for(int i=0;i<5;++i)if(options.height==heights[i])resolution=i;
         if(ImGui::Combo("Window resolution",&resolution,"Automatic\0 720p\0 1080p\0 1440p\0 2160p (4K)\0")){options.height=heights[resolution];changed=true;}

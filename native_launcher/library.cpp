@@ -2,6 +2,7 @@
 #include "manifest.h"
 #include "process.h"
 #include "xr_sha256.h"
+#include "content_pack.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -10,7 +11,7 @@
 #include <stdexcept>
 
 namespace bf {
-Library::Library(std::filesystem::path workspace) : root_(std::filesystem::absolute(std::move(workspace))) {
+Library::Library(std::filesystem::path workspace,std::filesystem::path dlc_bundle) : root_(std::filesystem::absolute(std::move(workspace))),dlc_bundle_(std::move(dlc_bundle)) {
     std::filesystem::create_directories(root_);
     std::ifstream settings(root_ / "launcher.settings");
     std::string value;
@@ -90,6 +91,13 @@ void Library::validate_files() {
         if (std::filesystem::file_size(path) != file.size || file_sha256(path) != file.sha256)
             throw std::runtime_error("Required file is damaged: " + name + ". Import your ISO again.");
     }
+    // Original title startup maps T: to this TDATA/title directory and
+    // enumerates $C. Only new DLC package subdirectories are installed here;
+    // profiles, global-data and the 497 imported disc files are untouched.
+    const auto count=ensure_content_pack(dlc_bundle_,root_/"player-data"/"TDATA"/"4d53001e"/"$c",
+        dlc_manifest,[this]{return cancelled_.load();});
+    std::lock_guard guard(mutex_);
+    state_.dlc=count?"DLC: Lockjaw, Cerulean and Prisoners' Lament installed and verified. In-game map validation pending.":"DLC pack is not bundled with this application.";
 }
 void Library::import_disc(std::filesystem::path iso) {
     if (!begin("importing", "Reading your disc. Each imported file is checked against the supported build.")) return;

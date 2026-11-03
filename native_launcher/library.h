@@ -7,14 +7,14 @@
 #include <thread>
 namespace bf {
 struct LibraryState {
-    std::string phase = "empty", message = "Select your original Brute Force disc image to begin.", file, error, log;
+    std::string phase = "empty", message = "Select your original Brute Force disc image to begin.", file, error, log, dlc;
     float fraction = 0;
     bool busy = false, ready = false, running = false;
     bool game_session_active() const { return running || (busy && phase=="launching"); }
 };
 class Library {
 public:
-    explicit Library(std::filesystem::path workspace);
+    explicit Library(std::filesystem::path workspace,std::filesystem::path dlc_bundle={});
     ~Library();
     LibraryState state() const;
     const std::filesystem::path &workspace() const { return root_; }
@@ -34,7 +34,7 @@ private:
     void validate_files();
     void save_settings();
     void check_host(const std::filesystem::path &exe);
-    std::filesystem::path root_, executable_;
+    std::filesystem::path root_, executable_,dlc_bundle_;
     GraphicsOptions graphics_;
     mutable std::mutex mutex_;
     LibraryState state_;

@@ -30,6 +30,7 @@ void sub_002F04D2(void);
 void sub_002F04D5(void);
 void sub_002F04DC(void);
 void sub_002F04E3(void);
+void sub_0001D8F0(void);
 int recomp_dispatch_init(void);
 void xbox_path_init(const char *, const char *);
 #ifdef _MSC_VER
@@ -43,6 +44,7 @@ GuestFunction recomp_lookup_manual(uint32_t target) {
     // Measured startup callback, recovered from its hash-verified XBE body.
     if (target == 0x0037EE7C) return sub_0037EE7C;
     switch(target) {
+    case 0x0001D8F0:return sub_0001D8F0;
     case 0x002F04CB:return sub_002F04CB;
     case 0x002F04D2:return sub_002F04D2;
     case 0x002F04D5:return sub_002F04D5;

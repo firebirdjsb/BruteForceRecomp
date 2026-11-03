@@ -116,6 +116,12 @@ int main(int argc,char **argv) {
     if(bf_ui_interpolation()!=120||bf::load_graphics(settings).interpolation!=120)return 39;
     bf_ui_mouse(200,132+3*28+8,640,480,1);
     if(bf_ui_interpolation()!=0)return 40;
+    bf_ui_mouse(200,132+4*28+8,640,480,1);
+    if(bf_ui_texture_scale()!=2||bf::load_graphics(settings).texture_scale!=2)return 43;
+    bf_ui_mouse(200,132+4*28+8,640,480,1);
+    if(bf_ui_texture_scale()!=4||bf::load_graphics(settings).texture_scale!=4)return 44;
+    bf_ui_mouse(200,132+4*28+8,640,480,1);
+    if(bf_ui_texture_scale()!=1)return 45;
     auto invalid=bf::load_graphics(settings);invalid.frame_limit=120;
     if(bf::valid_graphics(invalid))return 41;
     std::filesystem::remove(settings);

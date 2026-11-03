@@ -144,20 +144,30 @@ foreach(file IN LISTS BF_GENERATED)
         if(NOT digest STREQUAL "8126887f51e22b1ae03f07a0d690bf98533315a074a07e0b5e90d1d8992bb2f1")
             message(FATAL_ERROR "Unaudited title input update; immediate mouse integration refused.")
         endif()
-        string(PREPEND text "extern int bf_mkb_native_aim(float *,float *);\n")
-        string(REPLACE "loc_001F33D4: ;\n    edx = esp + 4;" [=[loc_001F33D4: ;
-    /* Successful port-0 input only. Raw mouse bypasses the stick's adaptive
-     * deadzone; all original buttons, movement and device ownership remain. */
-    if (MEM32(edi + 0xBC) == 0) {
-        float mouse_x,mouse_y;
-        if (bf_mkb_native_aim(&mouse_x,&mouse_y)) {
-            MEMF(esp + 0x20)=mouse_x; MEMF(esp + 0x24)=mouse_y;
-        }
-    }
-    edx = esp + 4;]=] text "${text}")
+        string(PREPEND text "extern void bf_mkb_apply_native_aim(unsigned);\n")
+        # sub_001F2CF0 subsequently accumulates and clamps report+0x1C/+0x20
+        # to [-1,1]. Inserting raw mouse before that call still imposes the
+        # original stick-speed ceiling. Replace only its final port-0 axes,
+        # after that exact original call, through a validated native writer.
+        string(REPLACE "loc_001F33DF: ;\n    POP32(esp, edi);"
+            "loc_001F33DF: ;\n    bf_mkb_apply_native_aim(edi);\n    POP32(esp, edi);" text "${text}")
         set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/game-immediate-mouse.c")
         file(WRITE "${copy}.in" "${text}")
         configure_file("${copy}.in" "${copy}" COPYONLY)
+        set(mouse_fixture "#define RECOMP_GENERATED_CODE\n#include \"recomp_funcs.h\"\nextern void bf_mkb_apply_native_aim(unsigned);\n")
+        foreach(entry IN ITEMS 001F2CF0 001F33B0)
+            string(FIND "${text}" "void sub_${entry}(void)" fixture_start)
+            string(SUBSTRING "${text}" ${fixture_start} -1 fixture_tail)
+            string(FIND "${fixture_tail}" "\n/**" fixture_end)
+            if(fixture_end LESS 0)
+                message(FATAL_ERROR "Expected bounded original mouse fixture body.")
+            endif()
+            string(SUBSTRING "${fixture_tail}" 0 ${fixture_end} fixture_body)
+            string(APPEND mouse_fixture "${fixture_body}\n")
+        endforeach()
+        file(WRITE "${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c.in" "${mouse_fixture}")
+        configure_file("${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c.in"
+            "${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c" COPYONLY)
         list(REMOVE_ITEM BF_GENERATED "${file}")
         list(APPEND BF_GENERATED "${copy}")
         math(EXPR native_mouse_matches "${native_mouse_matches}+1")
@@ -166,6 +176,7 @@ endforeach()
 if(NOT native_mouse_matches EQUAL 1)
     message(FATAL_ERROR "Expected exactly one audited title input update.")
 endif()
+list(APPEND BF_GENERATED "${PROJECT_SOURCE_DIR}/src/input/native_mouse.cpp")
 
 bf_ui_read(xbox_video game-ui-window.c)
 string(PREPEND BF_UI_SOURCE "#include \"input/desktop_cursor.h\"\nextern int bf_mkb_capture_requested(void);\nstatic BfDesktopCursor s_desktop_cursor;\n")
@@ -181,6 +192,11 @@ target_include_directories(bf_desktop_input_test PRIVATE src
     "${CMAKE_BINARY_DIR}/runtime-fixes" "${XBOXRECOMP_DIR}/src/input"
     "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/include")
 add_test(NAME desktop_input_reports COMMAND bf_desktop_input_test)
+add_executable(bf_native_mouse_test tests/native_mouse_test.cpp src/input/native_mouse.cpp
+    "${CMAKE_BINARY_DIR}/runtime-fixes/native-mouse-fixture.c")
+target_include_directories(bf_native_mouse_test PRIVATE src "${BF_GENERATED_DIR}"
+    "${XBOXRECOMP_DIR}/templates/runtime" "${XBOXRECOMP_DIR}/src/kernel")
+add_test(NAME native_mouse_after_clamp COMMAND bf_native_mouse_test)
 add_executable(bf_desktop_cursor_test tests/desktop_cursor_test.c)
 target_include_directories(bf_desktop_cursor_test PRIVATE src)
 add_test(NAME desktop_cursor_ownership COMMAND bf_desktop_cursor_test)

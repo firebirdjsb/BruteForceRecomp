@@ -1,0 +1,280 @@
+{
+  "id": "bruteforce-dlc-3packs-v1",
+  "title_id": "4d53001e",
+  "archive_sha256": "f9fcd21043afbace9ef7f4891e968010f0f6871b916544d30fedca8a4b118a23",
+  "archive_prefix": "Brute Force DLC/content/c/",
+  "packages": [
+    {
+      "id": "4d53001e00000001",
+      "name": "Lockjaw",
+      "mode": "Campaign"
+    },
+    {
+      "id": "4d53001e00000002",
+      "name": "Cerulean",
+      "mode": "Deathmatch"
+    },
+    {
+      "id": "4d53001e00000003",
+      "name": "Prisoners' Lament",
+      "mode": "Squad Deathmatch"
+    }
+  ],
+  "files": [
+    {
+      "path": "4d53001e00000001/campaign.xmb",
+      "size": 688,
+      "sha256": "58a244f358437288abb697dbf39f77c2da78612fa5a5f9abcf238c1f3a346781"
+    },
+    {
+      "path": "4d53001e00000001/contentimage.xbx",
+      "size": 6144,
+      "sha256": "90608b09ef46fc3312bbe6c5b8d34f1bee2c876c42b83034fb5eee881db200c6"
+    },
+    {
+      "path": "4d53001e00000001/contentmeta.xbx",
+      "size": 1268,
+      "sha256": "fbac171b4a775e4c673d7fd6aec51957c7b9c3e79629ebc6e585dc7f68e5c786"
+    },
+    {
+      "path": "4d53001e00000001/default-gameflags.xmb",
+      "size": 2464,
+      "sha256": "3e637a4ec227863a96421f45da9072a38704ca39f4d8830538efe8c4c48e3479"
+    },
+    {
+      "path": "4d53001e00000001/e32.tgz",
+      "size": 8550370,
+      "sha256": "7b5141b0ea07e2c4653d32e163e8baf6d037c06fba645a4e00d46a9a5fdd0ff0"
+    },
+    {
+      "path": "4d53001e00000001/gameflags.xsb",
+      "size": 2057,
+      "sha256": "284f8baa6e54411658f21385b9b0c56e44a3a1bc30b62c9e767962c4e6ec8fe9"
+    },
+    {
+      "path": "4d53001e00000001/ml-sounds/de/e32-de.tgz",
+      "size": 1790131,
+      "sha256": "63e18bd7d2cc2500e90d441c5d491f976eaf8fc1b9825caa06134f197a64104c"
+    },
+    {
+      "path": "4d53001e00000001/ml-sounds/en/e32-en.tgz",
+      "size": 1790131,
+      "sha256": "63e18bd7d2cc2500e90d441c5d491f976eaf8fc1b9825caa06134f197a64104c"
+    },
+    {
+      "path": "4d53001e00000001/ml-sounds/es/e32-es.tgz",
+      "size": 1790131,
+      "sha256": "63e18bd7d2cc2500e90d441c5d491f976eaf8fc1b9825caa06134f197a64104c"
+    },
+    {
+      "path": "4d53001e00000001/ml-sounds/fr/e32-fr.tgz",
+      "size": 1790131,
+      "sha256": "63e18bd7d2cc2500e90d441c5d491f976eaf8fc1b9825caa06134f197a64104c"
+    },
+    {
+      "path": "4d53001e00000001/ml-sounds/it/e32-it.tgz",
+      "size": 1790131,
+      "sha256": "63e18bd7d2cc2500e90d441c5d491f976eaf8fc1b9825caa06134f197a64104c"
+    },
+    {
+      "path": "4d53001e00000001/sounds/e32.xwb",
+      "size": 9777152,
+      "sha256": "0ff35e748bc2d2dbfed7ed1ed7244e8b9f43769c68a3f11d4b02b7ec861cdb59"
+    },
+    {
+      "path": "4d53001e00000001/stringtable/string-table-de.xmb",
+      "size": 1107,
+      "sha256": "b760c97f083986b5b1a64c5249d34adc3575f801c78faafe214f32241d9ae156"
+    },
+    {
+      "path": "4d53001e00000001/stringtable/string-table-en.xmb",
+      "size": 829,
+      "sha256": "fa4ab4f9982fa4ba3143a63d20760e6a72ccb25a5cef94b69445a1b570eb84bf"
+    },
+    {
+      "path": "4d53001e00000001/stringtable/string-table-es.xmb",
+      "size": 1049,
+      "sha256": "9259c5d2e202f89639f985d0c3904f00e7695657f624c404668504ae782d99a5"
+    },
+    {
+      "path": "4d53001e00000001/stringtable/string-table-fr.xmb",
+      "size": 1125,
+      "sha256": "4363736db87553aefdc6d076cbcb93ef441cff04c1f424a0369951b04120d4b5"
+    },
+    {
+      "path": "4d53001e00000001/stringtable/string-table-it.xmb",
+      "size": 1050,
+      "sha256": "698487cfcc55c88211a42b48f17fce8133d325df4728cbe8d53eec955c26c761"
+    },
+    {
+      "path": "4d53001e00000002/campaign.xmb",
+      "size": 615,
+      "sha256": "1c2ddc0b68c117f175896e1c82e9dfe9e9b2ecdd31d7db79e54dfe191f46ac7d"
+    },
+    {
+      "path": "4d53001e00000002/contentimage.xbx",
+      "size": 6144,
+      "sha256": "90608b09ef46fc3312bbe6c5b8d34f1bee2c876c42b83034fb5eee881db200c6"
+    },
+    {
+      "path": "4d53001e00000002/contentmeta.xbx",
+      "size": 1356,
+      "sha256": "353e8e0261a78a7ecedb95e1a60bff06bf7967e067bff964ac3181d4f1698729"
+    },
+    {
+      "path": "4d53001e00000002/default-gameflags.xmb",
+      "size": 88,
+      "sha256": "4bfbf4c6d0290fffc365643e1942dd0573a8952f037b2a100d01bea124c89fc4"
+    },
+    {
+      "path": "4d53001e00000002/gameflags.xsb",
+      "size": 220,
+      "sha256": "fdcc490d10b59c5ec38c2666d8e53a6195fc9bed83969a1e9d41fb39de641650"
+    },
+    {
+      "path": "4d53001e00000002/ml-sounds/de/mp_m14b_download-de.tgz",
+      "size": 219882,
+      "sha256": "3139a37694e53d5670eb7362cbb0145e5966d0f12b58a68a102f77563b89e4c3"
+    },
+    {
+      "path": "4d53001e00000002/ml-sounds/en/mp_m14b_download-en.tgz",
+      "size": 219882,
+      "sha256": "3139a37694e53d5670eb7362cbb0145e5966d0f12b58a68a102f77563b89e4c3"
+    },
+    {
+      "path": "4d53001e00000002/ml-sounds/es/mp_m14b_download-es.tgz",
+      "size": 219882,
+      "sha256": "3139a37694e53d5670eb7362cbb0145e5966d0f12b58a68a102f77563b89e4c3"
+    },
+    {
+      "path": "4d53001e00000002/ml-sounds/fr/mp_m14b_download-fr.tgz",
+      "size": 219882,
+      "sha256": "3139a37694e53d5670eb7362cbb0145e5966d0f12b58a68a102f77563b89e4c3"
+    },
+    {
+      "path": "4d53001e00000002/ml-sounds/it/mp_m14b_download-it.tgz",
+      "size": 219882,
+      "sha256": "3139a37694e53d5670eb7362cbb0145e5966d0f12b58a68a102f77563b89e4c3"
+    },
+    {
+      "path": "4d53001e00000002/mp_m14b_download.tgz",
+      "size": 6174391,
+      "sha256": "7075e580a27203daef8ab8c7bc43f5c2259c2fba4256ad759b990c3852e1d8ae"
+    },
+    {
+      "path": "4d53001e00000002/sounds/mp_m14b_download.xwb",
+      "size": 76,
+      "sha256": "9d82b877e6dc4fcf332137aa7ced1207b1909070f9f010fddbef65fe90d38afd"
+    },
+    {
+      "path": "4d53001e00000002/stringtable/string-table-de.xmb",
+      "size": 1107,
+      "sha256": "b760c97f083986b5b1a64c5249d34adc3575f801c78faafe214f32241d9ae156"
+    },
+    {
+      "path": "4d53001e00000002/stringtable/string-table-en.xmb",
+      "size": 829,
+      "sha256": "fa4ab4f9982fa4ba3143a63d20760e6a72ccb25a5cef94b69445a1b570eb84bf"
+    },
+    {
+      "path": "4d53001e00000002/stringtable/string-table-es.xmb",
+      "size": 1049,
+      "sha256": "9259c5d2e202f89639f985d0c3904f00e7695657f624c404668504ae782d99a5"
+    },
+    {
+      "path": "4d53001e00000002/stringtable/string-table-fr.xmb",
+      "size": 1125,
+      "sha256": "4363736db87553aefdc6d076cbcb93ef441cff04c1f424a0369951b04120d4b5"
+    },
+    {
+      "path": "4d53001e00000002/stringtable/string-table-it.xmb",
+      "size": 1050,
+      "sha256": "698487cfcc55c88211a42b48f17fce8133d325df4728cbe8d53eec955c26c761"
+    },
+    {
+      "path": "4d53001e00000003/campaign.xmb",
+      "size": 592,
+      "sha256": "31ac22beaaf3667eeff66d447a2985362a20498682de601ab702a04557be2602"
+    },
+    {
+      "path": "4d53001e00000003/contentimage.xbx",
+      "size": 6144,
+      "sha256": "90608b09ef46fc3312bbe6c5b8d34f1bee2c876c42b83034fb5eee881db200c6"
+    },
+    {
+      "path": "4d53001e00000003/contentmeta.xbx",
+      "size": 1296,
+      "sha256": "bdf9fc3c74fdcb7d8a5c6353bd805226335bfc047c1d47a2f0bd188d058a0050"
+    },
+    {
+      "path": "4d53001e00000003/default-gameflags.xmb",
+      "size": 88,
+      "sha256": "4143352f9c3d999fe81aa3f1ae52151d641bcbba4fbbb3f96645578de0f92a61"
+    },
+    {
+      "path": "4d53001e00000003/gameflags.xsb",
+      "size": 220,
+      "sha256": "407bfbc1ea0f65703be0d0e00b7d86346906762f0daa060da055aa88d0607eb3"
+    },
+    {
+      "path": "4d53001e00000003/ml-sounds/de/sdm_e23-de.tgz",
+      "size": 427871,
+      "sha256": "d94c86f8684c9ceed7053f8b32391c830663de25039f094c4a23cde0b5bf6a81"
+    },
+    {
+      "path": "4d53001e00000003/ml-sounds/en/sdm_e23-en.tgz",
+      "size": 427871,
+      "sha256": "d94c86f8684c9ceed7053f8b32391c830663de25039f094c4a23cde0b5bf6a81"
+    },
+    {
+      "path": "4d53001e00000003/ml-sounds/es/sdm_e23-es.tgz",
+      "size": 427871,
+      "sha256": "d94c86f8684c9ceed7053f8b32391c830663de25039f094c4a23cde0b5bf6a81"
+    },
+    {
+      "path": "4d53001e00000003/ml-sounds/fr/sdm_e23-fr.tgz",
+      "size": 427871,
+      "sha256": "d94c86f8684c9ceed7053f8b32391c830663de25039f094c4a23cde0b5bf6a81"
+    },
+    {
+      "path": "4d53001e00000003/ml-sounds/it/sdm_e23-it.tgz",
+      "size": 427871,
+      "sha256": "d94c86f8684c9ceed7053f8b32391c830663de25039f094c4a23cde0b5bf6a81"
+    },
+    {
+      "path": "4d53001e00000003/sdm_e23.tgz",
+      "size": 7468790,
+      "sha256": "c4a8908fe02b4be8f04fd162d504d79b959aef9392c06c8936376b749980c2a6"
+    },
+    {
+      "path": "4d53001e00000003/sounds/sdm_e23.xwb",
+      "size": 1595392,
+      "sha256": "51c3371ca7d0e84a076469baa9c8b3d5c443bb8b5518ae77b563f24adead6900"
+    },
+    {
+      "path": "4d53001e00000003/stringtable/string-table-de.xmb",
+      "size": 1107,
+      "sha256": "b760c97f083986b5b1a64c5249d34adc3575f801c78faafe214f32241d9ae156"
+    },
+    {
+      "path": "4d53001e00000003/stringtable/string-table-en.xmb",
+      "size": 829,
+      "sha256": "fa4ab4f9982fa4ba3143a63d20760e6a72ccb25a5cef94b69445a1b570eb84bf"
+    },
+    {
+      "path": "4d53001e00000003/stringtable/string-table-es.xmb",
+      "size": 1049,
+      "sha256": "9259c5d2e202f89639f985d0c3904f00e7695657f624c404668504ae782d99a5"
+    },
+    {
+      "path": "4d53001e00000003/stringtable/string-table-fr.xmb",
+      "size": 1125,
+      "sha256": "4363736db87553aefdc6d076cbcb93ef441cff04c1f424a0369951b04120d4b5"
+    },
+    {
+      "path": "4d53001e00000003/stringtable/string-table-it.xmb",
+      "size": 1050,
+      "sha256": "698487cfcc55c88211a42b48f17fce8133d325df4728cbe8d53eec955c26c761"
+    }
+  ]
+}

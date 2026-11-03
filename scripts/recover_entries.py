@@ -18,6 +18,13 @@ CRT_ENTRIES = (
     (0x002f04e3, 0x002f04ea, 'd6d08351d766f70d9b6c11cc1867e8baa26b5b0dd18b5dfe9cb3941ef9fd0491'),
 )
 
+# Combat crash: original member-function dispatcher 0x00022F70 tail-jumped to
+# this eight-byte virtual thunk, merged into another discovery interval.
+# Preserve its exact instructions and tail-call stack; no guessed prototype.
+GAMEPLAY_ENTRIES = (
+    (0x0001d8f0, 0x0001d8f8, 'ae24c26279f8dc7f0f1bff547ef015024d464df679265916ea8bf3e1265b8e64'),
+)
+
 
 def recover(xbe, toolkit, functions, output):
     verified = verify(xbe)
@@ -47,12 +54,12 @@ def recover(xbe, toolkit, functions, output):
         database[address] = row
     database[start] = {'start': hex(start), 'end': end, 'size': end - start,
                        'name': 'sub_0037EE7C', '_addr': start, 'section': 'XPP'}
-    for first, last, body_hash in CRT_ENTRIES:
+    for first, last, body_hash in CRT_ENTRIES + GAMEPLAY_ENTRIES:
         owner = next(s for s in verified['sections'] if int(s['guest_va'],16) <= first
                      and last <= int(s['guest_va'],16)+s['raw_size'])
         position = owner['file_offset'] + first - int(owner['guest_va'],16)
         if hashlib.sha256(data[position:position+last-first]).hexdigest() != body_hash:
-            raise ValueError(f'CRT branch {first:08X} differs from authenticated instructions')
+            raise ValueError(f'Recovered entry {first:08X} differs from authenticated instructions')
         database[first] = {'start': hex(first), 'end': last, 'size': last-first,
                            'name': f'sub_{first:08X}', '_addr': first, 'section': '.text'}
     sys.path.insert(0, str(Path(toolkit).resolve()))
@@ -73,13 +80,25 @@ def recover(xbe, toolkit, functions, output):
     output.mkdir(parents=True, exist_ok=True)
     (output / 'recomp_recovered.c').write_text(
         '#define RECOMP_GENERATED_CODE\n#include "recomp_funcs.h"\n' + code + '\n', encoding='utf-8')
+    gameplay = []
+    for first, _, _ in GAMEPLAY_ENTRIES:
+        entry = translator.translate_function(first, database[first])
+        if not entry or any(marker in entry for marker in
+                            ('Unsupported instruction', 'FAILED:', 'RECOMP_UNIMPL(', 'recomp_unimpl(')):
+            raise ValueError(f'Gameplay entry {first:08X} could not be translated completely')
+        gameplay.append(entry)
+    (output / 'recomp_gameplay.c').write_text(
+        '#define RECOMP_GENERATED_CODE\n#include "recomp_funcs.h"\n' + '\n'.join(gameplay) + '\n', encoding='utf-8')
     (output / 'provenance.json').write_text(json.dumps({
         'entry': hex(start), 'end': hex(end), 'body_sha256': digest,
         'reason': 'Measured unresolved indirect call during native startup',
         'evidence': 'Original XBE bytes match the 268-byte Ghidra MU_Init body',
         'runtime_equivalence': 'UNVERIFIED',
         'crt_branches': [dict(entry=hex(first),end=hex(last),body_sha256=body_hash)
-                         for first,last,body_hash in CRT_ENTRIES]
+                         for first,last,body_hash in CRT_ENTRIES],
+        'gameplay_entries': [dict(entry=hex(first), end=hex(last), body_sha256=body_hash,
+                                 reason='Measured missing virtual tail-dispatch thunk during combat')
+                             for first,last,body_hash in GAMEPLAY_ENTRIES]
     }, indent=2), encoding='utf-8')
 
 
@@ -89,4 +108,4 @@ if __name__ == '__main__':
         parser.add_argument('--' + name, type=Path, required=True)
     args = parser.parse_args()
     recover(args.xbe.resolve(), args.toolkit.resolve(), args.functions.resolve(), args.output.resolve())
-    print('Authenticated startup and CRT entries translated; output remains private.')
+    print('Authenticated startup, CRT and gameplay entries translated; output remains private.')

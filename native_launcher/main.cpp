@@ -35,7 +35,7 @@ int main(int argc,char **argv) {
             instance=std::make_unique<bf::LauncherInstance>(workspace);
             if(!instance->owns_library()){instance->activate_existing();return 0;}
         }
-        bf::Library library(workspace);
+        bf::Library library(workspace,application/"assets"/"dlc");
         library.join();
         std::error_code host_error;
         if(exe.empty() && !std::filesystem::is_regular_file(library.executable(),host_error))exe=bf::find_game_executable(application);

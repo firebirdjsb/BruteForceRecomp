@@ -48,7 +48,7 @@ if(BF_RUNTIME_CHECKS_ONLY)
 endif()
 target_include_directories(xbox_kernel BEFORE PRIVATE "${PROJECT_SOURCE_DIR}/src/gpu/runtime" "${PROJECT_SOURCE_DIR}/src/gpu")
 target_include_directories(bf_nv2a_hlsl BEFORE PUBLIC "${PROJECT_SOURCE_DIR}/src/gpu/runtime")
-add_library(bf_scene_backend STATIC src/gpu/d3d11_backend.c src/gpu/texture_decode.c src/gpu/d3d11_device_status.c src/gpu/scene_device.cpp)
+add_library(bf_scene_backend STATIC src/gpu/d3d11_backend.c src/gpu/texture_decode.c src/gpu/asset_upscale.cpp src/gpu/d3d11_device_status.c src/gpu/scene_device.cpp)
 target_include_directories(bf_scene_backend PRIVATE src src/gpu src/gpu/runtime
     "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
 target_compile_definitions(bf_scene_backend PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)

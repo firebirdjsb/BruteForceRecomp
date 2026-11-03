@@ -115,6 +115,12 @@ if(WIN32)
 endif()
 add_test(NAME nv2a_hlsl COMMAND bf_nv2a_hlsl_test)
 if(WIN32)
+    add_executable(bf_asset_upscale_test tests/asset_upscale_test.cpp src/gpu/asset_upscale.cpp src/gpu/scene_device.cpp)
+    target_include_directories(bf_asset_upscale_test PRIVATE src)
+    target_link_libraries(bf_asset_upscale_test PRIVATE d3d11 d3d12 dxgi d3dcompiler)
+    add_test(NAME asset_upscale_d3d11 COMMAND bf_asset_upscale_test)
+    add_test(NAME asset_upscale_d3d12 COMMAND bf_asset_upscale_test --d3d12)
+    set_tests_properties(asset_upscale_d3d11 asset_upscale_d3d12 PROPERTIES SKIP_RETURN_CODE 77)
     # Drive the patched bridge's real file completion path with synthetic data.
     # Separate processes exercise its once-per-process environment parser.
     add_executable(bf_async_io_test tests/async_io_test.c)
@@ -188,7 +194,13 @@ include(cmake/physics_trace.cmake)
 include(cmake/frame_timing_probe.cmake)
 add_executable(bruteforce_recomp src/main.cpp src/boot_trace.cpp src/file_hash.cpp
     src/native_media.cpp src/instruction_services.cpp src/startup_sampler.cpp
-    src/gpu_completion.cpp src/gpu_pushbuffer_fixups.cpp src/host_input.cpp src/host_audio.cpp src/guest_failure.cpp "${BF_RECOVERED_DIR}/recomp_recovered.c" ${BF_GENERATED})
+    src/gpu_completion.cpp src/gpu_pushbuffer_fixups.cpp src/host_input.cpp src/host_audio.cpp src/guest_failure.cpp "${BF_RECOVERED_DIR}/recomp_recovered.c" "${BF_RECOVERED_DIR}/recomp_gameplay.c" ${BF_GENERATED})
+# Private original bytes are translated locally; the fixture exercises the
+# actual recovered body without publishing it or requiring game execution.
+add_executable(bf_recovered_gameplay_test tests/recovered_gameplay_test.c "${BF_RECOVERED_DIR}/recomp_gameplay.c")
+target_include_directories(bf_recovered_gameplay_test PRIVATE "${BF_GENERATED_DIR}"
+    "${XBOXRECOMP_DIR}/templates/runtime")
+add_test(NAME recovered_gameplay_dispatch COMMAND bf_recovered_gameplay_test)
 set(BF_HOST_OUTPUT_DIR "" CACHE PATH "Optional separate output directory for a test host; preserves an open player build")
 if(BF_HOST_OUTPUT_DIR)
     set_target_properties(bruteforce_recomp PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BF_HOST_OUTPUT_DIR}")
