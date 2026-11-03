@@ -72,10 +72,15 @@ int main(int argc,char **argv) {
     if(saved.scene!="d3d11"||saved.gpu_programs||saved.scale!=8||saved.height!=2160)return 28;
     bf_ui_mouse(200,132+8,640,480,1);
     if(bf::load_graphics(settings).scene!="d3d12")return 29;
-    bf_ui_key(113,0);
+    bf_ui_mouse(420,115,640,480,1);
     if(!bf_ui_open())return 30;
     bf_ui_mouse(200,140,640,480,1);
-    if(bf_ui_mouse_sensitivity()!=1.25f||bf::load_graphics(settings).mouse_sensitivity!=1.25f)return 31;
+    if(std::abs(bf_ui_mouse_sensitivity()-1.1f)>0.0001f||std::abs(bf::load_graphics(settings).mouse_sensitivity-1.1f)>0.0001f)return 31;
+    bf_ui_mouse(512,170,640,480,1);bf_ui_mouse(320,170,640,480,4);
+    bf_ui_mouse(320,170,640,480,3);
+    if(std::abs(bf_ui_mouse_sensitivity()-1.0f)>0.0001f)return 34;
+    bf_ui_mouse(512,170,640,480,0);
+    if(std::abs(bf_ui_mouse_sensitivity()-1.0f)>0.0001f)return 35;
     if(argc==3&&std::strcmp(argv[2],"renderer")==0){bf_ui_key(33,0);}
     std::vector<uint32_t> image(640*480,0xff000000);bf_ui_paint(image.data(),640,480);
     if(image[62*640+94]!=0xff55c5e8)return 14;
@@ -90,6 +95,7 @@ int main(int argc,char **argv) {
         std::fclose(file);
     }
     bf_ui_key(27,0);if(bf_ui_open())return 15;
+    for(unsigned key:{113u,114u,115u,120u})if(bf_ui_key(key,0)||bf_ui_open())return 36;
     if(!bf_ui_menu_key(13,0))return 16;
     buttons=0;analog={};if(!bf_ui_pad(&buttons,analog.data())||analog[0]!=255)return 17;
     std::filesystem::remove(settings);

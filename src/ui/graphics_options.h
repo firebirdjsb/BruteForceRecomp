@@ -21,7 +21,7 @@ inline bool valid_graphics(const GraphicsOptions &o) {
         (o.scale==0||o.scale==2||o.scale==4||o.scale==8) &&
         (o.height==0||o.height==720||o.height==1080||o.height==1440||o.height==2160) &&
         o.volume>=0 && o.volume<=100 && std::isfinite(o.mouse_sensitivity) &&
-        o.mouse_sensitivity>=0.25f && o.mouse_sensitivity<=5.0f;
+        o.mouse_sensitivity>=0.1f && o.mouse_sensitivity<=10.0f;
 }
 inline GraphicsOptions load_graphics(const std::filesystem::path &path, GraphicsOptions fallback={}) {
     std::ifstream input(path);

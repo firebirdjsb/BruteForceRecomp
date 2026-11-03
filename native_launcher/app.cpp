@@ -47,7 +47,7 @@ void App::command() {
     }
     ImGui::Spacing();
     ImGui::BeginDisabled(state.busy);ImGui::Checkbox("Mouse and keyboard controls",&keyboard_);ImGui::EndDisabled();
-    label("WASD = move / mouse = aim / F9 = release mouse",theme_.small);
+    label("WASD = move / mouse = aim / F1 = settings and controls",theme_.small);
     ImGui::Spacing();
     if(ImGui::CollapsingHeader("Graphics")) {
         ImGui::BeginDisabled(state.busy);
@@ -87,8 +87,8 @@ void App::command() {
     }
     if(ImGui::CollapsingHeader("Input & audio")) {
         ImGui::BeginDisabled(state.busy);auto options=library_.graphics();bool changed=false;
-        changed|=ImGui::SliderFloat("Mouse sensitivity",&options.mouse_sensitivity,0.25f,5.0f,"%.2fx");
-        ImGui::TextWrapped("F2 opens the keyboard/mouse guide in game. Mouse sensitivity can be adjusted there live.");
+        changed|=ImGui::SliderFloat("Mouse sensitivity",&options.mouse_sensitivity,0.1f,10.0f,"%.2fx");
+        ImGui::TextWrapped("F1 > Controls has the live mouse sensitivity slider and keyboard/mouse guide.");
         changed|=ImGui::Checkbox("Mouse menu selection",&options.mouse_menus);
         changed|=ImGui::Checkbox("Keyboard / mouse button prompts",&options.prompts);
         changed|=ImGui::Checkbox("Mute audio",&options.muted);

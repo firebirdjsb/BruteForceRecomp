@@ -1084,6 +1084,130 @@ static int scene_cpu_surface(const char *out_path)
     return 1;
 }
 
+/* Source colours deliberately differ from the clear mirrored in guest RAM.
+ * These checks require actual prior GPU draws, rather than a clear-only test
+ * which can pass while sampling stale guest bytes. No title assets are used. */
+static int scene_color_ownership(const char *out_path, const char *mode)
+{
+    const Pos full[4]={{0,0,0,1},{64,0,0,1},{64,64,0,1},{0,64,0,1}};
+    const Pos left[4]={{0,0,0,1},{32,0,0,1},{32,64,0,1},{0,64,0,1}};
+    const Pos right[4]={{32,0,0,1},{64,0,0,1},{64,64,0,1},{32,64,0,1}};
+    const uint32_t white[4]={0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu};
+    const uint32_t green[4]={0xFF20C060u,0xFF20C060u,0xFF20C060u,0xFF20C060u};
+    const uint32_t blue[4]={0xFF3050D0u,0xFF3050D0u,0xFF3050D0u,0xFF3050D0u};
+    const uint32_t translucent[4]={0x4020C060u,0x4020C060u,0x4020C060u,0x4020C060u};
+    const float none[4][2]={{0,0},{0,0},{0,0},{0,0}};
+    const float all[4][2]={{0,0},{64,0},{64,64},{0,64}};
+    const float half[4][2]={{0,0},{32,0},{32,64},{0,64}};
+    const float interior[4][2]={{0,0},{32,0},{32,32},{0,32}};
+    uint32_t source=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t output=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t vb=xbox_ContiguousAlloc(4096,4096),result=output,x,y;
+    int cpu_write=strstr(mode,"cpuwrite")!=NULL, self=strstr(mode,"self")!=NULL;
+    int reinterpret=strstr(mode,"reinterpret")!=NULL;
+    FILE *file;
+    REQUIRE(source&&output&&vb,"allocate colour ownership fixture");
+    identity_matrix();
+    if(strstr(mode,"vsh"))load_program();
+    method(0x030C,0);method(0x0304,0);
+    surface(source,B_SIZE,0);clear(0xF0,0xFFFF0000u,0);combiners(0);
+    draw(8,self?left:full,reinterpret?translucent:green,none,4,vb);
+    if(self) {
+        /* Read left into right without a flip/readback. Repeat after changing
+         * left so a snapshot cached across draws also fails this fixture. */
+        texture_linear(source,B_SIZE);combiners(1);
+        draw(8,right,white,half,4,vb);
+        combiners(0);draw(8,left,blue,none,4,vb);
+        combiners(1);draw(8,right,white,half,4,vb);
+        result=source;
+    } else {
+        if(cpu_write) {
+            flip(); /* completed GPU readback gives CPU ownership of source */
+            for(x=0;x<B_SIZE*B_SIZE;x++)((uint32_t *)guest(source))[x]=0xFF3050D0u;
+        }
+        surface(output,B_SIZE,0);clear(0xF0,0xFF000000u,0);
+        texture_linear(source,B_SIZE);combiners(1);
+        if(cpu_write) {
+            draw(8,left,white,all,4,vb);
+            /* Another write without a generation/flip change must be seen. */
+            for(x=0;x<B_SIZE*B_SIZE;x++)((uint32_t *)guest(source))[x]=0xFFE0B030u;
+            draw(8,right,white,all,4,vb);
+        } else if(reinterpret) {
+            /* XRGB reads identical byte storage but forces alpha to one. */
+            method(0x1B04,2u<<4|0x1Eu<<8|1u<<16);
+            draw(8,full,white,all,4,vb);
+        } else {
+            /* 32x32 subimage at row 16, column 16; preserve the source's
+             * 256-byte row stride instead of inventing a packed image. */
+            method(0x1B00,source+16*B_SIZE*4+16*4-XBOX_CONTIG_BASE);
+            method(0x1B1C,32u<<16|32u);
+            draw(8,full,white,interior,4,vb);
+        }
+    }
+    flip();
+    for(y=2;y<B_SIZE-2;y++)for(x=2;x<B_SIZE-2;x++) {
+        uint32_t expected=self?0xFF3050D0u:cpu_write?(x<32?0xFF3050D0u:0xFFE0B030u):0xFF20C060u;
+        uint32_t actual=((uint32_t *)guest(result))[y*B_SIZE+x];
+        if(actual!=expected) {
+            fprintf(stderr,"FAIL: %s colour ownership pixel (%u,%u): expected %08X got %08X\n",mode,x,y,expected,actual);
+            return 0;
+        }
+    }
+    file=fopen(out_path,"wb");REQUIRE(file,"open colour ownership output");
+    REQUIRE(fwrite(guest(result),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE&&fclose(file)==0,"write colour ownership output");
+    puts("GPU colour ownership passed: CPU writes, feedback snapshot or coherent alias decode.");
+    return 1;
+}
+
+/* A linear RGBA8 colour view of Xbox Z24S8 exposes stencil in alpha.
+ * Guest bytes deliberately disagree with GPU clears and stencil draws. */
+static int scene_depth_color_alias(const char *out_path,const char *mode)
+{
+    const Pos full[4]={{0,0,0,1},{64,0,0,1},{64,64,0,1},{0,64,0,1}};
+    const Pos left[4]={{0,0,0,1},{32,0,0,1},{32,64,0,1},{0,64,0,1}};
+    const Pos right[4]={{32,0,0,1},{64,0,0,1},{64,64,0,1},{32,64,0,1}};
+    const float uv[4][2]={{0,0},{64,0},{64,64},{0,64}};
+    const uint32_t white[4]={0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu};
+    uint32_t b=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),other=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t z=xbox_ContiguousAlloc(32768,4096),vb=xbox_ContiguousAlloc(4096,4096),x,y;
+    const int cold=strstr(mode,"cold")!=NULL,unbound=strstr(mode,"unbound")!=NULL;
+    const int mismatch=strstr(mode,"pitch")!=NULL;
+    FILE *file;
+    REQUIRE(b&&other&&z&&vb,"allocate depth-as-colour alias fixture");
+    for(x=0;x<32768/4;x++)((uint32_t *)guest(z))[x]=0x11223344u;
+    identity_matrix();if(strstr(mode,"vsh"))load_program();
+    surface(b,B_SIZE,z);clear(cold?0xF0:0xF3,0xFF000000u,0x12345667u);
+    method(0x030C,0);method(0x035C,0);
+    if(!cold) {
+        combiners(0);method(0x032C,1);method(0x0360,0xFF);method(0x0364,0x207);
+        method(0x0368,0x3C);method(0x036C,0xFF);method(0x0378,0x1E01); // stencil ALWAYS, REPLACE on pass
+        draw(8,full,white,uv,4,vb);method(0x032C,0);
+    }
+    if(unbound)surface(b,B_SIZE,0);
+    texture_linear(z,B_SIZE);method(0x1B04,2u<<4|0x41u<<8|1u<<16);
+    if(mismatch)method(0x1B10,(B_SIZE*4+4u)<<16);
+    combiners(1);draw(8,left,white,uv,4,vb);
+    if(!cold) {
+        // First alias read resolves GPU ownership. A later stencil draw,
+        // without any flip/generation change, must invalidate those bytes.
+        surface(other,B_SIZE,z);combiners(0);method(0x032C,1);method(0x0368,0xA5);
+        draw(8,full,white,uv,4,vb);method(0x032C,0);
+        surface(b,B_SIZE,unbound?0:z);combiners(1);
+    }
+    draw(8,right,white,uv,4,vb);flip();
+    for(y=2;y<62;y++)for(x=2;x<62;x++) {
+        const uint32_t expected=(cold||mismatch)?0x44112233u:(x<32?0x3C123456u:0xA5123456u);
+        const uint32_t actual=((uint32_t *)guest(b))[y*B_SIZE+x];
+        if(actual!=expected) {
+            fprintf(stderr,"FAIL: %s depth-as-colour (%u,%u): expected %08X got %08X\n",mode,x,y,expected,actual);return 0;
+        }
+    }
+    if(!cold&&!mismatch)REQUIRE(((uint32_t *)guest(z))[32*B_SIZE+32]==0x123456A5u,"readback packs Xbox depth in high24 and stencil in low8");
+    file=fopen(out_path,"wb");REQUIRE(file,"open depth-as-colour output");
+    REQUIRE(fwrite(guest(b),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE&&fclose(file)==0,"write depth-as-colour output");
+    puts("Depth-as-colour byte order, GPU stencil writes and alias ownership passed.");return 1;
+}
+
 int main(int argc, char **argv)
 {
     SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
@@ -1115,7 +1239,9 @@ int main(int argc, char **argv)
     } else if (strncmp(argv[2], "cpu", 3) != 0) {
         return 2;
     }
-    if (strstr(argv[2], "mips") ? !scene_mips(argv[3]) :
+    if (strstr(argv[2], "zcolor") ? !scene_depth_color_alias(argv[3],argv[2]) :
+        strstr(argv[2], "ownership") ? !scene_color_ownership(argv[3],argv[2]) :
+        strstr(argv[2], "mips") ? !scene_mips(argv[3]) :
         strstr(argv[2], "clear") ? !scene_clear_rect(argv[3], strstr(argv[2], "vsh") != NULL,
                                                      strstr(argv[2], "vertical") != NULL) :
         strstr(argv[2], "clip") ? !scene_window_clip(argv[3], strstr(argv[2], "vsh") != NULL) :

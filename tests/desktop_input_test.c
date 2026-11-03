@@ -5,8 +5,14 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+static RAWINPUT raw_event;
+static UINT test_raw(HRAWINPUT handle,UINT command,LPVOID data,PUINT size,UINT header) {
+    if(!data||*size<sizeof raw_event)return (UINT)-1;
+    memcpy(data,&raw_event,sizeof raw_event);return sizeof raw_event;
+}
 static double clock_ms;
-static int focused = 1, captured;
+static int focused = 1, captured, keyboard_mode = 1;
 static float sensitivity = 1.0f;
 static HWND test_foreground(void) { return (HWND)(uintptr_t)1; }
 static DWORD test_pid(HWND window, LPDWORD pid) { *pid = focused ? GetCurrentProcessId() : 0; return 1; }
@@ -22,9 +28,12 @@ static BOOL test_frequency(LARGE_INTEGER *v) { v->QuadPart = 1000000; return TRU
 #define ShowCursor test_cursor
 #define QueryPerformanceCounter test_counter
 #define QueryPerformanceFrequency test_frequency
+#define GetRawInputData test_raw
 #include "game-desktop-mkb.c"
 int bf_text_active(void) { return 0; }
 int bf_ui_capture(void) { return captured; }
+int bf_ui_keyboard_mode(void) { return keyboard_mode; }
+void bf_ui_mouse_activity(void) { }
 float bf_ui_mouse_sensitivity(void) { return sensitivity; }
 #define CHECK(c) do { if (!(c)) { fprintf(stderr,"FAIL line %d: %s\n",__LINE__,#c); return 1; } } while (0)
 static XBOX_INPUT_STATE poll(void) {
@@ -59,6 +68,22 @@ int main(void) {
     captured=0;state=poll();CHECK(!state.Gamepad.sThumbRX&&!state.Gamepad.bAnalogButtons[7]);
     focused=0;CHECK(!bf_mkb_capture_requested());s_dx=100;poll();focused=1;state=poll();CHECK(!state.Gamepad.sThumbRX);
     s_active=0;CHECK(!bf_mkb_capture_requested());s_active=1;CHECK(bf_mkb_capture_requested());
+    raw_event.header.dwType=RIM_TYPEKEYBOARD;raw_event.data.keyboard.VKey=VK_F9;
+    raw_event.data.keyboard.Message=WM_KEYDOWN;mkb_handle_raw((HRAWINPUT)(uintptr_t)1);
+    CHECK(bf_mkb_capture_requested()); // F9 has no capture/settings behavior.
+    float nx,ny;clock_ms=1000;s_native_dx=1;s_native_dy=2;
+    CHECK(bf_mkb_native_aim(&nx,&ny)&&nx>0&&ny>nx);
+    const float one_count=nx;
+    clock_ms+=1000.0/30.0;s_native_dx=1;s_native_dy=0;sensitivity=2.0f;
+    CHECK(bf_mkb_native_aim(&nx,&ny)&&fabsf(nx-one_count*2)<0.0001f&&!ny);
+    clock_ms+=1000.0/30.0;s_native_dx=40;
+    CHECK(bf_mkb_native_aim(&nx,&ny)&&nx>1.0f); // No one-stick-throw saturation.
+    clock_ms+=1000.0/30.0;
+    CHECK(bf_mkb_native_aim(&nx,&ny)&&!nx&&!ny); // No residual turn after stopping.
+    captured=1;s_native_dx=100;CHECK(!bf_mkb_native_aim(&nx,&ny));
+    captured=0;clock_ms+=40;CHECK(bf_mkb_native_aim(&nx,&ny)&&!nx&&!ny);
+    keyboard_mode=0;s_native_dx=50;CHECK(!bf_mkb_native_aim(&nx,&ny));
+    keyboard_mode=1;clock_ms+=40;CHECK(bf_mkb_native_aim(&nx,&ny)&&!nx&&!ny);
     puts("Full-speed WASD, normalized diagonals, held fire/aim, stable mouse reports and focus/UI release passed.");
     return 0;
 }

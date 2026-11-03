@@ -31,5 +31,5 @@ int main(void){
     foreground=window;iconic=1;CHECK(!bf_desktop_cursor_update(&state,window,1));
     iconic=0;CHECK(bf_desktop_cursor_update(&state,window,1));
     CHECK(!bf_desktop_cursor_update(&state,window,0)&&released==3);
-    puts("Window-thread hiding, client-area confinement, overlay/F9 release, focus loss and minimization passed.");return 0;
+    puts("Window-thread hiding, client-area confinement, F1/menu release, focus loss and minimization passed.");return 0;
 }

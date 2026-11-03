@@ -15,8 +15,9 @@
  *   - one render target per guest colour surface and one D24S8 buffer per
  *     zeta surface; colour and eligible experimental depth buffers are
  *     seeded once from guest memory;
- *   - a texture whose address is a colour surface drawn here samples that
- *     render target directly (render to texture without readback);
+ *   - compatible linear colour aliases sample the render target directly;
+ *     feedback uses a separate GPU snapshot and other aliases resolve guest
+ *     bytes before the ordinary format-specific texture decoder reads them;
  *   - other textures use exact source/palette snapshots checked at every
  *     use, including repeated writes within one frame;
  *   - blend, depth-stencil, rasteriser and sampler states are cached;
@@ -370,9 +371,9 @@ static int ensure_device(void)
 #define MAX_SURF 32
 typedef struct {
     uint32_t va, pitch, bpp, w, h;
-    ID3D11Texture2D *tex;
+    ID3D11Texture2D *tex, *snapshot;
     ID3D11RenderTargetView *rtv;
-    ID3D11ShaderResourceView *srv;
+    ID3D11ShaderResourceView *srv, *snapshot_srv;
     uint8_t *guest_shadow;
     size_t guest_shadow_bytes;
     unsigned guest_check_gen;
@@ -381,6 +382,7 @@ typedef struct {
 
 typedef struct {
     uint32_t va, w, h, pitch, format, surface_type, initialized, recreated;
+    uint32_t stencil_initialized, gpu_dirty;
     ID3D11Texture2D *tex, *snapshot;
     ID3D11DepthStencilView *dsv;
     ID3D11ShaderResourceView *srv, *snapshot_srv;
@@ -394,6 +396,11 @@ static Surf *s_cur;
 static Depth *s_cur_depth;
 static uint32_t s_gen = 1;          /* completed-flip generation */
 static int readable_guest_range(uint32_t va, uint64_t bytes);
+static int d3d_readback(uint32_t color_va);
+static int resolve_depth_color_alias(const Nv2aTexture *t,int cube);
+static ID3D11Texture2D *s_depth_color_staging;
+static uint32_t s_depth_color_w,s_depth_color_h;
+static DXGI_FORMAT s_depth_color_format;
 
 static DXGI_FORMAT surf_format(uint32_t bpp)
 {
@@ -402,12 +409,30 @@ static DXGI_FORMAT surf_format(uint32_t bpp)
 
 static void release_surf(Surf *s)
 {
+    if (s->snapshot_srv) ID3D11ShaderResourceView_Release(s->snapshot_srv);
+    if (s->snapshot) ID3D11Texture2D_Release(s->snapshot);
+    s->snapshot_srv = NULL; s->snapshot = NULL;
     if (s->srv) ID3D11ShaderResourceView_Release(s->srv);
     if (s->rtv) ID3D11RenderTargetView_Release(s->rtv);
     if (s->tex) ID3D11Texture2D_Release(s->tex);
     s->srv = NULL; s->rtv = NULL; s->tex = NULL;
     free(s->guest_shadow);s->guest_shadow=NULL;s->guest_shadow_bytes=0;
     s->guest_check_gen=0;s->gpu_dirty=0;
+}
+
+/* The backend's device/cache lifetime is process-wide. Release the snapshot
+ * references we own at normal process shutdown as well as on surface reuse.
+ * Do not touch the single-threaded immediate context from an exit thread. */
+static void release_color_snapshots(void)
+{
+    int i;
+    for(i=0;i<s_nsurf;i++) {
+        if(s_surf[i].snapshot_srv)ID3D11ShaderResourceView_Release(s_surf[i].snapshot_srv);
+        if(s_surf[i].snapshot)ID3D11Texture2D_Release(s_surf[i].snapshot);
+        s_surf[i].snapshot_srv=NULL;s_surf[i].snapshot=NULL;
+    }
+    if(s_depth_color_staging)ID3D11Texture2D_Release(s_depth_color_staging);
+    s_depth_color_staging=NULL;
 }
 
 /* CPU movie decoding writes color surfaces directly. Compare those bytes
@@ -629,15 +654,13 @@ static Depth *get_depth(uint32_t va, uint32_t w, uint32_t h)
     for (i = 0; i < s_ndepth; i++)
         if (s_depth[i].va == va) { d = &s_depth[i]; break; }
     existing = d != NULL;
-    if (d && d->w >= w && d->h >= h &&
-        (!s_depth_texture || (d->pitch == pitch && d->format == format &&
-                              d->surface_type == surface_type)))
+    if (d && d->w >= w && d->h >= h && d->pitch == pitch &&
+        d->format == format && d->surface_type == surface_type)
         return d;
     if (d) {
         if (s_cur_depth == d)
             s_cur_depth = NULL;
-        if (!s_depth_texture || (d->pitch == pitch && d->format == format &&
-                                 d->surface_type == surface_type)) {
+        if (d->pitch == pitch && d->format == format && d->surface_type == surface_type) {
             w = w > d->w ? w : d->w;
             h = h > d->h ? h : d->h;
         }
@@ -677,6 +700,7 @@ static Depth *get_depth(uint32_t va, uint32_t w, uint32_t h)
         goto failed;
     if (seed) {
         d->initialized = 1;
+        d->stencil_initialized = 1;
         s_st.depth_seeds++;
         free(seed);
         seed = NULL;
@@ -810,6 +834,36 @@ static void bind_targets(Surf *s, Depth *d)
     s_cur_depth = d;
 }
 
+/* Reading and writing one D3D resource in the same draw is forbidden. Copy
+ * prior colour work into a distinct SRV before feedback, with both previous
+ * PS inputs and OM outputs unbound. The immediate-context command order also
+ * orders the copy on D3D11On12; it needs no CPU wait or visibility-query reset. */
+static ID3D11ShaderResourceView *color_snapshot(Surf *s)
+{
+    D3D11_TEXTURE2D_DESC td;
+    ID3D11ShaderResourceView *none[4]={NULL,NULL,NULL,NULL};
+    HRESULT hr;
+    if(!s->snapshot) {
+        ID3D11Texture2D_GetDesc(s->tex,&td);
+        td.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        hr=ID3D11Device_CreateTexture2D(s_dev,&td,NULL,&s->snapshot);
+        if(FAILED(hr))goto failed;
+        hr=ID3D11Device_CreateShaderResourceView(s_dev,(ID3D11Resource *)s->snapshot,NULL,&s->snapshot_srv);
+        if(FAILED(hr))goto failed;
+    }
+    ID3D11DeviceContext_PSSetShaderResources(s_ctx,0,4,none);
+    ID3D11DeviceContext_OMSetRenderTargets(s_ctx,0,NULL,NULL);
+    ID3D11DeviceContext_CopyResource(s_ctx,(ID3D11Resource *)s->snapshot,(ID3D11Resource *)s->tex);
+    ID3D11DeviceContext_OMSetRenderTargets(s_ctx,1,&s_cur->rtv,s_cur_depth?s_cur_depth->dsv:NULL);
+    return s->snapshot_srv;
+failed:
+    fprintf(stderr,"[GPU-D3D11] colour feedback snapshot creation failed 0x%08lX\n",(unsigned long)hr);
+    if(s->snapshot_srv)ID3D11ShaderResourceView_Release(s->snapshot_srv);
+    if(s->snapshot)ID3D11Texture2D_Release(s->snapshot);
+    s->snapshot_srv=NULL;s->snapshot=NULL;
+    return NULL;
+}
+
 /* The surface clip, as the CPU rasteriser bounds its triangles. */
 static void apply_scissor(const Nv2aSurface *s)
 {
@@ -836,6 +890,11 @@ static int begin(const Nv2aSurface *s, const Nv2aRenderState *rs)
         bind_targets(surf, d);
     apply_scissor(s);
     return 1;
+}
+
+static void mark_depth_written(const Nv2aRenderState *rs)
+{
+    if(s_cur_depth&&rs&&(rs->depth_write||rs->stencil_enable))s_cur_depth->gpu_dirty=1;
 }
 
 /* ---- textures ------------------------------------------------------------ */
@@ -1134,21 +1193,25 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
     if (s_depth_texture && t->color == 0x2E)
         return get_depth_texture(t, cube, (nv2a_backend_reg(0x1B04 + stage * 0x40) >> 16) & 0xF);
     if (!cube) {
-        /* Render to texture: a surface this back end drew. */
+        /* Direct SRVs are valid only for identical linear interpretations.
+         * Other formats, pitches, dimensions or mip chains must decode the
+         * actual shared bytes; matching the base address alone is insufficient. */
         rt = find_surf(t->offset);
-        if (rt && rt != s_cur) {
+        if (rt && t->width==rt->w && t->height==rt->h && t->pitch==rt->pitch &&
+            gpu_texture_mip_levels(t)==1 &&
+            ((rt->bpp==4 && t->color==0x12) || (rt->bpp==2 && t->color==0x11))) {
+            /* CPU decoders can rewrite an offscreen source after readback,
+             * including twice in one flip generation. Always compare it. */
+            if(!sync_guest_surface(rt,1))return NULL;
             s_st.rtt++;
             *tw = (float)rt->w;
             *th = (float)rt->h;
-            return rt->srv;
-        }
-        if (!rt) {
-            for (i = 0; i < s_nsurf; i++)
-                if (t->offset > s_surf[i].va
-                    && t->offset - s_surf[i].va < s_surf[i].pitch * s_surf[i].h) {
-                    s_st.overlap_rtt++;
-                    break;
-                }
+            if(rt!=s_cur)return rt->srv;
+            {
+                ID3D11ShaderResourceView *snapshot=color_snapshot(rt);
+                if(snapshot)return snapshot;
+                /* Allocation failure may still use the coherent guest path. */
+            }
         }
     }
     if (!tex_bytes(t, faces)) {
@@ -1161,6 +1224,21 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
         if (offset + tex_bytes(t, faces) > g_xbox_total_ram ||
             (palette_entries && (!t->palette || (uint64_t)(t->palette & 0x0FFFFFFFu) + palette_entries * 4 > g_xbox_total_ram))) {
             fprintf(stderr, "[GPU-D3D11] texture outside mapped guest RAM\n"); abort();
+        }
+        if(resolve_depth_color_alias(t,cube)<0)return NULL;
+        /* This includes interior aliases, exact format reinterpretations,
+         * swizzled/mip textures and cube faces. Resolve every overlapping
+         * GPU-owned span before cache comparison/hash/upload, leaving all
+         * layout and format handling to the existing texture decoder. Spans
+         * use 64-bit arithmetic and the guest physical-address mask. */
+        for(i=0;i<s_nsurf;i++) {
+            Surf *source=&s_surf[i];
+            uint64_t start=source->va&0x0FFFFFFFu;
+            uint64_t end=start+(uint64_t)source->pitch*source->h;
+            if(source->tex && offset<end && start<offset+tex_bytes(t,faces)) {
+                s_st.overlap_rtt++;
+                if(source->gpu_dirty && !d3d_readback(source->va))return NULL;
+            }
         }
     }
     if (palette_entries)
@@ -1683,6 +1761,8 @@ static void d3d_clear(const Nv2aSurface *s, const Nv2aRenderState *rs, uint32_t 
                                                   (UINT8)(zstencil & 0xFF));
         if (flags & 1)
             s_cur_depth->initialized = 1;
+        if(flags&2)s_cur_depth->stencil_initialized=1;
+        s_cur_depth->gpu_dirty=1;
         flags &= ~3u;
     }
     if (!s_cur_depth) {
@@ -1693,6 +1773,7 @@ static void d3d_clear(const Nv2aSurface *s, const Nv2aRenderState *rs, uint32_t 
     }
     if (flags & 0xF3)
         clear_draw(&rect, flags, argb, zstencil, z);
+    if(s_cur_depth&&(flags&3))s_cur_depth->gpu_dirty=1;
     if(color_flags) {
         if(color_flags==0xF0u&&full_color) {
             if(!mirror_full_color_clear(s_cur,argb))s_cur->gpu_dirty=1;
@@ -1810,6 +1891,7 @@ static void d3d_draw(const Nv2aSurface *s, const Nv2aBatch *b)
                                                rs->stencil_ref & 0xFF);
     ID3D11DeviceContext_Draw(s_ctx, b->count, 0);
     s_cur->gpu_dirty=1;
+    mark_depth_written(rs);
     s_st.draws++;
     s_st.tris += b->count / 3;
 }
@@ -1963,6 +2045,7 @@ static void d3d_xdraw(const Nv2aSurface *s, const Nv2aXBatch *b)
     ID3D11DeviceContext_GSSetShader(s_ctx, NULL, NULL, 0);
     ID3D11DeviceContext_Draw(s_ctx, b->count, 0);
     s_cur->gpu_dirty=1;
+    mark_depth_written(b->state);
     s_st.draws++;
     s_st.xdraws++;
     s_st.tris += b->count / 3;
@@ -2474,6 +2557,7 @@ static int d3d_xdraw_vsh(const Nv2aSurface *s, const Nv2aXVsBatch *b)
     ID3D11DeviceContext_GSSetShader(s_ctx, vsh_filter_gs(), NULL, 0);
     ID3D11DeviceContext_DrawIndexed(s_ctx, b->nindices, ioff / 4u, 0);
     s_cur->gpu_dirty=1;
+    mark_depth_written(b->xb.state);
     ID3D11DeviceContext_GSSetShader(s_ctx, NULL, NULL, 0);
     s_vlast = v;
     s_vlast_voff = voff;
@@ -2868,6 +2952,76 @@ static uint32_t d3d_zpass_count(void)
 static ID3D11Texture2D *s_staging;
 static uint32_t s_staging_w, s_staging_h, s_staging_bpp;
 
+/* Resolve only the exact linear RGBA8 alias of a fully initialized Xbox
+ * Z24S8 image. NV097 colour 0x41 is LU_IMAGE_R8G8B8A8 (nv2a_regs.h).
+ * Its alpha is the low-byte stencil, not an invented bloom/depth mask.
+ * Ordinary colour textures and experimental 0x2E depth sampling are unchanged. */
+static int resolve_depth_color_alias(const Nv2aTexture *t,int cube)
+{
+    Depth *d=NULL;
+    D3D11_TEXTURE2D_DESC td;
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    ID3D11ShaderResourceView *none[4]={NULL,NULL,NULL,NULL};
+    uint64_t span;
+    uintptr_t cursor,end;
+    uint32_t x,y;
+    int i;
+    HRESULT hr;
+    if(cube||t->color!=0x41||gpu_texture_mip_levels(t)!=1)return 0;
+    for(i=0;i<s_ndepth;i++)if((s_depth[i].va&0x0FFFFFFFu)==(t->offset&0x0FFFFFFFu)){d=&s_depth[i];break;}
+    if(!d||!d->tex||!d->gpu_dirty)return 0;
+    if(d->format!=2||d->surface_type!=1||!d->initialized||!d->stencil_initialized||
+       t->width!=d->w||t->height!=d->h||t->pitch!=d->pitch||t->pitch<(uint64_t)t->width*4) {
+        static int warned;
+        if(!warned++)fprintf(stderr,"[GPU-D3D11] RGBA8 depth alias retains guest fallback: incompatible or uninitialized Z24S8 source %08X\n",d->va);
+        return 0;
+    }
+    span=(uint64_t)(d->h-1)*d->pitch+(uint64_t)d->w*4;
+    if(!readable_guest_range(d->va,span))return -1;
+    // Check every destination region before publishing shared guest bytes.
+    // Protected pages keep their protection; no partial row is written.
+    cursor=(uintptr_t)GUEST(d->va);end=cursor+(uintptr_t)span;
+    while(cursor<end) {
+        MEMORY_BASIC_INFORMATION info;
+        uintptr_t base,available;
+        if(VirtualQuery((const void *)cursor,&info,sizeof info)!=sizeof info||info.State!=MEM_COMMIT||
+           (info.Protect&(PAGE_GUARD|PAGE_NOACCESS))||!(info.Protect&(PAGE_READWRITE|PAGE_WRITECOPY)))return -1;
+        base=(uintptr_t)info.BaseAddress;
+        if(cursor<base||cursor-base>=info.RegionSize)return -1;
+        available=info.RegionSize-(cursor-base);cursor+=available<end-cursor?available:end-cursor;
+    }
+    ID3D11Texture2D_GetDesc(d->tex,&td);
+    if(!s_depth_color_staging||s_depth_color_w!=d->w||s_depth_color_h!=d->h||s_depth_color_format!=td.Format) {
+        if(s_depth_color_staging)ID3D11Texture2D_Release(s_depth_color_staging);
+        s_depth_color_staging=NULL;
+        td.Usage=D3D11_USAGE_STAGING;td.BindFlags=0;td.CPUAccessFlags=D3D11_CPU_ACCESS_READ;td.MiscFlags=0;
+        hr=ID3D11Device_CreateTexture2D(s_dev,&td,NULL,&s_depth_color_staging);
+        if(FAILED(hr))goto failed;
+        s_depth_color_w=d->w;s_depth_color_h=d->h;s_depth_color_format=td.Format;
+    }
+    ID3D11DeviceContext_PSSetShaderResources(s_ctx,0,4,none);
+    ID3D11DeviceContext_OMSetRenderTargets(s_ctx,0,NULL,NULL);
+    ID3D11DeviceContext_CopyResource(s_ctx,(ID3D11Resource *)s_depth_color_staging,(ID3D11Resource *)d->tex);
+    if(s_cur)ID3D11DeviceContext_OMSetRenderTargets(s_ctx,1,&s_cur->rtv,s_cur_depth?s_cur_depth->dsv:NULL);
+    hr=ID3D11DeviceContext_Map(s_ctx,(ID3D11Resource *)s_depth_color_staging,0,D3D11_MAP_READ,0,&mapped);
+    if(FAILED(hr))goto failed;
+    for(y=0;y<d->h;y++)for(x=0;x<d->w;x++) {
+        uint32_t native,guest;
+        memcpy(&native,(const uint8_t *)mapped.pData+(size_t)y*mapped.RowPitch+(size_t)x*4,4);
+        // D3D R24G8: depth[23:0], stencil[31:24]. Xbox: depth[31:8],
+        // stencil[7:0]. Rotate exactly eight bits before the existing 0x41
+        // decoder maps R/G/B/A; do not reinterpret a depth SRV as colour.
+        guest=(native<<8)|(native>>24);
+        memcpy(GUEST(d->va)+(size_t)y*d->pitch+(size_t)x*4,&guest,4);
+    }
+    ID3D11DeviceContext_Unmap(s_ctx,(ID3D11Resource *)s_depth_color_staging,0);
+    d->gpu_dirty=0;
+    return 1;
+failed:
+    fprintf(stderr,"[GPU-D3D11] RGBA8 depth alias readback failed for %08X: %08lX\n",d->va,(unsigned long)hr);
+    return -1;
+}
+
 static int d3d_readback(uint32_t color_va)
 {
     Surf *sf = find_surf(color_va);
@@ -2951,6 +3105,11 @@ int bruteforce_d3d11_install(void)
     s_tex = (Tex *)calloc(MAX_TEX, sizeof *s_tex);
     if (!s_tex) {
         fprintf(stderr, "Cannot allocate the D3D11 texture cache\n");
+        return 0;
+    }
+    if(atexit(release_color_snapshots)!=0) {
+        free(s_tex);s_tex=NULL;
+        fprintf(stderr,"Cannot register colour snapshot shutdown cleanup\n");
         return 0;
     }
     nv2a_backend_ext_register(&s_backend_ext);

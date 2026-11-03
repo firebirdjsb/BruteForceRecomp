@@ -5,6 +5,121 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Conditional Basic Controls artwork — user-confirmed native candidate
+
+The English Basic Controls lesson now replaces its original controller diagram,
+thumbstick icons and ten instructional labels with authored WASD/mouse artwork
+when keyboard/mouse is active. It shows camera-relative movement, mouse look,
+LMB fire, RMB zoom, G item/grenade and F1 sensitivity/settings. Physical controller
+activity restores the original artwork. Original title, panel chrome and
+Accept/Skip objects and callbacks are preserved.
+
+Recognition requires the live managed view, exact lesson title, both thumbstick
+instruction substrings and the observed image/text hierarchy. Only the fifteen
+verified art/text nodes have their four-byte visibility flags masked during the
+original synchronous Draw; flags are restored immediately. String pointers are
+bounded to guest RAM, and flag writes reject inaccessible/protected regions.
+Other tutorials and localized text retain original visuals. This covers the
+observed Basic Controls page; it does not establish replacement of every lesson.
+
+The new integration fixture checks original flag restoration, input-device
+switching, original Accept/Skip reports, unrelated/hidden/unmanaged lessons,
+invalid string pointers and a flag spanning writable/read-only pages. It and
+the existing host UI test pass. A visible title run showed the replacement in
+the original panel, with the original heading/footer and no clipping. Clicking
+Accept resumed gameplay. A second, larger authored alphabet makes W/M distinct;
+its final preview and focused tests pass. On 2 November the user reported
+"everything seems to be working" and explicitly authorized pushing to main.
+That confirms the visible gameplay candidate; the final font readability
+adjustment additionally passed focused UI tests and visual preview inspection.
+
+### Brightness/blur source found — user-confirmed depth/stencil alias fix
+
+The supplied recording was inspected as 41 frames at 2 fps. HUD/menu sharpness
+stays stable while the world alternates between darker rendering and a broad
+bright blurred wash. A per-draw trace found the final additive composite uses
+a 160x120 blurred image derived from a 320x240 luminance-mask pass.
+
+That mask samples the live Z24S8 allocation as linear R8G8B8A8 (format 0x41),
+reading stencil through alpha. The baseline bound stale guest memory instead
+of GPU depth/stencil: the captured GPU stencil was 255 at all 307,200 pixels,
+but the actual sampled mask alpha was zero everywhere. This reverses the
+shader's luminance rejection and passes the whole scene into bloom.
+
+Exact initialized linear D24S8/0x41 aliases now resolve GPU data back into Xbox
+byte order before the existing decoder. Both depth and stencil must have been
+initialized; incompatible/uninitialized aliases retain the existing fallback.
+The general experimental 0x2E depth mode is unchanged. This is a synchronization
+fix, with no bloom-disable, darkening gain or camera-angle heuristic.
+
+Six depth-alias fixtures and eight color-ownership fixtures pass on D3D11 and
+D3D11On12, WARP and the RX 7600. Baseline positive depth cases failed before the
+fix. Movie/mip/visibility regressions pass; nine existing 11On12 hardware images
+are byte-identical to baseline. Its pre-existing CPU-reference edge mismatch
+remains, with unchanged tolerance.
+
+In the matching real-title scene, the traced foliage pixel changed from
+(255,255,69) to (99,86,8), matching its original pre-composite value. The bright
+blurred wash and clipped yellow halos were absent there. Visible title QA also
+reached and dismissed Basic Controls. The user subsequently confirmed the
+candidate was working and authorized the push. Complete camera/mission/effects
+coverage remains open; this does not establish full campaign validation.
+Private evidence is under `.local/flicker-qa/traced-mask-v6` and
+`.local/flicker-qa/tutorial-visible-qa`. All 20 full-build native CTests passed;
+the final font-only update passed both focused UI tests. The final executable
+is installed at the workspace root with a private rollback copy of its predecessor.
+
+### F1-only controls and immediate mouse input — user-confirmed candidate
+
+The user requires all in-game settings under F1. F2/F3/F4 shortcuts and the raw
+F9 capture toggle are removed. F1 > Controls has a draggable logarithmic
+0.1x–10x sensitivity slider and keyboard/mouse guide. F1/menu ownership, focus
+loss and minimization release capture automatically. The launcher shares gain.
+
+Authenticated retail input code 0x001F3250 applies an adaptive stick deadzone
+starting at 0.24 and then a radial filter. The local Windows candidate supplies
+raw mouse deltas after those filters at successful port-0 update 0x001F33D4.
+The constructor at 0x001E7450 establishes port index at device+0xBC; the original
+0x24-byte temporary input report begins at ESP+4 and processed right X/Y are
+report+0x1C/+0x20. The generated chunk is SHA-256 gated. Separate raw-motion
+accumulators avoid losing deltas to USB polls; gain is normalized to elapsed
+time and can exceed one stick throw. Other device activity, typing, F1 and
+foreground checks preserve ownership. No camera/physics memory offsets or
+simulation timing changed. The user confirmed the visible candidate was working
+before authorizing the push to main.
+
+Focused input/cursor/UI tests and all 19 native CTests pass; the native launcher
+lifecycle passes. Slider drag/release, endpoint selection, old preferences,
+physical-device ownership and removal of extra function-key behavior are covered.
+The authored F1 preview is `.local/f1-controls.bmp`. Original disc data and
+permanent saves are untouched. The user authorized publishing these source changes.
+
+The user supplied a matching tutorial capture and clarified that the defect is
+excess brightness mixed with blur across the image, varying with camera angle.
+In the renewed bounded cycle, enabling the existing D24 texture path produced
+valid depth aliases but retained the glow. A depth-test-aware near-plane
+experiment also retained it in matched A/B/A captures and was reverted. Both
+diagnostics stayed private; neither is in the normal executable. Their captures
+are in `.local/flicker-qa/depth-on` and `depth-near`. Stop repeating near-plane
+and depth-enable repairs. Subsequent per-draw tracing isolated the stale
+depth/stencil mask described above. The earlier color-feedback hypothesis did
+not explain the real-title glow, although its independent ownership fixtures
+identified and verified separate renderer correctness fixes.
+
+Native 16:9 and remaining tutorial pages remain open. Static analysis has
+identified camera FOV/aspect setters 0x0006E450/0x0006E4A0, frustum construction
+0x0006C840, UI quad emission 0x000EE6E0 and glyph emission 0x000CCD20. Any native
+mode needs matched world/frustum, HUD/text proportions, hit testing and movie
+captures; no aspect toggle has been shipped without those checks.
+
+DLSS and later FSR support are now requested too. The current machine reports
+AMD Radeon RX 7600, driver 32.0.32015.7029. Existing spatial FSR 1 receives color
+only. Temporal upscalers need correctly owned depth, object/camera motion
+vectors, jitter and history/reset data before integration and runtime QA.
+Official references: [AMD FSR SDK](https://gpuopen.com/amd-fsr-sdk/) and
+[NVIDIA DLSS integration](https://developer.nvidia.com/blog/how-to-integrate-nvidia-dlss-4-into-your-game-with-nvidia-streamline/).
+No temporal SDK or placeholder motion-vector path has been presented as working.
+
 ### User-confirmed desktop controls and authored mip sampling
 
 User follow-up: WASD and left-click firing pass. Mouse aim and cursor hiding

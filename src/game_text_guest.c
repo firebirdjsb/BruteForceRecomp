@@ -73,12 +73,16 @@ int bf_guest_keyboard_focus(uint32_t keyboard, uint32_t column, uint32_t row) {
 }
 void bf_original_menu_draw(void);
 void bf_game_menu_tick(uint32_t view);
+void *bf_game_tutorial_begin(uint32_t view);
+void bf_game_tutorial_end(void *token);
 void sub_000FFDC0(void);
 void sub_00102E60(void);
 void sub_00100910(void) {
     const uint32_t view=g_ecx;
     BfGuestRegisters state;
+    void *tutorial=bf_game_tutorial_begin(view);
     bf_original_menu_draw();
+    bf_game_tutorial_end(tutorial);
     save_registers(&state);
     bf_game_menu_tick(view);
     restore_registers(&state);

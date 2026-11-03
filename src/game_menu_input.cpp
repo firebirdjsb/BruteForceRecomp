@@ -1,11 +1,14 @@
 #include "ui/host_ui.h"
 #include "text_events.h"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <memory>
+#include <string>
 #include <vector>
 #ifdef _WIN32
 #include <windows.h>
@@ -25,6 +28,36 @@ bool read(uint32_t va,void *out,size_t size) {
 #else
     if(uint64_t(va)+size>g_xbox_total_ram)return false;
     std::memcpy(out,p,size);return true;
+#endif
+}
+bool write_flags(uint32_t object,uint32_t flags) {
+    // Only a validated live node's four-byte +0x28 UI flag field is written.
+    // These are ordinary mutable guest UI data, never executable code pages.
+    const uint64_t physical=object&0x0FFFFFFFu;
+    const uintptr_t offset=uintptr_t(xbox_GetMemoryOffset());
+    if(object<0x10000||uint64_t(object)+0x2C>UINT32_MAX||physical+0x2C>g_xbox_total_ram||
+       offset>UINTPTR_MAX-object-0x28)return false;
+    const uintptr_t address=offset+object+0x28;
+    if(address>UINTPTR_MAX-sizeof flags)return false;
+    auto *p=reinterpret_cast<void *>(address);
+#ifdef _WIN32
+    // Validate every region touched by this four-byte field, including a
+    // possible page boundary. Never alter protection to make a write succeed.
+    uintptr_t cursor=address;const uintptr_t end=address+sizeof flags;
+    while(cursor<end) {
+        MEMORY_BASIC_INFORMATION info{};
+        if(VirtualQuery(reinterpret_cast<void *>(cursor),&info,sizeof info)!=sizeof info||
+           info.State!=MEM_COMMIT||(info.Protect&(PAGE_GUARD|PAGE_NOACCESS))||
+           !(info.Protect&(PAGE_READWRITE|PAGE_WRITECOPY)))return false;
+        const uintptr_t base=reinterpret_cast<uintptr_t>(info.BaseAddress);
+        if(cursor<base||cursor-base>=info.RegionSize)return false;
+        const uintptr_t available=info.RegionSize-(cursor-base);
+        cursor+=(std::min)(available,end-cursor);
+    }
+    SIZE_T written{};return WriteProcessMemory(GetCurrentProcess(),p,&flags,sizeof flags,&written)&&written==sizeof flags;
+#else
+    if(uint64_t(object)+0x2C>g_xbox_total_ram)return false;
+    std::memcpy(p,&flags,sizeof flags);return true;
 #endif
 }
 struct Node {
@@ -82,6 +115,47 @@ bool key_position(uint32_t key,BfUiRect &r) {
     }
     return false;
 }
+bool text_content(uint32_t object,std::string &out) {
+    // Original text class uses the same 28-byte UTF-16 wstring as the native
+    // keyboard adapter: allocator at +0x60, pointer/inline buffer at +0x64,
+    // length at +0x74, capacity at +0x78. sub_0010A630 reads these same fields.
+    uint32_t length{},capacity{},pointer{};
+    if(object>UINT32_MAX-0x7C||!read(object+0x74,&length,4)||!read(object+0x78,&capacity,4)||
+       !length||length>256||capacity<length||capacity>65536)return false;
+    pointer=object+0x64;
+    if(capacity>=8&&!read(pointer,&pointer,4))return false;
+    const uint64_t end=uint64_t(pointer)+length*2u;
+    constexpr uint32_t contiguous_alias=0x80000000u;
+    // Text storage must be wholly inside mapped guest RAM or its contiguous
+    // 0x80000000 alias; a corrupt wstring must never read arbitrary host data.
+    if(pointer<0x10000||!(end<=g_xbox_total_ram||
+       (pointer>=contiguous_alias&&end<=uint64_t(contiguous_alias)+g_xbox_total_ram)))return false;
+    std::array<uint16_t,256> units{};
+    if(!read(pointer,units.data(),length*2))return false;
+    out.clear();out.reserve(length);
+    for(unsigned i=0;i<length;i++) {
+        const auto ch=units[i];
+        if(ch>127)return false; // Unverified/localized text keeps original art.
+        out.push_back(char(ch>='a'&&ch<='z'?ch-'a'+'A':ch));
+    }
+    return true;
+}
+struct TutorialMask {
+    struct Item { uint32_t object,tag,vtable,flags; };
+    std::array<Item,32> items{};
+    unsigned count{};
+    ~TutorialMask() {
+        for(unsigned i=0;i<count;i++) {
+            const auto &item=items[i];Node current;
+            // Resolve identity again before undoing the temporary visibility
+            // bit. Preserve any other flags changed by original draw code.
+            if(node(item.object,current)&&current.at(0)==item.vtable&&current.at(0x24)==item.tag) {
+                const uint32_t restored=(current.at(0x28)&~4u)|(item.flags&4u);
+                if(!write_flags(item.object,restored))bf_ui_tutorial_clear();
+            } else bf_ui_tutorial_clear();
+        }
+    }
+};
 void fixture() {
     static const char *path=std::getenv("BF_UI_INPUT_LIVE");static long consumed{};
     if(!path)return;
@@ -170,6 +244,51 @@ void tick(uint32_t view) {
         break;
     }
 }
+}
+extern "C" void *bf_game_tutorial_begin(uint32_t view) try {
+    static uint32_t active_tutorial_view{};
+    Node root;BfUiRect root_rect;
+    if(!node(view,root)||root.at(0)!=0x0039E3D8||(root.flags()&6)!=6||!managed_view(view)) {
+        // Nested unregistered panels must not disarm their enclosing dialog.
+        // A later draw of the actual dialog after it closes clears at once.
+        if(view==active_tutorial_view){bf_ui_tutorial_clear();active_tutorial_view=0;}
+        return nullptr;
+    }
+    std::vector<uint32_t> children;
+    if(!position(view,root_rect)||!vector(view,0x74,children)||children.size()>128){bf_ui_tutorial_clear();return nullptr;}
+    std::vector<BfUiTutorialNode> descriptors;descriptors.reserve(children.size());
+    bool basic_title=false,left_thumbstick=false,right_thumbstick=false;
+    for(auto child:children) {
+        Node n;BfUiRect rect;
+        if(!node(child,n)||!position(child,rect)){bf_ui_tutorial_clear();return nullptr;}
+        descriptors.push_back({n.at(0x24),n.at(0),n.at(0x28),rect});
+        if(n.at(0)==0x0039E0C0) {
+            std::string text;
+            if(n.at(0x24)==0x0BB9C4AF&&text_content(child,text)&&text=="BASIC CONTROLS")basic_title=true;
+            if(n.at(0x24)==0xF1E4D812&&text_content(child,text)&&text.find("LEFT THUMBSTICK")!=std::string::npos)left_thumbstick=true;
+            if(n.at(0x24)==0x09D15D91&&text_content(child,text)&&text.find("RIGHT THUMBSTICK")!=std::string::npos)right_thumbstick=true;
+        }
+    }
+    if(!basic_title||!left_thumbstick||!right_thumbstick){bf_ui_tutorial_clear();return nullptr;}
+    active_tutorial_view=view;
+    if(!bf_ui_tutorial_prepare(root.at(0x24),root_rect,descriptors.data(),unsigned(descriptors.size())))return nullptr;
+    auto mask=std::make_unique<TutorialMask>();
+    for(size_t i=0;i<children.size();i++) {
+        const auto &item=descriptors[i];
+        if(!bf_ui_tutorial_hide(item.tag,item.vtable))continue;
+        if(mask->count==mask->items.size()||!write_flags(children[i],item.flags&~4u)) {
+            bf_ui_tutorial_clear();return nullptr; // RAII restores earlier nodes.
+        }
+        mask->items[mask->count++]={children[i],item.tag,item.vtable,item.flags};
+    }
+    // Only original image/text Draw calls see the temporary bit. No object,
+    // event, input callback, prompt or tutorial-progression state is replaced.
+    return mask.release();
+} catch(const std::exception &e) {
+    bf_ui_tutorial_clear();std::fprintf(stderr,"[UI] Original tutorial retained: %s\n",e.what());return nullptr;
+}
+extern "C" void bf_game_tutorial_end(void *token) {
+    delete static_cast<TutorialMask *>(token);
 }
 extern "C" void bf_game_menu_tick(uint32_t view) {
     try {tick(view);}catch(const std::exception &e){bf_ui_focus_lost();std::fprintf(stderr,"[UI] Menu input released: %s\n",e.what());}

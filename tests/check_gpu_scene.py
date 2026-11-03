@@ -14,7 +14,11 @@ def main():
     environment = {k: v for k, v in os.environ.items()
                    if not k.startswith(('RECOMP_', 'BF_'))}
     images = {}
-    for mode in ('cpu', 'gpu', 'cpu-vsh', 'gpu-cpuvsh', 'gpu-vsh','cpu-surface','gpu-surface','cpu-hud','gpu-hud','gpu-async','gpu-vsh-async','gpu-defaultasync','gpu-mips'):
+    ownership_modes = tuple('gpu-ownership-' + case + suffix
+                            for case in ('cpuwrite', 'self', 'interior', 'reinterpret')
+                            for suffix in ('', '-vsh'))
+    depth_color_modes = tuple('gpu-zcolor' + suffix for suffix in ('', '-vsh', '-unbound', '-unbound-vsh', '-cold', '-pitch'))
+    for mode in ('cpu', 'gpu', 'cpu-vsh', 'gpu-cpuvsh', 'gpu-vsh','cpu-surface','gpu-surface','cpu-hud','gpu-hud','gpu-async','gpu-vsh-async','gpu-defaultasync','gpu-mips') + ownership_modes + depth_color_modes:
         image = output / (mode + '.raw')
         selected = mode + '-hardware' if hardware and mode.startswith('gpu') else mode
         if d3d12 and mode.startswith('gpu'):selected+='-d3d12'
@@ -27,6 +31,25 @@ def main():
         if len(data) != 64 * 64 * 4:
             raise RuntimeError(f'{mode}: incomplete readback')
         images[mode] = data
+        if mode in ownership_modes:
+            for y in range(2, 62):
+                for x in range(2, 62):
+                    expected = (0xFF3050D0 if 'self' in mode else
+                                (0xFF3050D0 if x < 32 else 0xFFE0B030) if 'cpuwrite' in mode else
+                                0xFF20C060)
+                    actual = int.from_bytes(data[4*(y*64+x):4*(y*64+x+1)], 'little')
+                    if actual != expected:
+                        raise RuntimeError(f'{mode}: ({x},{y}) expected {expected:08X}, got {actual:08X}')
+            print(f'{mode}: independently expected colour ownership pixels passed')
+        if mode in depth_color_modes:
+            for y in range(2, 62):
+                for x in range(2, 62):
+                    expected = (0x44112233 if 'cold' in mode or 'pitch' in mode else
+                                0x3C123456 if x < 32 else 0xA5123456)
+                    actual = int.from_bytes(data[4*(y*64+x):4*(y*64+x+1)], 'little')
+                    if actual != expected:
+                        raise RuntimeError(f'{mode}: ({x},{y}) expected {expected:08X}, got {actual:08X}')
+            print(f'{mode}: independently expected depth/stencil colour alias pixels passed')
         if mode == 'gpu-vsh':
             verified = re.findall(r'\[VSH-VERIFY\] (\d+) batches checked, (\d+) differ', run.stderr)
             if not verified or any(int(bad) for _, bad in verified):

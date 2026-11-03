@@ -33,14 +33,23 @@ For authentic local branding, run `python scripts/extract_branding.py --help` an
 
 The desktop input update adds full-speed WASD with normalized
 diagonals, held mouse-button reports, and mouse sampling independent of USB
-poll frequency. **F2** opens an authored keyboard/mouse guide and live sensitivity
-control; the native launcher also exposes sensitivity under **Input & audio**.
-The original controller tutorial artwork is retained. This remains a virtual-pad
-camera adapter and retains the game's turn-speed limits; it is not a direct
-camera-memory patch. The user confirmed movement, aiming, firing, zoom,
-grenade/item input and cursor capture; complete campaign acceptance remains open.
+poll frequency. **F1 > Controls** contains the keyboard/mouse guide and a live,
+draggable **0.1x–10x mouse sensitivity** slider; the native launcher also exposes
+sensitivity under **Input & audio**. F1 is the only settings/capture hotkey.
+The native player replaces the English **Basic Controls** tutorial's original
+controller illustration and thumbstick instructions with authored WASD/mouse
+artwork while keyboard/mouse prompts are active. Controller activity restores
+the original artwork. The original title, panel and Accept/Skip actions remain.
+Recognition checks the actual lesson text and widget hierarchy; other lessons
+retain their original visuals until their content has been verified.
+The Windows player feeds raw mouse motion into the authenticated title input update after
+its adaptive stick filters, with elapsed-time-normalized gain and a separate
+motion queue. It still uses the game's original camera logic. The user confirmed
+the visible candidate was working on 2 November 2026. The preceding build passed movement,
+aiming, firing, zoom, grenade/item input and cursor capture; complete campaign
+acceptance remains open.
 The cursor is hidden/confined by the game window while aiming, and released
-for menus, overlays, F9, focus loss and minimization.
+for menus, F1 settings, focus loss and minimization.
 The user verified mouse motion and hidden cursor through **AnyDesk Gaming Mode**;
 standard AnyDesk control did not deliver the relative mouse behavior required
 for aiming. Keep Gaming Mode enabled for remote play. RMB maps to the game's
@@ -48,11 +57,14 @@ right-stick click (toggle zoom); **G** uses the selected grenade/inventory item.
 
 The GPU texture path now uploads the game's authored mip chain, includes all
 levels in cache invalidation, and honors mip filtering. It does not generate HD
-textures or increase internal resolution. Bright additive effects and native
-AMD D3D12 rasterization differences remain separate unresolved rendering issues.
+textures or increase internal resolution. Native AMD D3D12 reference-image
+differences remain a separate rendering issue. The player fixes a confirmed
+stale depth/stencil alias used by the bloom mask; the matching title scene no
+longer shows the bright blurred wash. The user confirmed the candidate was
+working; complete campaign and effects coverage remains open.
 The reviewed additive-clipping workaround was rejected: a matched tutorial
 test removed valid text and restored it when reverted. It is not included in
-the player. Location-dependent bright flicker remains unresolved.
+the player. Complete camera-angle and campaign validation remains open.
 
 Windows selects hardware DX12 automatically and falls back to D3D11, then GDI when initialization fails. The native launcher exposes renderer and AMD FSR 1 settings under **Graphics**. Direct launches can use `BF_RENDER_BACKEND=auto`, `dx12`, `dx11`, or `gdi`, and `BF_UPSCALER=off` or `fsr1`.
 
@@ -65,7 +77,7 @@ scene rendering, separate from the presentation selector. Direct runs select
 it with `RECOMP_GPU=d3d12`. It uses a real D3D12 queue through the bridge;
 a native D3D12 scene pipeline remains unfinished. The current GPU title path
 restores zero-depth tutorial/HUD rendering and preserves CPU-written movies.
-Mouse/keyboard launches enable the raw-mouse adapter; F9 releases capture.
+Mouse/keyboard launches enable mouse capture; F1 settings releases it automatically.
 
 ```sh
 cmake -S . -B .local/graphics-test -DBF_GRAPHICS_ONLY=ON
@@ -79,7 +91,7 @@ Startup fixes apply only to hash-checked build copies of the public runtime; its
 
 For an existing generated directory, run `scripts/recover_entries.py --xbe FILE --toolkit TOOLKIT --functions FUNCTIONS_JSON --output RECOVERED_DIR` and pass `-DBF_RECOVERED_DIR=RECOVERED_DIR` to CMake. The normal `generate` pipeline does this automatically. Recovery verifies the missing callback's original bytes and emits its complete lifted body privately. The public repository holds no recovered game-code body.
 
-Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/V = A/B/X/Y, Enter = Start); `--mouse-keyboard` also enables the existing raw-mouse adapter, with F9 capture toggle. This adapter is a bring-up path, not proof of the requested native mouse/keyboard experience. `--sample-startup` enables bounded Windows main-thread sampling; `--gpu-trace` records submissions. USB and vblank models are enabled by the boot-test launcher. Physical controllers, mouse aim and full gameplay still require validation.
+Diagnostic input options: `--keyboard` enables the keyboard test mapping (Z/X/C/V = A/B/X/Y, Enter = Start); `--mouse-keyboard` also enables mouse aiming, with capture released by F1 settings and focus loss. `--sample-startup` enables bounded Windows main-thread sampling; `--gpu-trace` records submissions. USB and vblank models are enabled by the boot-test launcher. Complete campaign and device coverage still require validation.
 
 The game's profile/campaign name screens accept direct typing: letters/numbers/Space, Backspace (or Delete), Enter for Done, and Escape for the game's Back action. Original on-screen key labels, length limits, sounds and confirmation handlers still apply; the normal keyboard uses uppercase. Arrows and physical controllers retain the original grid navigation. Typing temporarily suppresses keyboard-to-controller actions and raw mouse capture, independently of the launcher's keyboard-test checkbox. Windows window messages and Linux SDL text events feed the same bounded queue. Scripted Windows tests edited both name screens and exercised Done/Back; complete physical-keyboard and Linux text-entry QA remain pending.
 

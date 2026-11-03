@@ -35,4 +35,50 @@ void Canvas::text(int x,int y,std::string_view value,uint32_t color,int scale) {
         x+=4*scale;
     }
 }
+void Canvas::text5x7(int x,int y,std::string_view value,uint32_t color,int scale) {
+    // Authored five-column, seven-row capitals for the Basic Controls guide.
+    // Each row uses bits 4..0 from left to right; M and W have distinct
+    // diagonals which the existing three-column menu font cannot express.
+    static constexpr std::string_view alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.:/+[]<>%?";
+    static constexpr uint8_t rows[][7]={
+        {14,17,17,31,17,17,17}, {30,17,17,30,17,17,30}, // A B
+        {15,16,16,16,16,16,15}, {30,17,17,17,17,17,30}, // C D
+        {31,16,16,30,16,16,31}, {31,16,16,30,16,16,16}, // E F
+        {15,16,16,23,17,17,15}, {17,17,17,31,17,17,17}, // G H
+        {31,4,4,4,4,4,31}, {7,2,2,2,18,18,12},        // I J
+        {17,18,20,24,20,18,17}, {16,16,16,16,16,16,31},// K L
+        {17,27,21,21,17,17,17}, {17,25,25,21,19,19,17},// M N
+        {14,17,17,17,17,17,14}, {30,17,17,30,16,16,16},// O P
+        {14,17,17,17,21,18,13}, {30,17,17,30,20,18,17},// Q R
+        {15,16,16,14,1,1,30}, {31,4,4,4,4,4,4},       // S T
+        {17,17,17,17,17,17,14}, {17,17,17,17,17,10,4},// U V
+        {17,17,17,21,21,21,10}, {17,17,10,4,10,17,17},// W X
+        {17,17,10,4,4,4,4}, {31,1,2,4,8,16,31},      // Y Z
+        {14,17,19,21,25,17,14}, {4,12,4,4,4,4,14},    // 0 1
+        {14,17,1,2,4,8,31}, {30,1,1,14,1,1,30},       // 2 3
+        {2,6,10,18,31,2,2}, {31,16,16,30,1,1,30},     // 4 5
+        {14,16,16,30,17,17,14}, {31,1,2,4,8,8,8},     // 6 7
+        {14,17,17,14,17,17,14}, {14,17,17,15,1,1,14},  // 8 9
+        {0,0,0,31,0,0,0}, {0,0,0,0,0,6,6},           // - .
+        {0,6,6,0,6,6,0}, {1,2,2,4,8,8,16},           // : /
+        {0,4,4,31,4,4,0}, {14,8,8,8,8,8,14},         // + [
+        {14,2,2,2,2,2,14}, {2,4,8,16,8,4,2},          // ] <
+        {8,4,2,1,2,4,8}, {25,26,2,4,8,11,19},         // > %
+        {14,17,1,2,4,0,4}                             // ?
+    };
+    static_assert(sizeof rows/sizeof rows[0]==alphabet.size());
+    if(scale<1)return;
+    const int origin=x;
+    for(unsigned char ch:value) {
+        if(ch=='\n'){x=origin;y+=9*scale;continue;}
+        ch=static_cast<unsigned char>(std::toupper(ch));
+        const auto index=alphabet.find(char(ch));
+        if(ch!=' ') {
+            const auto &glyph=rows[index==std::string_view::npos?alphabet.size()-1:index];
+            for(int row=0;row<7;row++)for(int col=0;col<5;col++)
+                if(glyph[row]&(1u<<(4-col)))box(x+col*scale,y+row*scale,scale,scale,color);
+        }
+        x+=6*scale;
+    }
+}
 }

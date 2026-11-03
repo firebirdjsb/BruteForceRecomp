@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 typedef struct { float x,y,w,h; } BfUiRect;
+typedef struct { uint32_t tag,vtable,flags;BfUiRect rect; } BfUiTutorialNode;
 typedef struct { float x,y; int action; uint64_t serial; } BfUiPointer;
 /* action: 0=motion, 1=left click, 2=right click. Coordinates are client pixels. */
 void bf_ui_mouse(int x,int y,int width,int height,int action);
@@ -15,11 +16,17 @@ int bf_ui_capture(void);
 int bf_ui_open(void);
 int bf_ui_keyboard_mode(void);
 void bf_ui_controller_activity(void);
+void bf_ui_mouse_activity(void);
 void bf_ui_menu_seen(void);
 int bf_ui_pointer(BfUiPointer *event);
 void bf_ui_pad_press(unsigned control);
 int bf_ui_pad(uint16_t *digital,uint8_t analog[8]);
 void bf_ui_prompt(BfUiRect rect,const char *key);
+/* Called only for an authenticated, active managed guest view. Nodes use
+ * dynamically resolved positions; no guest pointer is retained by the UI. */
+int bf_ui_tutorial_prepare(uint32_t root_tag,BfUiRect root,const BfUiTutorialNode *nodes,unsigned count);
+int bf_ui_tutorial_hide(uint32_t tag,uint32_t vtable);
+void bf_ui_tutorial_clear(void);
 void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height);
 int bf_ui_fsr(void);
 void bf_ui_fsr_initial(int enabled);

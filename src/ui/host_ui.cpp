@@ -28,6 +28,7 @@ std::atomic<float> mouse_sensitivity{1.0f};
 constexpr int rows=8,row_y=132,row_step=28;
 unsigned scale_index{},resolution_index{};
 bool resize_pending{};
+bool sensitivity_dragging{};
 constexpr unsigned scales[]={0,2,4,8},heights[]={0,720,1080,1440,2160};
 Clock::time_point menu_seen{};
 bf::ui::PadPulses pulses;
@@ -35,6 +36,46 @@ std::deque<BfUiPointer> pointers;
 uint64_t serial{};
 struct Prompt { BfUiRect rect;std::string key;Clock::time_point time; };
 std::array<Prompt,32> prompts;
+struct Tutorial { BfUiRect root{};Clock::time_point seen{};bool verified{}; } tutorial;
+// Stable object tags/classes from the authenticated Basic Controls hierarchy.
+// Keep the title and original accept/skip prompt objects outside this set.
+constexpr uint32_t tutorial_text[]={0xE4BA1ECE,0xF1E4D812,0x00AAB5C6,0x1BA3E47C,0xF6B4200F,
+    0xE2E50FBE,0x03445ADC,0x09D15D91,0xE84B1D21,0xE4ABC6F1};
+constexpr uint32_t tutorial_images[]={0xEE52EBAF,0x07B09CCB,0xE6C60D0A,0x07900EF7,0xE525F3DB};
+bool tutorial_node(uint32_t tag,uint32_t vtable) {
+    if(vtable==0x0039E0C0)return std::find(std::begin(tutorial_text),std::end(tutorial_text),tag)!=std::end(tutorial_text);
+    if(vtable==0x0039E290)return std::find(std::begin(tutorial_images),std::end(tutorial_images),tag)!=std::end(tutorial_images);
+    return false;
+}
+bool tutorial_active(){return tutorial.verified&&keyboard&&prompts_on&&Clock::now()-tutorial.seen<std::chrono::milliseconds(250);}
+void paint_tutorial(bf::ui::Canvas &c) {
+    const int x=int(std::lround(tutorial.root.x))+15,y=int(std::lround(tutorial.root.y))+35;
+    const uint32_t panel=0xff0b2c48,edge=0xff32bfe8,ink=0xffe1f5ff,muted_ink=0xffa9cada;
+    c.box(x,y,440,290,0xff08223b);
+    c.text5x7(x+9,y+8,"KEYBOARD / MOUSE",ink,2);
+    c.box(x+8,y+29,202,180,panel);c.box(x+220,y+29,212,180,panel);
+    c.text5x7(x+18,y+40,"MOVE",edge,2);c.text5x7(x+230,y+40,"LOOK / AIM",edge,2);
+    const auto key=[&](int kx,int ky,const char *label){
+        c.box(kx,ky,34,30,edge);c.box(kx+2,ky+2,30,26,0xff173e59);c.text5x7(kx+12,ky+8,label,ink,2);
+    };
+    key(x+86,y+65,"W");key(x+48,y+99,"A");key(x+86,y+99,"S");key(x+124,y+99,"D");
+    c.text5x7(x+18,y+145,"W/S: FORWARD / BACK",ink);
+    c.text5x7(x+18,y+160,"A/D: STRAFE",ink);
+    c.text5x7(x+18,y+185,"RELATIVE TO YOUR CAMERA",muted_ink);
+    // Authored mouse silhouette and distinct left/right buttons, drawn with
+    // the same code-native primitives as the F1 controls page.
+    c.box(x+280,y+64,92,78,edge);c.box(x+282,y+66,88,74,0xff173e59);
+    c.box(x+284,y+68,40,27,0xff245978);c.box(x+328,y+68,40,27,0xff245978);
+    c.box(x+325,y+67,2,30,edge);c.box(x+322,y+73,8,13,ink);
+    c.text5x7(x+299,y+76,"L",ink,2);c.text5x7(x+343,y+76,"R",ink,2);
+    c.text5x7(x+297,y+107,"MOUSE",ink,2);
+    c.text5x7(x+230,y+150,"MOUSE: LOOK AROUND",ink);
+    c.text5x7(x+230,y+166,"LMB: FIRE",ink);
+    c.text5x7(x+230,y+182,"RMB: TOGGLE ZOOM",ink);
+    c.text5x7(x+18,y+223,"G: GRENADE / ITEM",ink,2);
+    c.text5x7(x+18,y+244,"F1: SETTINGS / MOUSE SENSITIVITY",ink);
+    c.text5x7(x+18,y+264,"TIP: ENEMIES CAN HEAR YOUR MOVEMENT.",muted_ink);
+}
 bool menu(){return mouse_menus&&Clock::now()-menu_seen<std::chrono::milliseconds(500);}
 int row_count(){return page==2?1:page==1?3:rows;}
 void persist() {
@@ -46,7 +87,7 @@ void persist() {
 }
 void adjust(int row,int direction=1) {
     if(page==2) {
-        preferences.mouse_sensitivity=std::clamp(preferences.mouse_sensitivity+direction*0.25f,0.25f,5.0f);
+        preferences.mouse_sensitivity=std::clamp(preferences.mouse_sensitivity+direction*0.1f,0.1f,10.0f);
         mouse_sensitivity.store(preferences.mouse_sensitivity,std::memory_order_relaxed);
         persist();return;
     }
@@ -107,6 +148,16 @@ extern "C" void bf_ui_mouse(int x,int y,int w,int h,int action) try {
     float gx{},gy{};if(!bf_ui_point(x,y,w,h,&gx,&gy))return;
     std::lock_guard lock(guard);keyboard=true;
     if(opened) {
+        if(action==3){sensitivity_dragging=false;return;}
+        if(action==0)sensitivity_dragging=false;
+        if(page==2 && ((action==1 && bf_ui_contains({128,160,385,22},gx,gy)) || (action==4 && sensitivity_dragging))) {
+            sensitivity_dragging=true;
+            const float position=std::clamp((gx-128.0f)/384.0f,0.0f,1.0f);
+            preferences.mouse_sensitivity=std::clamp(std::round(std::pow(10.0f,position*2.0f-1.0f)*100.0f)/100.0f,0.1f,10.0f);
+            mouse_sensitivity.store(preferences.mouse_sensitivity,std::memory_order_relaxed);
+            persist();return;
+        }
+        if(action==1)sensitivity_dragging=false;
         for(int tab=0;tab<3;++tab)if(bf_ui_contains({float(112+tab*140),105,136,22},gx,gy)) {
             if(action==1){page=tab;selected=0;}return;
         }
@@ -115,6 +166,8 @@ extern "C" void bf_ui_mouse(int x,int y,int w,int h,int action) try {
         }
         return;
     }
+    if(action==3)return;
+    if(action==4)action=0;
     if(!menu())return;
     BfUiPointer event{gx,gy,action,++serial};
     if(!action&&!pointers.empty()&&!pointers.back().action)pointers.back()=event;
@@ -124,8 +177,7 @@ extern "C" void bf_ui_mouse(int x,int y,int w,int h,int action) try {
 }
 extern "C" int bf_ui_key(unsigned key,int repeat) try {
     std::lock_guard lock(guard);keyboard=true;
-    if(key==112) {if(!repeat){opened=!opened;pointers.clear();pulses.clear();}return 1;}
-    if(key==113) {if(!repeat){opened=!(opened&&page==2);page=2;selected=0;pointers.clear();pulses.clear();}return 1;}
+    if(key==112) {if(!repeat){opened=!opened;sensitivity_dragging=false;pointers.clear();pulses.clear();}return 1;}
     if(!opened)return 0;
     if(!repeat) {
         if(key==27)opened=false;
@@ -139,12 +191,13 @@ extern "C" int bf_ui_key(unsigned key,int repeat) try {
 } catch(const std::exception &e) {
     std::fprintf(stderr,"[UI] Key event released: %s\n",e.what());return 0;
 }
-extern "C" void bf_ui_focus_lost(){std::lock_guard lock(guard);pointers.clear();pulses.clear();}
+extern "C" void bf_ui_focus_lost(){std::lock_guard lock(guard);sensitivity_dragging=false;pointers.clear();pulses.clear();}
 extern "C" int bf_ui_menu_active(){std::lock_guard lock(guard);return menu();}
 extern "C" int bf_ui_capture(){std::lock_guard lock(guard);return opened||menu();}
 extern "C" int bf_ui_open(){std::lock_guard lock(guard);return opened;}
 extern "C" int bf_ui_keyboard_mode(){std::lock_guard lock(guard);return keyboard&&prompts_on;}
 extern "C" void bf_ui_controller_activity(){std::lock_guard lock(guard);keyboard=false;}
+extern "C" void bf_ui_mouse_activity(){std::lock_guard lock(guard);keyboard=true;}
 extern "C" void bf_ui_menu_seen(){std::lock_guard lock(guard);menu_seen=Clock::now();}
 extern "C" int bf_ui_pointer(BfUiPointer *p) {
     std::lock_guard lock(guard);
@@ -174,6 +227,28 @@ extern "C" void bf_ui_prompt(BfUiRect rect,const char *key) {
         p={rect,key,now};break;
     }
 }
+extern "C" int bf_ui_tutorial_prepare(uint32_t root_tag,BfUiRect root,const BfUiTutorialNode *nodes,unsigned count) {
+    std::lock_guard lock(guard);tutorial.verified=false;
+    if(root_tag!=0xF0EA44DC||!nodes||count>128||root.w!=470||root.h!=360||
+       !std::isfinite(root.x)||!std::isfinite(root.y)||root.x<0||root.y<0||root.x+root.w>640||root.y+root.h>480)return 0;
+    bool title=false,art=false;unsigned texts=0,images=0;
+    for(unsigned i=0;i<count;i++) {
+        const auto &node=nodes[i];if(!(node.flags&4))continue;
+        if(node.vtable==0x0039E0C0&&node.tag==0x0BB9C4AF)title=true;
+        if(node.vtable==0x0039E290&&node.tag==0xEE52EBAF&&node.rect.w==256&&node.rect.h==256&&
+           std::abs(node.rect.x-root.x-202)<0.01f&&std::abs(node.rect.y-root.y-13)<0.01f)art=true;
+    }
+    // Require each observed instruction/icon tag, rather than applying a
+    // generic-screen rule to other tutorial pages or similarly named images.
+    for(auto tag:tutorial_text)for(unsigned i=0;i<count;i++)if(nodes[i].tag==tag&&nodes[i].vtable==0x0039E0C0&&(nodes[i].flags&4)){texts++;break;}
+    for(auto tag:tutorial_images)for(unsigned i=0;i<count;i++)if(nodes[i].tag==tag&&nodes[i].vtable==0x0039E290&&(nodes[i].flags&4)){images++;break;}
+    if(!title||!art||texts!=std::size(tutorial_text)||images!=std::size(tutorial_images))return 0;
+    tutorial={root,Clock::now(),true};return keyboard&&prompts_on;
+}
+extern "C" int bf_ui_tutorial_hide(uint32_t tag,uint32_t vtable) {
+    std::lock_guard lock(guard);return tutorial_active()&&tutorial_node(tag,vtable);
+}
+extern "C" void bf_ui_tutorial_clear(){std::lock_guard lock(guard);tutorial.verified=false;}
 extern "C" int bf_ui_fsr(){std::lock_guard lock(guard);return fsr;}
 extern "C" void bf_ui_fsr_initial(int value){std::lock_guard lock(guard);fsr=value!=0;}
 extern "C" void bf_ui_fsr_supported(int value){std::lock_guard lock(guard);fsr_supported=value!=0;}
@@ -209,6 +284,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     if(!pixels||width!=640||height!=480)return;
     std::lock_guard lock(guard);bf::ui::Canvas c{pixels,width,height};
     const auto now=Clock::now();
+    if(tutorial_active())paint_tutorial(c);
     if(keyboard&&prompts_on)for(auto &p:prompts)if(now-p.time<std::chrono::milliseconds(250)) {
         const int x=int(p.rect.x),y=int(p.rect.y);
         c.box(x,y+2,17,15,0xff59bfd9);c.box(x+1,y+3,15,13,0xff112d41);
@@ -249,21 +325,23 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         c.text(458,y+7,value,0xff79dbb7,2);
     }
     if(page==2) {
-        c.text(122,173,"KEYBOARD / MOUSE GUIDE",0xffe1f5ff,2);
+        const int slider_x=128+int((std::log10(preferences.mouse_sensitivity)+1.0f)*0.5f*384.0f);
+        c.box(128,167,384,5,0xff17394e);c.box(128,167,slider_x-128,5,0xff55c5e8);
+        c.box(slider_x-3,162,7,15,0xffe1f5ff);
+        c.text(128,182,"DRAG TO SET / LEFT-RIGHT TO ADJUST",0xff9bc0d5);
+        c.text(122,201,"KEYBOARD / MOUSE GUIDE",0xffe1f5ff,2);
         const auto key=[&](int x,int y,const char *label){c.box(x,y,30,28,0xff245978);c.text(x+11,y+9,label,0xffe1f5ff,2);};
-        key(164,201,"W");key(130,233,"A");key(164,233,"S");key(198,233,"D");
-        c.text(126,277,"W/S: FORWARD / BACK",0xffd9efff);
-        c.text(126,291,"A/D: STRAFE",0xffd9efff);
-        c.text(126,305,"FULL SPEED WHILE HELD",0xff79dbb7);
-        c.text(126,319,"G: GRENADE / ITEM",0xffd9efff);
-        c.box(336,204,110,75,0xff17394e);c.box(336,204,53,29,0xff245978);c.box(393,204,53,29,0xff245978);
-        c.text(346,215,"LMB",0xffe1f5ff,2);c.text(403,215,"RMB",0xffe1f5ff,2);
-        c.text(351,250,"MOUSE",0xff69cae9,2);
-        c.text(322,291,"MOUSE: CAMERA",0xffd9efff);
-        c.text(322,305,"HOLD LMB: FIRE",0xff79dbb7);
-        c.text(322,317,"RMB: TOGGLE ZOOM",0xffd9efff);
-        c.text(122,332,"F9: RELEASE / CAPTURE MOUSE",0xffd9efff,2);
-        c.text(122,352,"F2: OPEN / CLOSE THIS GUIDE",0xff9bc0d5);
+        key(164,225,"W");key(130,257,"A");key(164,257,"S");key(198,257,"D");
+        c.text(126,301,"W/S: FORWARD / BACK",0xffd9efff);
+        c.text(126,315,"A/D: STRAFE",0xffd9efff);
+        c.text(126,329,"G: GRENADE / ITEM",0xffd9efff);
+        c.box(336,228,110,75,0xff17394e);c.box(336,228,53,29,0xff245978);c.box(393,228,53,29,0xff245978);
+        c.text(346,239,"LMB",0xffe1f5ff,2);c.text(403,239,"RMB",0xffe1f5ff,2);
+        c.text(351,274,"MOUSE",0xff69cae9,2);
+        c.text(322,315,"MOUSE: CAMERA",0xffd9efff);
+        c.text(322,329,"HOLD LMB: FIRE",0xff79dbb7);
+        c.text(322,341,"RMB: TOGGLE ZOOM",0xffd9efff);
+        c.text(122,357,"F1 SETTINGS RELEASES THE MOUSE",0xff9bc0d5);
     }
     if(page==1) {
         c.text(122,233,"APPLIES ON NEXT LAUNCH",0xffe6b47e,2);
@@ -272,7 +350,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         c.text(122,303,"GPU PACING: ORIGINAL SWAP INTERVAL",0xff9bc0d5);
         c.text(122,320,preferences.scene=="d3d12"?"D3D12 SCENES USE D3D11ON12 BRIDGE":"EXACT TEXTURE VALIDATION / AUTO CACHE",0xff9bc0d5);
         c.text(122,340,settings_path.empty()?"DIRECT RUN: SESSION SETTINGS ONLY":"SETTINGS SHARED WITH LAUNCHER",0xff9bc0d5);
-        c.text(122,354,"WASD / MOUSE AIM   F9: RELEASE MOUSE",0xff9bc0d5);
+        c.text(122,354,"F1 SETTINGS RELEASES THE MOUSE",0xff9bc0d5);
     }
     c.text(112,373,"MOUSE OR ARROWS / ENTER TO CHANGE",0xff9bc0d5);
     c.text(112,388,"TAB: PAGE   F1 / ESC: CLOSE",0xff9bc0d5);
