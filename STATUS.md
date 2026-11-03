@@ -5,6 +5,33 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Launcher visibility and duplicate-instance recovery
+
+Three interactive launchers were left open from earlier testing, with two
+different executable paths pointing at the same library. Only the instance
+that started the game hid its window; the other windows remained visible.
+The old main loop also waited until game-process creation before hiding,
+leaving the launcher visible during validation and preflight.
+
+The launcher now hides for the whole launch session, beginning at Start,
+and restores after normal exit, a nonzero child exit, validation failure or
+process-start failure. Verification/import operations on their own stay visible.
+An OS file lock allows one interactive owner per library across executable
+copies. Duplicate Windows starts activate a visible owner but do not reveal
+an owner hidden for the game. Process exit releases ownership, including an
+abrupt exit that bypasses C++ destructors. The lock contains only a local PID;
+no game data or save schema changes are involved.
+
+All three launcher tests pass on Windows and Linux. Coverage includes
+startup/failure visibility, actual child exit behavior, duplicate processes,
+independent libraries, stale PID metadata and abrupt-exit lock release.
+A separate run with SDL's Windows driver additionally checked real HWND
+visibility with IsWindowVisible. The three old launcher windows were closed
+normally for installation. Opening the upgraded legacy executable while the
+root launcher was open left only that same root process/window alive, verifying
+the duplicate guard across installed paths. This follow-up changes launcher behavior only;
+it does not change game code, rendering, performance or mission validation.
+
 ### Experimental higher-FPS mode
 
 The native launcher and F1 > Renderer now share an opt-in up-to-60-FPS mode.

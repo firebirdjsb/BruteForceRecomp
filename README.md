@@ -23,9 +23,11 @@ Build dependencies are fetched from pinned public repositories. Linux also needs
 
 Use `BruteForceLauncher --workspace FOLDER --game-exe FILE` to select an explicit library and native build. Otherwise the app uses the platform application-data directory and searches for a native Release build. Keep the executable, SDL2 DLL on Windows, and assets folder together. A mouse/keyboard/gamepad navigable launcher does not establish complete input support inside the game.
 
-The launcher hides after the native game process starts and returns when that
-process exits, including a crash. Validation or start failures leave the app
-visible. Graphics, input and audio preferences are shared with F1 through the
+The launcher hides when Start begins game validation and startup, and returns when that
+process exits, including a crash. Validation or start failures restore the app.
+Only one interactive launcher can own a library, even when opened from different
+installed copies; reopening it while the game runs does not reveal its hidden window.
+Graphics, input and audio preferences are shared with F1 through the
 local `graphics.settings` file; permanent saves stay in `player-data`.
 
 The latest continuation prompt is [NEXT_AGENT_HANDOFF.md](docs/NEXT_AGENT_HANDOFF.md).

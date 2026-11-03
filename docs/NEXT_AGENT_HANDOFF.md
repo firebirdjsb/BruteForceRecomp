@@ -1,5 +1,15 @@
 # Next-agent handoff prompt — 2 November 2026
 
+Latest launcher follow-up: hide throughout the launch session (validation,
+startup and running game), restore on exit/failure, and allow one interactive
+owner per library using a cross-process OS file lock. Three older instances
+had been left open from tests and made the launcher appear to stay visible.
+Those were closed normally; both installed executable locations are updated.
+Windows/Linux now have three launcher tests, including actual child processes,
+startup failure, duplicates and abrupt-exit release. A Windows-driver run also
+checks actual HWND visibility. Game code and permanent saves are unchanged.
+Private launcher backups/installation record: `work/launcher-lifecycle-fix`.
+
 Newest milestone: opt-in up-to-60-FPS host presentation is in launcher Graphics
 and F1 > Renderer, live and persisted. Read `docs/FRAME_RATE.md` before continuing.
 D3D11 first-mission smoke improved 30.00 -> 54.17 distinct FPS; the actual
@@ -14,7 +24,7 @@ and S24 Ultra APK, complete acceptance, cheats and expanded P2P. None is done.
 Final probes-OFF player smoke measured 51.72 distinct FPS. The player is
 installed at `work/diagnostic-build/Release/bruteforce_recomp.exe`, and the
 new launcher is `BruteForceLauncher.exe` at the workspace root, with its SDL2
-DLL/assets. Existing open older launchers were left alone. Rollback/hash
+DLL/assets. The later launcher follow-up above supersedes the old open instances. Rollback/hash
 record: `work/high-fps/install-manifest.json`; prior player under
 `work/high-fps/install-backup`. Select Original 30 FPS to revert pacing.
 

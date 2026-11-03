@@ -1,11 +1,26 @@
 #include "../native_launcher/process.h"
 #include "../native_launcher/window_lifecycle.h"
+#include "../native_launcher/library.h"
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <thread>
+#ifdef _WIN32
+#include <SDL_syswm.h>
+#endif
+
+static bool window_visible(SDL_Window *window) {
+#ifdef _WIN32
+    if(std::string(SDL_GetCurrentVideoDriver())=="windows") {
+        SDL_SysWMinfo info{};SDL_VERSION(&info.version);
+        if(!SDL_GetWindowWMInfo(window,&info))throw std::runtime_error(SDL_GetError());
+        return IsWindowVisible(info.info.win.window)!=FALSE;
+    }
+#endif
+    return (SDL_GetWindowFlags(window)&SDL_WINDOW_SHOWN)!=0;
+}
 
 int main(int argc,char **argv) try {
     if(argc==3&&std::string(argv[1])=="--child") {
@@ -27,6 +42,18 @@ int main(int argc,char **argv) try {
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS))throw std::runtime_error(SDL_GetError());
     SDL_Window *window=SDL_CreateWindow("Launcher lifecycle regression",0,0,320,240,SDL_WINDOW_HIDDEN);
     if(!window)throw std::runtime_error(SDL_GetError());
+    // Hide at Start, while validation still runs, and restore after a failure
+    // that happens before a child process exists. Other busy operations stay visible.
+    SDL_ShowWindow(window);bool preflight_hidden=false;
+    bf::LibraryState preflight;preflight.busy=true;preflight.phase="launching";
+    bf::sync_game_window(window,preflight.game_session_active(),preflight_hidden);
+    if(!preflight_hidden||window_visible(window))return 8;
+    preflight.phase="error";preflight.busy=false;
+    bf::sync_game_window(window,preflight.game_session_active(),preflight_hidden);
+    if(preflight_hidden||!window_visible(window))return 9;
+    preflight.phase="verifying";preflight.busy=true;
+    if(preflight.game_session_active())return 11;
+    preflight.phase="importing";if(preflight.game_session_active())return 12;
     const auto exe=std::filesystem::absolute(bf::text_path(argv[0]));
     for(const int exit_code:{0,7}) {
         options.scene=exit_code==0?"d3d11":"d3d12";
@@ -41,18 +68,19 @@ int main(int argc,char **argv) try {
         });
         while(!finished) {
             SDL_PumpEvents();bf::sync_game_window(window,running,hidden);
-            if(hidden&&(SDL_GetWindowFlags(window)&SDL_WINDOW_HIDDEN))saw_hidden=true;
+            if(hidden&&!window_visible(window))saw_hidden=true;
             SDL_Delay(5);
         }
         child.join();bf::sync_game_window(window,false,hidden);
         if(failure)std::rethrow_exception(failure);
-        if(result.code!=exit_code||!saw_hidden||hidden||!(SDL_GetWindowFlags(window)&SDL_WINDOW_SHOWN))return 3;
+        if(result.code!=exit_code||!saw_hidden||hidden||!window_visible(window))return 3;
         for(const std::string &text:std::vector<std::string>{"RECOMP_GPU="+options.scene,"RECOMP_GPU_VSH=0","RECOMP_FLIP_PACING=edge","BF_RENDER_BACKEND=dx12","BF_UPSCALER=fsr1","BF_UI_SETTINGS="+bf::path_text(settings),"RECOMP_KEYBOARD=1","RECOMP_MKB=1"})
             if(result.detail.find(text)==std::string::npos)return 4;
     }
     bool started=false;
     try {bf::run_process(root/"absent-native-game.exe",{},root,root/"absent.log",{},false,{}, {},[&]{started=true;});return 5;}
     catch(const std::runtime_error &) {if(started)return 6;}
+    std::printf("Window lifecycle verified with SDL driver: %s\n",SDL_GetCurrentVideoDriver());
     SDL_DestroyWindow(window);SDL_Quit();
     // Only the files/directories created above are removed, never player data.
     std::filesystem::remove(root/"child.log");std::filesystem::remove(settings);std::filesystem::remove(root);

@@ -10,6 +10,7 @@ struct LibraryState {
     std::string phase = "empty", message = "Select your original Brute Force disc image to begin.", file, error, log;
     float fraction = 0;
     bool busy = false, ready = false, running = false;
+    bool game_session_active() const { return running || (busy && phase=="launching"); }
 };
 class Library {
 public:

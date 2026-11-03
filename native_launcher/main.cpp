@@ -1,6 +1,7 @@
 #include "app.h"
 #include "process.h"
 #include "window_lifecycle.h"
+#include "instance.h"
 #include <imgui_impl_sdl2.h>
 #include <imgui_impl_sdlrenderer2.h>
 #include <cstdio>
@@ -28,6 +29,11 @@ int main(int argc,char **argv) {
             char *path=SDL_GetPrefPath("Firebird","BruteForceRecomp");
             if(!path)throw std::runtime_error("Cannot locate the application's local data directory.");
             workspace=bf::text_path(path);SDL_free(path);
+        }
+        std::unique_ptr<bf::LauncherInstance> instance;
+        if(!verify_only&&import.empty()) {
+            instance=std::make_unique<bf::LauncherInstance>(workspace);
+            if(!instance->owns_library()){instance->activate_existing();return 0;}
         }
         bf::Library library(workspace);
         library.join();
@@ -58,7 +64,7 @@ int main(int argc,char **argv) {
                     if(event.type==SDL_QUIT || (event.type==SDL_WINDOWEVENT && event.window.event==SDL_WINDOWEVENT_CLOSE && event.window.windowID==SDL_GetWindowID(window)))running=!app.can_close();
                     if(event.type==SDL_DROPFILE)SDL_free(event.drop.file);
                 }
-                bf::sync_game_window(window,library.state().running,hidden_for_game);
+                bf::sync_game_window(window,library.state().game_session_active(),hidden_for_game);
                 if(hidden_for_game){SDL_Delay(50);continue;}
                 ImGui_ImplSDLRenderer2_NewFrame();ImGui_ImplSDL2_NewFrame();ImGui::NewFrame();app.draw();ImGui::Render();
                 if(std::getenv("BF_LAUNCHER_TRACE") && ++frame==120){

@@ -90,4 +90,6 @@ jobs:
       - name: Build the native executable and its pinned dependencies
         run: cmake --build build/launcher --config Release --parallel 4
       - name: Verify launch settings and window lifecycle across normal and failed child exits
-        run: ctest --test-dir build/launcher -C Release --output-on-failure
+        run: |
+          ctest --test-dir build/launcher -C Release --output-on-failure
+          & build/launcher/native_launcher/Release/bf_launcher_lifecycle_test.exe
