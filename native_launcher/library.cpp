@@ -122,7 +122,7 @@ void Library::verify() {
             validate_files();
             std::lock_guard guard(mutex_);
             state_.phase = "ready"; state_.busy = false; state_.ready = true; state_.fraction = 1;
-            state_.message = "Local game files verified. Ready for the experimental native build.";
+            state_.message = "Local game files verified.";
         } catch (const std::exception &error) { fail(error.what()); }
     });
 }
@@ -159,7 +159,10 @@ void Library::launch(bool keyboard) {
 }
 std::filesystem::path find_game_executable(const std::filesystem::path &application) {
     auto folder = application;
-    for (unsigned level = 0; level < 6; ++level) {
+    // SDL's application path ends in a separator. That adds an empty final
+    // component, and a fixed six-step limit stopped before the project root.
+    // Walk the finite ancestor chain instead, checking only known filenames.
+    for (;;) {
         for (const char *relative : {"bruteforce_recomp.exe", "bruteforce_recomp", "work/diagnostic-build/Release/bruteforce_recomp.exe", ".local/game-build/Release/bruteforce_recomp.exe", ".local/game-build/bruteforce_recomp", "work/diagnostic-build/Debug/bruteforce_recomp.exe"}) {
             const auto candidate = folder / relative;
             if (std::filesystem::is_regular_file(candidate)) return std::filesystem::absolute(candidate);

@@ -31,7 +31,8 @@ int main(int argc,char **argv) {
         }
         bf::Library library(workspace);
         library.join();
-        if(exe.empty() && library.executable().empty())exe=bf::find_game_executable(application);
+        std::error_code host_error;
+        if(exe.empty() && !std::filesystem::is_regular_file(library.executable(),host_error))exe=bf::find_game_executable(application);
         if(!exe.empty())library.set_executable(exe);
         if(!import.empty()){library.import_disc(import);library.join();const auto state=library.state();std::fprintf(stderr,"%s\n%s\n",state.message.c_str(),state.error.c_str());return state.ready?0:1;}
         if(verify_only){library.verify();library.join();const auto state=library.state();std::fprintf(stderr,"%s\n%s\n",state.message.c_str(),state.error.c_str());return state.ready?0:1;}

@@ -1,5 +1,14 @@
 # Next-agent handoff prompt — 2 November 2026
 
+Latest follow-up: main now includes newer desktop input, bloom-mask and tutorial
+artwork fixes documented at the top of STATUS.md; those supersede the historical
+details below. A further launcher fix resolves the native player from SDL paths
+ending in a separator and recovers missing saved executable paths. The normal
+AppData library's game files were valid but its player path was empty. Its path
+is now repaired without moving either library or any saves. Windows/Linux tests
+cover player discovery and launcher lifecycle; inspect STATUS.md and current
+source before treating an older artifact/hash below as the latest build.
+
 Continue the Brute Force native recompilation in
 `D:\Documents\ChatGPT\bfRecomp` on Windows/PowerShell. Read the user's AGENTS.md
 instructions and the current repository before editing. Fetch private

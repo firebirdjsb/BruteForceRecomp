@@ -11,15 +11,17 @@ bool App::can_close() {
     if(library_.state().running){show_exit_=true;return false;}
     library_.cancel();return true;
 }
-static void status_label(const LibraryState &state,ImFont *font) {
-    const char *text=state.running?"SQUAD DEPLOYED":state.busy?"OPERATION IN PROGRESS":state.ready?"READY TO DEPLOY":"AWAITING DISC";
+static void status_label(const LibraryState &state,ImFont *font,bool has_player) {
+    const char *text=state.running?"SQUAD DEPLOYED":state.busy?"OPERATION IN PROGRESS":!state.ready?"AWAITING DISC":has_player?"READY TO DEPLOY":"GAME APPLICATION MISSING";
     ImGui::PushFont(font);ImGui::TextColored(gold,"%s",text);ImGui::PopFont();
 }
 void App::command() {
     const auto state=library_.state();
+    std::error_code host_error;
+    const bool has_player=std::filesystem::is_regular_file(library_.executable(),host_error);
     label("YOUR NEXT MISSION",theme_.small);
     ImGui::PushFont(theme_.heading);ImGui::TextUnformatted("Prepare for deployment.");ImGui::PopFont();
-    status_label(state,theme_.small);
+    status_label(state,theme_.small,has_player);
     ImGui::Spacing(); ImGui::Separator();ImGui::Spacing();
     label("01  SELECT DISC     /     02  IMPORT & VERIFY     /     03  DEPLOY",theme_.small);
     ImGui::Spacing();label("BRUTE FORCE DISC IMAGE",theme_.small);
@@ -95,7 +97,14 @@ void App::command() {
         changed|=ImGui::SliderInt("Master volume",&options.volume,0,100,"%d%%");
         if(changed)library_.set_graphics(options);ImGui::EndDisabled();
     }
-    ImGui::BeginDisabled(state.busy || !state.ready || !std::filesystem::is_regular_file(library_.executable()));
+    if(state.ready&&!state.busy&&!has_player) {
+        ImGui::PushFont(theme_.small);
+        ImGui::TextColored(gold,"Game files verified. The game application is missing.");
+        ImGui::TextWrapped("Choose bruteforce_recomp.exe using Locate below to enable Start.");
+        ImGui::PopFont();
+        if(ImGui::Button("Locate game application")){picking_host_=true;picker_.open("Select the game application",false,host_);}
+    }
+    ImGui::BeginDisabled(state.busy || !state.ready || !has_player);
     ImGui::PushStyleColor(ImGuiCol_Button,gold);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered,ImVec4{.90f,.82f,.56f,1});
     ImGui::PushStyleColor(ImGuiCol_ButtonActive,ImVec4{.68f,.60f,.37f,1});
@@ -104,7 +113,8 @@ void App::command() {
     if(ImGui::Button("START GAME",{ImGui::GetContentRegionAvail().x,63})){ui_error_.clear();library_.launch(keyboard_);}
     ImGui::PopFont();ImGui::PopStyleColor(4);ImGui::EndDisabled();
     ImGui::Spacing();
-    if(ImGui::CollapsingHeader("Local files & native build")) {
+    if(!has_player)ImGui::SetNextItemOpen(true,ImGuiCond_Always);
+    if(ImGui::CollapsingHeader("Game application & local files")) {
         ImGui::PushFont(theme_.small);ImGui::TextWrapped("Library: %s",path_text(library_.game_directory()).c_str());
         ImGui::TextWrapped("Session log: %s",state.log.empty()?"No game session yet":state.log.c_str());ImGui::PopFont();
         ImGui::BeginDisabled(state.busy);

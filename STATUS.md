@@ -5,6 +5,21 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Launcher Start recovery
+
+The normal SDL application path ends in a separator. The launcher's fixed
+six-parent search spent one step on that empty final component and stopped
+before reaching this checkout's native player. The default AppData library
+therefore had verified game files but an empty executable setting, leaving
+Start disabled. Player discovery now walks the finite ancestor chain, and
+startup retries discovery when a persisted executable no longer exists.
+
+Missing application paths now have an explicit status and Locate action;
+disc verification no longer claims the player is ready independently of its
+presence. A synthetic native-discovery regression reproduced the old failure
+and passes after the fix, along with the launcher lifecycle test on Windows
+and Linux. Game code, original files and permanent saves are unchanged.
+
 ### Conditional Basic Controls artwork — user-confirmed native candidate
 
 The English Basic Controls lesson now replaces its original controller diagram,
