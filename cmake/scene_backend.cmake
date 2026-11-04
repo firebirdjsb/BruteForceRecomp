@@ -48,6 +48,12 @@ if(BF_RUNTIME_CHECKS_ONLY)
     add_test(NAME scene_aa_ui_preservation COMMAND "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tests/check_scene_aa.py" "$<TARGET_FILE:bf_gpu_scene_test>"
         "${XBOXRECOMP_DIR}/tools/conformance/test.xbe" "${CMAKE_BINARY_DIR}/scene-aa-ui")
+    foreach(snapshot_api IN ITEMS d3d11 d3d12)
+        add_test(NAME ordered_scene_snapshot_${snapshot_api} COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/check_scene_snapshot.py" "$<TARGET_FILE:bf_gpu_scene_test>"
+            "${XBOXRECOMP_DIR}/tools/conformance/test.xbe" "${CMAKE_BINARY_DIR}/scene-snapshot-${snapshot_api}" ${snapshot_api})
+        set_tests_properties(ordered_scene_snapshot_${snapshot_api} PROPERTIES TIMEOUT 90)
+    endforeach()
 endif()
 target_include_directories(xbox_kernel BEFORE PRIVATE "${PROJECT_SOURCE_DIR}/src/gpu/runtime" "${PROJECT_SOURCE_DIR}/src/gpu")
 target_include_directories(bf_nv2a_hlsl BEFORE PUBLIC "${PROJECT_SOURCE_DIR}/src/gpu/runtime")
@@ -55,7 +61,7 @@ add_library(bf_scene_backend STATIC src/gpu/d3d11_backend.c src/gpu/texture_deco
 target_include_directories(bf_scene_backend PRIVATE src src/gpu src/gpu/runtime
     "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
 target_compile_definitions(bf_scene_backend PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(bf_scene_backend PUBLIC bf_nv2a_hlsl bf_nv2a_pscache d3d11 d3d12 dxgi d3dcompiler)
+target_link_libraries(bf_scene_backend PUBLIC bf_scene_snapshot bf_nv2a_hlsl bf_nv2a_pscache d3d11 d3d12 dxgi d3dcompiler)
 
 # The asynchronous visibility callback must also progress while the guest is
 # waiting and is not publishing a new PUT. No USB/event/IRQ source is replaced.

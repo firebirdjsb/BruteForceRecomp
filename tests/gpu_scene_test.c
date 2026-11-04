@@ -1245,6 +1245,31 @@ static int scene_depth_color_alias(const char *out_path,const char *mode)
     puts("Depth-as-colour byte order, GPU stencil writes and alias ownership passed.");return 1;
 }
 
+static int scene_snapshot_fixture(const char *out_path)
+{
+    uint32_t color=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t depth=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t vb=xbox_ContiguousAlloc(4096,4096);
+    const Pos right[4]={{32,0,4194303,1},{64,0,4194303,1},{64,64,4194303,1},{32,64,4194303,1}};
+    const Pos full[4]={{0,0,0,1},{64,0,0,1},{64,64,0,1},{0,64,0,1}};
+    const uint32_t red[4]={0xFFFF0000u,0xFFFF0000u,0xFFFF0000u,0xFFFF0000u};
+    const uint32_t green[4]={0xFF00FF00u,0xFF00FF00u,0xFF00FF00u,0xFF00FF00u};
+    const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
+    FILE *file;
+    REQUIRE(color&&depth&&vb,"allocate ordered scene snapshot fixture");
+    identity_matrix();surface(color,B_SIZE,depth);combiners(0);
+    clear(0xF3,0xFF0000FFu,0xBFFFFF00u);
+    method(0x030C,1);method(0x0354,0x201);method(0x035C,1);
+    draw(8,right,red,uv,4,vb);
+    method(0x0100,BF_UI_SCENE_BOUNDARY);
+    method(0x030C,0);method(0x035C,0);
+    draw(8,full,green,uv,4,vb);
+    method(0x0100,BF_UI_SCENE_BOUNDARY);
+    flip();file=fopen(out_path,"wb");REQUIRE(file,"open ordered scene snapshot result");
+    REQUIRE(fwrite(guest(color),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE&&fclose(file)==0,"write ordered snapshot final UI");
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
@@ -1276,7 +1301,8 @@ int main(int argc, char **argv)
     } else if (strncmp(argv[2], "cpu", 3) != 0) {
         return 2;
     }
-    if (strstr(argv[2], "ui-aa") ? !scene_ui_aa(argv[3],strstr(argv[2],"off")==NULL) :
+    if (strstr(argv[2], "snapshot") ? !scene_snapshot_fixture(argv[3]) :
+        strstr(argv[2], "ui-aa") ? !scene_ui_aa(argv[3],strstr(argv[2],"off")==NULL) :
         strstr(argv[2], "zcolor") ? !scene_depth_color_alias(argv[3],argv[2]) :
         strstr(argv[2], "ownership") ? !scene_color_ownership(argv[3],argv[2]) :
         strstr(argv[2], "mips") ? !scene_mips(argv[3]) :

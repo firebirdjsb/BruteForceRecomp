@@ -94,6 +94,13 @@ heaps and pipelines must be rebound afterward. Reconfigure only after submitting
 pending command lists. This adapter's standalone frame generation records GPU
 work without a swapchain; game frame pacing/presentation still requires integration.
 
+## Scene export follow-up
+
+The renderer now exports pre-UI color/device depth and supports fenced native
+D3D12 access to D3D11On12 snapshots. Seven renderer tests pass. Campaign export,
+projection validation and gameplay temporal inputs remain unverified. See the
+[stopped-work agent handoff](FSR_SCENE_HANDOFF.md) for exact evidence and blockers.
+
 ## Remaining game integration
 
 The current DX12 presenter receives completed CPU color, including interface
@@ -115,7 +122,8 @@ Before activating the new adapter in the player:
    current pixel motion from the same source frame. Apply projection jitter to
    the scene, without altering original simulation or UI geometry. Validate depth
    aliases, effects and texture filtering/mip bias at the real render resolution.
-3. Resolve the D3D11On12 scene/presenter device and queue ownership boundary.
+3. Connect the tested D3D11On12 native-resource handoff to the temporal path and
+   resolve scene/presenter device and queue ownership.
    Transfer real GPU resources with fences and correct lifetimes, rather than
    supplying a completed CPU image plus fabricated temporal attachments.
 4. Run SR before native HUD/text/F1 composition. Present generated frames using

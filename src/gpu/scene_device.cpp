@@ -7,6 +7,8 @@
 #include <memory>
 #include <new>
 #include <cstdint>
+#include <vector>
+#include <exception>
 
 namespace {
 using Microsoft::WRL::ComPtr;
@@ -91,6 +93,66 @@ extern "C" HRESULT bf_scene_d3d12_wait(ID3D11DeviceContext *context) {
     }
     if(completed==UINT64_MAX)return DXGI_ERROR_DEVICE_REMOVED;
     return completed>=value?S_OK:E_FAIL;
+}
+
+extern "C" HRESULT bf_scene_d3d12_access(ID3D11DeviceContext *context,
+        ID3D11Resource *const *resources,UINT count,BfSceneD3D12Work work,void *user) {
+    if(!scene)return DXGI_ERROR_UNSUPPORTED;
+    if(!context||!resources||!count||count>16||!work)return E_INVALIDARG;
+    if(context->GetType()!=D3D11_DEVICE_CONTEXT_IMMEDIATE)return E_INVALIDARG;
+    if(scene->serial>=UINT64_MAX-1)return E_UNEXPECTED;
+    ComPtr<ID3D11Device> device11;context->GetDevice(&device11);
+    ComPtr<ID3D11On12Device2> bridge;HRESULT result=device11.As(&bridge);
+    if(FAILED(result))return result;
+    for(UINT i=0;i<count;++i) {
+        if(!resources[i])return E_POINTER;
+        ComPtr<ID3D11Device> owner;resources[i]->GetDevice(&owner);
+        if(owner.Get()!=device11.Get())return E_INVALIDARG;
+        D3D11_RESOURCE_DIMENSION dimension;resources[i]->GetType(&dimension);
+        if(dimension!=D3D11_RESOURCE_DIMENSION_TEXTURE2D)return E_INVALIDARG;
+        for(UINT j=0;j<i;++j)if(resources[i]==resources[j])return E_INVALIDARG;
+    }
+    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12GraphicsCommandList> commands;
+    result=scene->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator));
+    if(FAILED(result))return result;
+    result=scene->device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),nullptr,IID_PPV_ARGS(&commands));
+    if(FAILED(result))return result;
+    ComPtr<ID3D12Resource> native[16];ID3D12Resource *borrowed[16]{};UINT acquired=0;
+    for(;acquired<count;++acquired) {
+        result=bridge->UnwrapUnderlyingResource(resources[acquired],scene->queue.Get(),IID_PPV_ARGS(&native[acquired]));
+        if(FAILED(result))break;
+        borrowed[acquired]=native[acquired].Get();
+    }
+    // Unwrap can schedule translation work but does not flush it. Submit that
+    // work before executing native commands or waiting on their queue fence.
+    context->Flush();
+    if(SUCCEEDED(result)) {
+        try {result=work(scene->device.Get(),scene->queue.Get(),commands.Get(),borrowed,count,user);}
+        catch(const std::exception &e){std::fprintf(stderr,"[GPU-D3D12] external scene work rejected: %s\n",e.what());result=E_FAIL;}
+        catch(...){std::fprintf(stderr,"[GPU-D3D12] external scene work rejected by callback exception\n");result=E_FAIL;}
+        if(SUCCEEDED(result))result=commands->Close();
+        if(SUCCEEDED(result)) {ID3D12CommandList *lists[]={commands.Get()};scene->queue->ExecuteCommandLists(1,lists);}
+        // A rejected callback's command list is discarded; its recorded
+        // transitions were never executed, so checked-out resources stay COMMON.
+    }
+    const UINT64 value=++scene->serial;
+    HRESULT signal=scene->queue->Signal(scene->fence.Get(),value);
+    HRESULT returned=S_OK;
+    for(UINT i=0;i<acquired;++i) {
+        ID3D12Fence *fence=scene->fence.Get();UINT64 completion=value;
+        const HRESULT r=SUCCEEDED(signal)?bridge->ReturnUnderlyingResource(resources[i],1,&completion,&fence):signal;
+        if(FAILED(r)&&SUCCEEDED(returned))returned=r;
+    }
+    if(FAILED(signal))return signal;
+    HRESULT completion=scene->fence->SetEventOnCompletion(value,scene->event);
+    if(FAILED(completion))return completion;
+    const DWORD waited=WaitForSingleObject(scene->event,5000);
+    if(waited!=WAIT_OBJECT_0)return HRESULT_FROM_WIN32(waited==WAIT_FAILED?GetLastError():WAIT_TIMEOUT);
+    completion=scene->device->GetDeviceRemovedReason();
+    if(FAILED(completion))return completion;
+    if(FAILED(returned))return returned;
+    return result;
 }
 
 extern "C" void bf_scene_d3d12_shutdown(void) {delete scene;scene=nullptr;}

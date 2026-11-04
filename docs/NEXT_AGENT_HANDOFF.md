@@ -1,3 +1,8 @@
+> FSR/scene checkpoint, 4 November 2026: **work stopped at user request**.
+> Read [FSR_SCENE_HANDOFF.md](FSR_SCENE_HANDOFF.md) for implemented code, test
+> evidence, incomplete gameplay integration and native 720p device-creation failure.
+> Do not resume implementation without a new user instruction.
+
 # Next-agent handoff prompt - 4 November 2026
 
 Continue the native Brute Force recompilation in `D:\Documents\ChatGPT\bfRecomp`

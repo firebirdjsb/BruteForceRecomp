@@ -65,6 +65,7 @@ extern unsigned bf_ui_texture_scale(void);
 #include "shader_cache.h"
 #include "xbox_memory_layout.h"
 #include "scene_device.h"
+#include "scene_snapshot.h"
 
 extern ptrdiff_t xbox_GetMemoryOffset(void);
 
@@ -397,6 +398,7 @@ static int ensure_device(void)
 typedef struct {
     uint32_t va, pitch, bpp, w, h;
     uint32_t aa_generation;
+    uint32_t scene_depth_va, scene_generation, scene_depth_draws;
     ID3D11Texture2D *tex, *snapshot;
     ID3D11RenderTargetView *rtv;
     ID3D11ShaderResourceView *srv, *snapshot_srv;
@@ -444,6 +446,7 @@ static void release_surf(Surf *s)
     s->srv = NULL; s->rtv = NULL; s->tex = NULL;
     free(s->guest_shadow);s->guest_shadow=NULL;s->guest_shadow_bytes=0;
     s->guest_check_gen=0;s->gpu_dirty=0;
+    s->scene_depth_va=0;s->scene_generation=0;s->scene_depth_draws=0;
 }
 
 /* The backend's device/cache lifetime is process-wide. Release the snapshot
@@ -453,6 +456,7 @@ static void release_asset_cache(void);
 static void release_color_snapshots(void)
 {
     int i;
+    bf_scene_snapshot_shutdown();
     release_asset_cache();
     for(i=0;i<s_nsurf;i++) {
         if(s_surf[i].snapshot_srv)ID3D11ShaderResourceView_Release(s_surf[i].snapshot_srv);
@@ -923,6 +927,15 @@ static int begin(const Nv2aSurface *s, const Nv2aRenderState *rs)
 static void mark_depth_written(const Nv2aRenderState *rs)
 {
     if(s_cur_depth&&rs&&(rs->depth_write||rs->stencil_enable))s_cur_depth->gpu_dirty=1;
+    /* Retain the actual depth attachment written by this color surface in
+     * this source frame. Later postprocessing can unbind it before UI.
+     * No cross-frame/depth-surface guess is used by the exporter. */
+    if(s_cur&&s_cur_depth&&rs&&rs->depth_test_enable&&rs->depth_write&&bf_scene_snapshot_enabled()) {
+        if(s_cur->scene_generation!=s_gen||s_cur->scene_depth_va!=s_cur_depth->va)
+            s_cur->scene_depth_draws=0;
+        s_cur->scene_generation=s_gen;s_cur->scene_depth_va=s_cur_depth->va;
+        ++s_cur->scene_depth_draws;
+    }
 }
 
 /* ---- textures ------------------------------------------------------------ */
@@ -3132,7 +3145,20 @@ static void d3d_before_ui(const Nv2aSurface *surface)
     /* Mark even when disabled, so enabling AA midway through interface draws
      * cannot filter text that has already been painted into this surface. */
     sf->aa_generation=s_gen;
-    if(!bf_scene_aa_enabled()||s_q_active||!sync_guest_surface(sf,1))return;
+    if(s_q_active)return;
+    if((bf_scene_aa_enabled()||bf_scene_snapshot_enabled())&&!sync_guest_surface(sf,1))return;
+    if(bf_scene_snapshot_enabled()&&sf->scene_generation==s_gen) {
+        int i;
+        for(i=0;i<s_ndepth;i++) {
+            Depth *d=&s_depth[i];
+            if(d->va==sf->scene_depth_va&&d->initialized&&d->w==sf->w&&d->h==sf->h) {
+                BfSceneSnapshotInfo info={(uint64_t)s_gen,sf->va,d->va,sf->scene_depth_draws,sf->w,sf->h};
+                bf_scene_snapshot_publish(s_dev,s_ctx,sf->tex,d->tex,&info);
+                break;
+            }
+        }
+    }
+    if(!bf_scene_aa_enabled())return;
     if(bf_scene_antialias(s_dev,s_ctx,sf->tex)) {
         sf->gpu_dirty=1;
         if(getenv("BF_TRACE_AA_UI")&&(s_gen<8||s_gen%300==0))

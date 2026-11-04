@@ -111,7 +111,9 @@ FSR 1 runs AMD's EASU and RCAS GPU compute passes when the window is at least th
 An optional AMD SDK adapter now passes standalone RX 7600 tests for FSR 3.1.6,
 FSR 4.1.2 and FSR 3.1.6 Frame Generation, including the FSR 4.1.2 + FG combination.
 It is not connected to gameplay: coherent scene depth, engine motion/history,
-GPU handoff and HUD/presentation integration are still required. See
+projection validation and HUD/presentation integration are still required. The
+renderer now has a tested pre-UI color/device-depth export and native D3D12
+handoff; campaign export is not yet verified. See
 [FSR implementation, tests and remaining work](docs/FSR_TEMPORAL.md).
 
 A standalone hardware test requires no game data:
