@@ -1,7 +1,13 @@
 #include "dx12_presenter.h"
+#include "native_aspect_state.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <array>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <stdexcept>
 #include "../ui/host_ui.h"
 
 extern "C" {
@@ -20,6 +26,81 @@ double display_rate{},generated_rate{};uint64_t rate_time{};bf::graphics::Presen
 const char *choice() {
     const auto *value = std::getenv("BF_RENDER_BACKEND");
     return value && *value ? value : "auto";
+}
+void capture_present(uint64_t present_time) noexcept {
+    // Opt-in diagnostic only: read back the actual DX12 swap-chain output on
+    // its owning window thread. Never substitute the CPU source framebuffer.
+    struct Capture {
+        bool configured{},enabled{},triggered{},candidate_seen{};
+        unsigned limit=4,count{};
+        uint64_t last_candidate{},last_present{};
+        std::array<uint64_t,8> sources{};
+        std::filesystem::path directory,trigger;
+    };
+    static Capture capture;
+    try {
+        if(!capture.configured) {
+            capture.configured=true;
+            const auto *directory=std::getenv("BF_PRESENT_CAPTURE_DIR");
+            const auto *trigger=std::getenv("BF_PRESENT_CAPTURE_TRIGGER");
+            const auto *readback=std::getenv("BF_GRAPHICS_READBACK");
+            if(!directory||!*directory||!trigger||!*trigger||!readback||std::strcmp(readback,"1"))return;
+            capture.directory=std::filesystem::u8path(directory);capture.trigger=std::filesystem::u8path(trigger);
+            if(const auto *count=std::getenv("BF_PRESENT_CAPTURE_COUNT");count&&*count) {
+                char *end{};const auto value=std::strtoul(count,&end,10);
+                if(end!=count&&!*end&&value>0)capture.limit=unsigned(value>8?8:value);
+            }
+            capture.enabled=true;
+        }
+        if(!capture.enabled||capture.count>=capture.limit||!bf::graphics::dx12_active())return;
+        const auto presented=bf::graphics::dx12_stats().presents;
+        // A minimized/occluded frame can leave the previous readback intact.
+        // Require a newly successful present before assigning source metadata.
+        if(presented==capture.last_present)return;
+        capture.last_present=presented;
+        // Repeated presentation/interpolation of one source never polls the
+        // filesystem or reads the GPU again. At most eight unique IDs are saved.
+        if(capture.candidate_seen&&capture.last_candidate==source_sequence)return;
+        capture.candidate_seen=true;capture.last_candidate=source_sequence;
+        for(unsigned i=0;i<capture.count;++i)if(capture.sources[i]==source_sequence)return;
+        if(!capture.triggered) {
+            std::error_code error;
+            if(!std::filesystem::is_regular_file(capture.trigger,error))return;
+            std::filesystem::create_directories(capture.directory);
+            capture.triggered=true;
+        }
+        std::vector<uint32_t> rgba;uint32_t width{},height{};
+        if(!bf::graphics::dx12_readback(rgba,width,height)) {
+            capture.enabled=false;std::fprintf(stderr,"[PRESENT CAPTURE] GPU readback unavailable; capture stopped\n");return;
+        }
+        if(!width||!height||rgba.size()!=size_t(width)*height)throw std::runtime_error("Invalid GPU readback dimensions");
+        const auto stem="present-"+std::to_string(capture.count+1)+"-source-"+std::to_string(source_sequence);
+        const auto image_path=capture.directory/(stem+".ppm");
+        std::ofstream image(image_path,std::ios::binary|std::ios::trunc);
+        image<<"P6\n"<<width<<' '<<height<<"\n255\n";
+        // R8G8B8A8 readback is little-endian: bytes 0, 1 and 2 are R, G and B.
+        std::vector<char> row(size_t(width)*3);
+        for(uint32_t y=0;y<height;++y) {
+            for(uint32_t x=0;x<width;++x) {
+                const auto pixel=rgba[size_t(y)*width+x];
+                row[size_t(x)*3]=char(pixel&255);row[size_t(x)*3+1]=char((pixel>>8)&255);row[size_t(x)*3+2]=char((pixel>>16)&255);
+            }
+            image.write(row.data(),std::streamsize(row.size()));
+        }
+        image.close();if(!image)throw std::runtime_error("Cannot write GPU capture image");
+        std::ofstream metadata(capture.directory/(stem+".json"),std::ios::trunc);
+        metadata<<"{\n  \"capture\": \"dx12_swapchain_gpu_readback\",\n  \"source_sequence\": "<<source_sequence
+            <<",\n  \"source_time_ns\": "<<source_time<<",\n  \"present_time_ns\": "<<present_time
+            <<",\n  \"width\": "<<width<<",\n  \"height\": "<<height
+            <<",\n  \"wide\": "<<(bf_aspect_frame_wide()?"true":"false")
+            <<",\n  \"fsr1\": "<<(live_fsr?"true":"false")<<"\n}\n";
+        metadata.close();if(!metadata)throw std::runtime_error("Cannot write GPU capture metadata");
+        capture.sources[capture.count++]=source_sequence;
+        std::fprintf(stderr,"[PRESENT CAPTURE] GPU output %ux%u source=%llu wide=%d saved (%u/%u)\n",width,height,
+            static_cast<unsigned long long>(source_sequence),bf_aspect_frame_wide(),capture.count,capture.limit);
+    } catch(const std::exception &error) {
+        capture.enabled=false;std::fprintf(stderr,"[PRESENT CAPTURE] %s; capture stopped\n",error.what());
+    }
 }
 }
 extern "C" uint64_t gpu_present_clock_ns(void) {
@@ -40,12 +121,13 @@ extern "C" int gpu_present_init(HWND window, uint32_t width, uint32_t height) {
     }
     const auto *upscaler = std::getenv("BF_UPSCALER");
     const bool fsr = upscaler && !std::strcmp(upscaler, "fsr1");
-    live_fsr=fsr;bf_ui_fsr_initial(fsr);bf_ui_fsr_supported(0);
+    live_fsr=fsr;bf_ui_fsr_initial(fsr);bf_ui_fsr_supported(0);bf_aspect_presenter_supported(0);
     if (upscaler && *upscaler && std::strcmp(upscaler, "off") && !fsr)
         std::fprintf(stderr, "[GRAPHICS] Upscaler '%s' is unavailable in this renderer; using bilinear\n", upscaler);
     if (!std::strcmp(requested, "gdi")) return 0;
     if (std::strcmp(requested, "dx11") && bf::graphics::dx12_init(window, width, height, fsr)) {
         bf_ui_fsr_supported(1);
+        bf_aspect_presenter_supported(1);
         backend = Backend::dx12; return 1;
     }
     if (fsr) std::fprintf(stderr, "[GRAPHICS] FSR1 requires the DX12 path in this build; disabling upscaling\n");
@@ -64,14 +146,20 @@ extern "C" int gpu_present_frame(const uint32_t *pixels) {
         bf::graphics::dx12_shutdown();
         if(!bf::graphics::dx12_init(host_window,host_width,host_height,live_fsr)) {
             bf_ui_fsr_supported(0);
+            bf_aspect_presenter_supported(0);
             backend=bf_d3d11_init(host_window,host_width,host_height)?Backend::dx11:Backend::none;
         }
     }
     if (backend == Backend::dx12) {
-        if(!bf::graphics::dx12_scale(bf_ui_scale()))return 0;
+        if(!bf::graphics::dx12_aspect(bf_aspect_frame_wide()!=0)) {
+            bf_aspect_presenter_supported(0);return 0;
+        }
+        if(!bf::graphics::dx12_scale(bf_ui_scale())){bf_aspect_presenter_supported(0);return 0;}
         const auto rate=bf_ui_interpolation_allowed()?bf_ui_interpolation():0;
         const auto now=gpu_present_clock_ns();
         const int paced=bf::graphics::dx12_frame_timed(pixels,{source_sequence,source_time,now,rate});
+        capture_present(now);
+        if(!bf::graphics::dx12_active())bf_aspect_presenter_supported(0);
         const auto stats=bf::graphics::dx12_stats();
         if(!rate_time||stats.presents<previous_stats.presents){rate_time=now;previous_stats=stats;}
         if(now-rate_time>=1000000000ull) {
@@ -88,5 +176,6 @@ extern "C" int gpu_present_frame(const uint32_t *pixels) {
     return 0;
 }
 extern "C" void gpu_present_shutdown(void) {
+    bf_aspect_presenter_supported(0);
     bf::graphics::dx12_shutdown(); bf_d3d11_shutdown(); backend = Backend::none;
 }

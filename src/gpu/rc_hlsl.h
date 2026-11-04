@@ -37,10 +37,18 @@ typedef struct {
     "  return ok ? 1.0 : 0.0;\n" \
     "}\n"
 
+/* 0/1 retain identity; legacy .75 is centered. Ordered widget markers pack
+ * 2/3/4 as left/center/right, one affine transform for the entire draw. */
+#define GPU_UI_ANCHOR_HLSL \
+    "float ui_x(float x,float mode) {\n" \
+    "  return mode>=2.0 && mode<=4.0 ? x*.75+(mode-3.0)*.25 : x*(mode>0.0?mode:1.0);\n" \
+    "}\n"
+
 /* The constant buffer both shaders read (register b0):
  *   surf     surface width, height, 1/width, 1/height (real pixels)
  *   depth    z offset, z scale to 0..1, clamp (1/0), -
- *   alpha    alpha function (1 LESS .. 7 ALWAYS), reference 0..255, enabled
+ *   alpha    alpha function (1 LESS .. 7 ALWAYS), reference 0..255, enabled,
+ *            UI transform (0/1 identity; .75 legacy center; 2/3/4 anchors)
  *   fogc     fog colour
  *   C0, C1   per-stage combiner constants; FC0, FC1 the final combiner's
  *   texinfo  per stage: 1/width, 1/height for texel-space coordinates */

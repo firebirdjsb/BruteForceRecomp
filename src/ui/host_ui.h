@@ -23,6 +23,8 @@ int bf_ui_pointer(BfUiPointer *event);
 void bf_ui_pad_press(unsigned control);
 int bf_ui_pad(uint16_t *digital,uint8_t analog[8]);
 void bf_ui_prompt(BfUiRect rect,const char *key);
+/* Executor-thread whole-font-call anchor, copied into source-frame metadata. */
+void bf_ui_prompt_anchor(unsigned anchor);
 /* Publish/select glyph metadata under the same lock as its source image. */
 void bf_ui_prompts_publish(uint64_t source_frame);
 void bf_ui_prompts_select(uint64_t source_frame);

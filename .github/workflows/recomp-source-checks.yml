@@ -33,8 +33,12 @@ jobs:
           /tmp/bf-frame-stats
       - name: Check keycap spacing and exact source-frame glyph lifetime
         run: |
-          c++ -std=c++20 -O2 -Wall -Wextra -Isrc tests/ui_prompt_frames_test.cpp src/ui/host_ui.cpp src/ui/ui_draw.cpp src/ui/scene_aa_state.cpp -o /tmp/bf-ui-prompt-frames
+          c++ -std=c++20 -O2 -Wall -Wextra -Isrc tests/ui_prompt_frames_test.cpp src/ui/host_ui.cpp src/ui/ui_draw.cpp src/ui/scene_aa_state.cpp src/graphics/native_aspect_state.cpp -o /tmp/bf-ui-prompt-frames
           /tmp/bf-ui-prompt-frames
+      - name: Check aspect state, legacy preferences and widescreen UI coordinates
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Isrc tests/aspect_ui_test.cpp src/ui/host_ui.cpp src/ui/ui_draw.cpp src/graphics/native_aspect_state.cpp -o /tmp/bf-aspect-ui
+          /tmp/bf-aspect-ui
       - name: Validate DX11/DX12-neutral render dimensions and letterboxing
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -Isrc tests/render_scale_policy_test.c -lm -o /tmp/bf-render-scale
@@ -80,8 +84,8 @@ jobs:
         if: matrix.scene == 'ON'
         shell: pwsh
         run: |
-          cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target bf_gpu_scene_test
-          ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(nv2a_(gpu|d3d12)_scene_parity|scene_aa_ui_preservation)$" --output-on-failure -V
+          cmake --build "${{ runner.temp }}/bf-smoke" --config Release --parallel 4 --target bf_gpu_scene_test bf_hud_anchor_test bf_scene_snapshot_test
+          ctest --test-dir "${{ runner.temp }}/bf-smoke" -C Release -R "^(nv2a_(gpu|d3d12)_scene_parity|scene_aa_ui_preservation|hud_widget_anchors|hud_owner_trace|ordered_scene_snapshot_d3d1[12]|depth_probe_d3d1[12]|ordered_scene_aspect_d3d1[12]|texture_profile_d3d1[12])$" --output-on-failure -V
 
   native-launcher:
     runs-on: windows-2022

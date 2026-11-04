@@ -48,17 +48,20 @@ bool write(uint32_t va,const void *data,size_t bytes) {
 #endif
 }
 }
-extern "C" int bf_ui_try_scene_marker(uint32_t device) {
+extern "C" int bf_ui_try_marker(uint32_t device,uint32_t marker) {
+    if(marker!=BF_UI_SCENE_BOUNDARY&&marker!=BF_SCENE_WIDE_BEGIN&&marker!=BF_SCENE_WIDE_END&&
+       marker!=BF_UI_ANCHOR_LEFT&&marker!=BF_UI_ANCHOR_CENTER&&marker!=BF_UI_ANCHOR_RIGHT)return 0;
     // Original D3D 0036CD50 uses device+0/+4 as cursor/space threshold, and
     // emits one DWORD method header followed by one DWORD parameter.
     uint32_t bounds[2]{};
     if((device&3)||!read(device,bounds,sizeof bounds)||!writable(device,4)||
        (bounds[0]&3)||bounds[1]<bounds[0])return 0;
     if(uint64_t(bounds[0])+8>bounds[1])return 2;
-    const uint32_t command[2]={0x00040100u,BF_UI_SCENE_BOUNDARY},next=bounds[0]+8;
+    const uint32_t command[2]={0x00040100u,marker},next=bounds[0]+8;
     if(!writable(bounds[0],sizeof command)||!write(bounds[0],command,sizeof command))return 0;
     return write(device,&next,4)?1:0;
 }
+extern "C" int bf_ui_try_scene_marker(uint32_t device) {return bf_ui_try_marker(device,BF_UI_SCENE_BOUNDARY);}
 extern "C" void bf_scene_aa_cpu(uint32_t va,uint32_t w,uint32_t h,uint32_t pitch,uint32_t bpp,uint32_t frame) try {
     struct Seen{uint32_t va{},frame{};bool valid{};};static std::array<Seen,32> seen{};
     Seen *slot=nullptr;

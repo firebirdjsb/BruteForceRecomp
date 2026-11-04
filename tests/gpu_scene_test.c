@@ -25,6 +25,7 @@
 #include "gpu/d3d11_backend.h"
 #include "gpu/scene_device.h"
 #include "gpu/texture_decode.h"
+#include "graphics/native_aspect_state.h"
 #include "ui/scene_boundary.h"
 extern void bruteforce_d3d11_wait(void);
 
@@ -1245,10 +1246,144 @@ static int scene_depth_color_alias(const char *out_path,const char *mode)
     puts("Depth-as-colour byte order, GPU stencil writes and alias ownership passed.");return 1;
 }
 
-static int scene_snapshot_fixture(const char *out_path)
+static void profile_interval_wait(ULONGLONG started)
+{
+    // Only this public fixture waits for the unchanged ten-second statistics
+    // interval. No backend clock, wait, flip or reporting threshold is patched.
+    while(GetTickCount64()-started<10100)Sleep(10);
+}
+
+static int scene_texture_profile(const char *out_path,int short_second_interval)
+{
+    uint32_t rt=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),b=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t tex=xbox_ContiguousAlloc(4096,4096),p8=xbox_ContiguousAlloc(4096,4096);
+    uint32_t palette=xbox_ContiguousAlloc(1024,4096),vb=xbox_ContiguousAlloc(4096,4096),i,x,y;
+    const uint32_t white[4]={0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu};
+    const float uv[4][2]={{0,0},{8,0},{8,8},{0,8}};
+    const Pos full[4]={{0,0,0,1},{64,0,0,1},{64,64,0,1},{0,64,0,1}};
+    ULONGLONG started;
+    FILE *file;
+    REQUIRE(rt&&b&&tex&&p8&&palette&&vb,"allocate public texture profiling fixture");
+    file=fopen(out_path,"wb");REQUIRE(file,"open texture profiling frames");
+    identity_matrix();method(0x030C,0);method(0x035C,0);
+    surface(rt,B_SIZE,0);clear(0xF0,0xFF3050D0u,0);flip();started=GetTickCount64();
+    surface(b,B_SIZE,0);clear(0xF0,0xFF000000u,0);combiners(1);
+    for(i=0;i<64;i++)((uint32_t *)guest(tex))[i]=0xFFE03020u;
+    memset(guest(p8),0,64);memset(guest(palette),0,1024);
+    ((uint32_t *)guest(palette))[0]=0xFFE03020u;
+    for(i=0;i<6;i++) {
+        const float x0=(float)(i*8),x1=i==5?64.0f:x0+8.0f;
+        const Pos strip[4]={{x0,0,0,1},{x1,0,0,1},{x1,64,0,1},{x0,64,0,1}};
+        if(i<3) {
+            texture_linear(tex,8);
+            if(i==2)for(x=0;x<64;x++)((uint32_t *)guest(tex))[x]=0xFF20C060u;
+        } else if(i<5) {
+            texture_palette8(p8,palette);
+            if(i==4)((uint32_t *)guest(palette))[0]=0xFF20C060u;
+        } else texture_linear(rt,B_SIZE); // Direct alias: closes in phase one.
+        draw(8,strip,white,uv,4,vb);
+    }
+    profile_interval_wait(started);flip();
+    for(y=0;y<64;y++)for(x=0;x<64;x++) {
+        const uint32_t expected=x<16?0xFFE03020u:x<24?0xFF20C060u:x<32?0xFFE03020u:x<40?0xFF20C060u:0xFF3050D0u;
+        REQUIRE(((uint32_t *)guest(b))[y*64+x]==expected,"profile window preserves exact source/palette rewrites and direct RTT pixels");
+    }
+    REQUIRE(fwrite(guest(b),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE,"write first texture profiling frame");
+    started=GetTickCount64();
+    // A second window with only two direct aliases exposes stale phase counts
+    // if the ten-second reset is incomplete. CPU changes still synchronize.
+    for(i=0;i<B_SIZE*B_SIZE;i++)((uint32_t *)guest(rt))[i]=0xFFE0B030u;
+    texture_linear(rt,B_SIZE);
+    draw(8,full,white,uv,4,vb);draw(8,full,white,uv,4,vb);
+    if(!short_second_interval)profile_interval_wait(started);
+    flip();
+    for(i=0;i<B_SIZE*B_SIZE;i++)REQUIRE(((uint32_t *)guest(b))[i]==0xFFE0B030u,"profile second window preserves CPU-written alias");
+    REQUIRE(fwrite(guest(b),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE&&fclose(file)==0,"write second texture profiling frame");
+    puts("Texture profile public frames preserve same-frame bytes, palettes and aliases.");return 1;
+}
+
+static void aspect_base_rect(float left,float top,float right,float bottom,uint32_t color)
+{
+    const float points[4][2]={{left,top},{right,top},{right,bottom},{left,bottom}};
+    unsigned i;
+    // SET_VERTEX_DATA4UB attribute 3 has R in bits 0..7, unlike the
+    // A8R8G8B8 array/clear values accepted by this helper's caller.
+    const uint32_t rgba=(color&0xFF00FF00u)|((color>>16)&0xFFu)|((color&0xFFu)<<16);
+    method(0x17FC,8);method(0x194C,rgba);
+    for(i=0;i<4;i++){method_float(0x1500,points[i][0]);method_float(0x1504,points[i][1]);method_float(0x1508,500);}
+    method(0x17FC,0);
+}
+
+static void aspect_widget(int base,uint32_t vb,float left,float top,float right,float bottom,unsigned anchor)
+{
+    const Pos points[4]={{left,top,500,1},{right,top,500,1},{right,bottom,500,1},{left,bottom,500,1}};
+    const uint32_t green[4]={0xFF00FF00u,0xFF00FF00u,0xFF00FF00u,0xFF00FF00u};
+    const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
+    method(0x0100,BF_UI_ANCHOR_LEFT+anchor);
+    if(base)aspect_base_rect(left,top,right,bottom,0xFF00FF00u);else draw(8,points,green,uv,4,vb);
+    method(0x0100,BF_UI_ANCHOR_CENTER);
+}
+
+static int scene_aspect_fixture(const char *out_path,const char *mode)
+{
+    const int wide=strstr(mode,"off")==NULL,base=strstr(mode,"base")!=NULL,anchors=strstr(mode,"anchors")!=NULL;
+    uint32_t color=xbox_ContiguousAlloc(640*480*4,4096),depth=xbox_ContiguousAlloc(640*480*4,4096);
+    uint32_t vb=xbox_ContiguousAlloc(4096,4096),x,y;
+    const Pos right[4]={{320,0,500,1},{640,0,500,1},{640,480,500,1},{320,480,500,1}};
+    const Pos full[4]={{0,0,500,1},{640,0,500,1},{640,480,500,1},{0,480,500,1}};
+    const uint32_t red[4]={0xFFFF0000u,0xFFFF0000u,0xFFFF0000u,0xFFFF0000u};
+    const uint32_t green[4]={0xFF00FF00u,0xFF00FF00u,0xFF00FF00u,0xFF00FF00u};
+    const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
+    FILE *file;
+    REQUIRE(color&&depth&&vb,"allocate non-square aspect fixture");
+    bf_aspect_request(wide);bf_aspect_scene_supported(1);bf_aspect_presenter_supported(1);
+    identity_matrix();if(strstr(mode,"vsh"))load_program();
+    method(0x0200,640u<<16);method(0x0204,480u<<16);method(0x0208,0x128);
+    method(0x020C,2560u|2560u<<16);method(0x0210,color-XBOX_CONTIG_BASE);method(0x0214,depth-XBOX_CONTIG_BASE);
+    method(0x030C,0);method(0x035C,0);combiners(0);
+    if(wide)method(0x0100,BF_SCENE_WIDE_BEGIN);
+    clear(0xF3,0xFF0000FFu,0xFFFFFF00u);
+    if(base)aspect_base_rect(320,0,640,480,0xFFFF0000u);else draw(8,right,red,uv,4,vb);
+    if(wide)method(0x0100,BF_SCENE_WIDE_END);
+    method(0x0100,BF_UI_SCENE_BOUNDARY);
+    if(anchors) {
+        // Complete logical strings may cross the center; their owner's pivot
+        // still supplies one anchor for every vertex. Never split a reticle.
+        aspect_widget(base,vb,40,0,400,120,0);
+        aspect_widget(base,vb,240,120,600,240,2);
+        aspect_widget(base,vb,300,240,340,360,1);
+        aspect_widget(base,vb,40,360,120,480,0);
+        aspect_widget(base,vb,300,360,340,480,1);
+        aspect_widget(base,vb,520,360,600,480,2);
+    } else if(base)aspect_base_rect(0,0,640,480,0xFF00FF00u);else draw(8,full,green,uv,4,vb);
+    // This is the real executor/backend callback, not a fabricated frame flag.
+    REQUIRE(bf_aspect_surface_wide(color)==wide,"ordered wide scope must mark only its completed source");
+    flip();
+    REQUIRE(!bf_aspect_surface_wide(color),"wide source flag must not leak into the next generation");
+    for(y=0;y<480;y++)for(x=0;x<640;x++) {
+        uint32_t expected=!wide?0xFF00FF00u:x<80?0xFF0000FFu:x<560?0xFF00FF00u:0xFFFF0000u;
+        if(anchors) {
+            const int ui=wide?(y<120?(x>=30&&x<300):y<240?(x>=340&&x<610):y<360?(x>=305&&x<335):
+                ((x>=30&&x<90)||(x>=305&&x<335)||(x>=550&&x<610))):
+                (y<120?(x>=40&&x<400):y<240?(x>=240&&x<600):y<360?(x>=300&&x<340):
+                ((x>=40&&x<120)||(x>=300&&x<340)||(x>=520&&x<600)));
+            expected=ui?0xFF00FF00u:x<320?0xFF0000FFu:0xFFFF0000u;
+        }
+        if(((uint32_t *)guest(color))[y*640+x]!=expected) {
+            fprintf(stderr,"FAIL: aspect %s pixel (%u,%u): expected %08X got %08X\n",mode,x,y,expected,((uint32_t *)guest(color))[y*640+x]);return 0;
+        }
+    }
+    file=fopen(out_path,"wb");REQUIRE(file,"open aspect fixture output");
+    REQUIRE(fwrite(guest(color),4,640*480,file)==640*480&&fclose(file)==0,"write aspect fixture output");
+    puts("Ordered 640x480 world scope, centered 4:3 UI and per-generation wide metadata passed.");return 1;
+}
+
+static int scene_snapshot_fixture(const char *out_path,const char *mode)
 {
     uint32_t color=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
-    uint32_t depth=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t depth=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4+4096,4096);
+    uint32_t other_color=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t other_depth=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
     uint32_t vb=xbox_ContiguousAlloc(4096,4096);
     const Pos right[4]={{32,0,4194303,1},{64,0,4194303,1},{64,64,4194303,1},{32,64,4194303,1}};
     const Pos full[4]={{0,0,0,1},{64,0,0,1},{64,64,0,1},{0,64,0,1}};
@@ -1256,11 +1391,50 @@ static int scene_snapshot_fixture(const char *out_path)
     const uint32_t green[4]={0xFF00FF00u,0xFF00FF00u,0xFF00FF00u,0xFF00FF00u};
     const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
     FILE *file;
-    REQUIRE(color&&depth&&vb,"allocate ordered scene snapshot fixture");
+    const int shared=strstr(mode,"shared")!=NULL,partial=strstr(mode,"partial")!=NULL;
+    REQUIRE(color&&depth&&other_color&&other_depth&&vb,"allocate ordered scene snapshot fixture");
     identity_matrix();surface(color,B_SIZE,depth);combiners(0);
     clear(0xF3,0xFF0000FFu,0xBFFFFF00u);
+    if(strstr(mode,"before-world"))clear(0xF3,0xFF0000FFu,0xBFFFFF00u);
     method(0x030C,1);method(0x0354,0x201);method(0x035C,1);
     draw(8,right,red,uv,4,vb);
+    if(strstr(mode,"depth-full")||partial||strstr(mode,"redraw")||strstr(mode,"nextframe")||strstr(mode,"stencil-only")) {
+        if(shared)surface(other_color,B_SIZE,depth);
+        if(partial)clear_rect(8,8,23,23);
+        clear(strstr(mode,"stencil-only")?2:1,0,0);
+        if(partial)clear_rect(0,0,63,63);
+        if(shared)surface(color,B_SIZE,0);
+        if(strstr(mode,"nextframe"))flip();
+        if(strstr(mode,"redraw")||strstr(mode,"nextframe")) {
+            surface(color,B_SIZE,depth);method(0x0354,0x207);
+            draw(8,right,red,uv,4,vb);
+        }
+    } else if(strstr(mode,"color-only")||strstr(mode,"rebuild")) {
+        clear(strstr(mode,"rebuild")?0xF3:0xF0,0xFF0000FFu,0xBFFFFF00u);
+        method(0x0354,0x207);draw(8,right,red,uv,4,vb);
+    } else if(strstr(mode,"depth-recreate")) {
+        surface(other_color,B_SIZE,depth);
+        method(0x020C,B_SIZE*4u|(B_SIZE*4u+4u)<<16);
+        clear(1,0,0); // Same depth VA/dimensions, new pitched DSV, initialized.
+        surface(color,B_SIZE,0);
+    } else if(strstr(mode,"shared-depth-draw")) {
+        surface(other_color,B_SIZE,depth);method(0x0354,0x207);
+        draw(8,full,red,uv,4,vb);surface(color,B_SIZE,0);
+    } else if(strstr(mode,"attachment-switch")) {
+        surface(color,B_SIZE,other_depth);clear(1,0,0x7FFFFF00u);
+        method(0x0354,0x207);draw(8,right,red,uv,4,vb);
+    } else if(strstr(mode,"unconditional-write")) {
+        // get_ds enables native ALWAYS depth writes when the write bit is set,
+        // even without the guest depth-test bit. This is not world provenance.
+        method(0x030C,0);method(0x035C,1);draw(8,full,red,uv,4,vb);
+    } else if(strstr(mode,"stencil-draw")) {
+        if(shared)surface(other_color,B_SIZE,depth);
+        method(0x030C,0);method(0x035C,0);method(0x032C,1);
+        method(0x0360,0xFF);method(0x0364,0x207);method(0x0368,0x7F);
+        method(0x036C,0xFF);method(0x0378,0x1E01);
+        draw(8,shared?full:right,red,uv,4,vb);method(0x032C,0);
+        if(shared)surface(color,B_SIZE,0);
+    }
     method(0x0100,BF_UI_SCENE_BOUNDARY);
     method(0x030C,0);method(0x035C,0);
     draw(8,full,green,uv,4,vb);
@@ -1292,7 +1466,7 @@ int main(int argc, char **argv)
             _putenv_s("RECOMP_GPU_VSH", strstr(argv[2], "cpuvsh") ? "0" : "1") != 0 ||
             _putenv_s("RECOMP_GPU_ZPASS", strstr(argv[2],"defaultasync")?"":strstr(argv[2], "async") ? "async" : "sync") != 0 ||
             _putenv_s("RECOMP_GPU_TEX_DECODE", strstr(argv[2], "software-texture") ? "0" : "1") != 0 ||
-            (strstr(argv[2], "depth") &&
+            (strstr(argv[2], "depth") && !strstr(argv[2], "snapshot") &&
              _putenv_s("RECOMP_GPU_DEPTH_TEXTURE", strstr(argv[2], "invalid") ? "invalid" : "1") != 0) ||
             (strstr(argv[2], "bc") && _putenv_s("RECOMP_GPU_TEXLOG", "1") != 0) ||
             _putenv_s("RECOMP_GPU_VSH_SYNC", "1") != 0 ||
@@ -1301,7 +1475,9 @@ int main(int argc, char **argv)
     } else if (strncmp(argv[2], "cpu", 3) != 0) {
         return 2;
     }
-    if (strstr(argv[2], "snapshot") ? !scene_snapshot_fixture(argv[3]) :
+    if (strstr(argv[2], "aspect") ? !scene_aspect_fixture(argv[3],argv[2]) :
+        strstr(argv[2], "snapshot") ? !scene_snapshot_fixture(argv[3],argv[2]) :
+        strstr(argv[2], "texprofile") ? !scene_texture_profile(argv[3],strstr(argv[2],"short")!=NULL) :
         strstr(argv[2], "ui-aa") ? !scene_ui_aa(argv[3],strstr(argv[2],"off")==NULL) :
         strstr(argv[2], "zcolor") ? !scene_depth_color_alias(argv[3],argv[2]) :
         strstr(argv[2], "ownership") ? !scene_color_ownership(argv[3],argv[2]) :

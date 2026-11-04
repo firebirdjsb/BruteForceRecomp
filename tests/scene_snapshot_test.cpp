@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
@@ -64,7 +65,8 @@ static std::vector<unsigned char> native_read(NativeCopy &copy,unsigned i) {
     D3D12_RANGE empty{0,0};copy.readback[i]->Unmap(0,&empty);return bytes;
 }
 int main(int argc,char **argv)try{
-    const bool d12=argc>1&&!std::strcmp(argv[1],"--d3d12");
+    bool d12=false,probe=false;
+    for(int i=1;i<argc;i++){d12|=!std::strcmp(argv[i],"--d3d12");probe|=!std::strcmp(argv[i],"--probe");}
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> context;D3D_FEATURE_LEVEL level;
     HRESULT created=d12?bf_scene_d3d12_create(0,&device,&context,&level):D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&device,&level,&context);
     if(FAILED(created)){std::printf("SKIP: %s scene device unavailable\n",d12?"D3D12/11On12":"D3D11");return 77;}
@@ -94,6 +96,24 @@ float4 ps():SV_Target{return float4(1,0,0,1);}
     require(!bf_scene_snapshot_publish(device.Get(),context.Get(),color.Get(),mismatch.Get(),&info),"Mismatched frame attachments accepted");
     require(bf_scene_snapshot_publish(device.Get(),context.Get(),color.Get(),depth.Get(),&info)==1,"Real scene snapshot rejected");
     require(received.count==1&&received.info.frame==91&&received.info.width==64&&received.info.height==48&&received.info.depth_va==info.depth_va,"Scene metadata lost source identity");
+    if(probe) {
+        require(bf_depth_probe_enabled(),"Requested depth probe was not enabled");
+        const char *count=std::getenv("BF_DEPTH_PROBE_COUNT");
+        const unsigned limit=count&&!std::strcmp(count,"8")?8u:4u;
+        auto *normal_color=received.color.Get();auto *normal_depth=received.depth.Get();
+        auto diagnostic=received.info;
+        for(unsigned i=0;i<limit;i++) {
+            diagnostic.frame=91+(i>1?i-1:0);
+            const auto stage=i==0?BF_DEPTH_PROBE_BEFORE_CLEAR:i==1?BF_DEPTH_PROBE_SHARED_WRITE:BF_DEPTH_PROBE_RECREATE;
+            require(bf_depth_probe_publish(device.Get(),context.Get(),color.Get(),depth.Get(),&diagnostic,stage)==1,"Diagnostic pair rejected before its budget");
+            require(!bf_depth_probe_publish(device.Get(),context.Get(),color.Get(),depth.Get(),&diagnostic,stage),"Duplicate diagnostic stage consumed budget");
+            require(received.count==1&&received.color.Get()==normal_color&&received.depth.Get()==normal_depth,"Diagnostic invoked or replaced normal consumer resources");
+        }
+        diagnostic.frame=500;
+        require(!bf_depth_probe_enabled()&&!bf_depth_probe_publish(device.Get(),context.Get(),color.Get(),depth.Get(),&diagnostic,BF_DEPTH_PROBE_BEFORE_CLEAR),"Diagnostic exceeded its bounded budget");
+        ComPtr<ID3D11ComputeShader> restored;context->CSGetShader(&restored,nullptr,nullptr);
+        require(restored.Get()==cs.Get(),"Diagnostic changed compute shader state");
+    }
     // Subsequent UI/effect writes must not change the saved scene color/depth.
     context->ClearRenderTargetView(target,green);context->ClearDepthStencilView(dsv.Get(),D3D11_CLEAR_DEPTH,1,0);
     const auto pixels=read(device.Get(),context.Get(),received.color.Get()),z=read(device.Get(),context.Get(),received.depth.Get());
@@ -109,8 +129,8 @@ float4 ps():SV_Target{return float4(1,0,0,1);}
         require(read(device.Get(),context.Get(),received.color.Get())==pixels&&read(device.Get(),context.Get(),received.depth.Get())==z,"11On12 scene resources were not returned correctly");
         std::puts("PASS fenced scene interop: native D3D12 received matching actual color/depth; D3D11 resources usable after return");
     }
-    bf_scene_snapshot_consumer(nullptr,nullptr);require(!bf_scene_snapshot_enabled(),"Snapshot remained enabled without a consumer/capture request");bf_scene_snapshot_shutdown();
+    bf_scene_snapshot_consumer(nullptr,nullptr);require(!bf_scene_snapshot_enabled(),"Snapshot remained enabled without a consumer/capture request");bf_scene_snapshot_shutdown();bf_depth_probe_shutdown();
     if(d12)check(bf_scene_d3d12_wait(context.Get()),"11On12 completion");
     std::printf("PASS %s: real pre-UI color, normalized device depth (.75/.25), source identity, mismatched-frame rejection, compute-state preservation, later UI exclusion\n",d12?"D3D12/11On12":"D3D11");
     if(d12)bf_scene_d3d12_shutdown();return 0;
-}catch(const std::exception &e){bf_scene_snapshot_shutdown();std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}
+}catch(const std::exception &e){bf_scene_snapshot_shutdown();bf_depth_probe_shutdown();std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}

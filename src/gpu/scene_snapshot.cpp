@@ -4,6 +4,7 @@
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -95,20 +96,34 @@ struct CaptureOptions {std::filesystem::path directory,trigger;unsigned limit=0,
 unsigned setting(const char *name,unsigned fallback,unsigned maximum){const char *s=std::getenv(name);if(!s||!*s)return fallback;char *end{};const auto value=std::strtoul(s,&end,10);return *end||value>maximum?fallback:unsigned(value);}
 const CaptureOptions &options(){static CaptureOptions value=[](){CaptureOptions o;const auto *dir=std::getenv("BF_SCENE_CAPTURE_DIR");if(dir&&*dir){o.directory=std::filesystem::path(dir);const auto *trigger=std::getenv("BF_SCENE_CAPTURE_TRIGGER");if(trigger&&*trigger)o.trigger=std::filesystem::path(trigger);o.limit=setting("BF_SCENE_CAPTURE_COUNT",4,8);o.start=setting("BF_SCENE_CAPTURE_START_FRAME",0,10000000);o.min_draws=setting("BF_SCENE_CAPTURE_MIN_DEPTH_DRAWS",64,100000);}return o;}();return value;}
 unsigned written{};
-void dump(ID3D11DeviceContext *context,const BfSceneSnapshot &snapshot){
-    const auto &o=options();if(written>=o.limit||snapshot.info.frame<o.start||snapshot.info.depth_draws<o.min_draws)return;
-    auto color=state->read(context,snapshot.color,state->color_read),depth=state->read(context,snapshot.device_depth,state->depth_read);
+void dump_pair(State &saved,ID3D11DeviceContext *context,const BfSceneSnapshot &snapshot,
+               const std::filesystem::path &base,bool before_ui,const char *stage){
+    auto color=saved.read(context,snapshot.color,saved.color_read),depth=saved.read(context,snapshot.device_depth,saved.depth_read);
     const auto &info=snapshot.info;float low=1,high=0;uint64_t occupied=0;
     for(size_t i=0;i<depth.size();i+=4){float z;std::memcpy(&z,depth.data()+i,4);require(std::isfinite(z)&&z>=0&&z<=1,"non-normalized scene device depth");low=std::min(low,z);high=std::max(high,z);occupied+=z<1;}
-    std::filesystem::create_directories(o.directory);char prefix[80];std::snprintf(prefix,sizeof prefix,"frame-%llu-%08X",(unsigned long long)info.frame,info.color_va);
-    auto base=o.directory/prefix;
     {std::ofstream file(std::filesystem::path(base.wstring()+L".color.ppm"),std::ios::binary);file<<"P6\n"<<info.width<<" "<<info.height<<"\n255\n";
-        const bool bgra=state->previous_color.Format==DXGI_FORMAT_B8G8R8A8_UNORM;
+        const bool bgra=saved.previous_color.Format==DXGI_FORMAT_B8G8R8A8_UNORM;
         for(size_t i=0;i<color.size();i+=4){const unsigned char rgb[]={color[i+(bgra?2:0)],color[i+1],color[i+(bgra?0:2)]};file.write((const char*)rgb,3);}require(bool(file),"scene color file write failed");}
     {std::ofstream file(std::filesystem::path(base.wstring()+L".depth.f32"),std::ios::binary);file.write((const char*)depth.data(),depth.size());require(bool(file),"scene depth file write failed");}
-    {std::ofstream file(std::filesystem::path(base.wstring()+L".json"));file<<"{\n  \"frame\": "<<info.frame<<",\n  \"width\": "<<info.width<<", \"height\": "<<info.height<<",\n  \"color_va\": "<<info.color_va<<", \"depth_va\": "<<info.depth_va<<",\n  \"depth_draws\": "<<info.depth_draws<<",\n  \"depth_min\": "<<low<<", \"depth_max\": "<<high<<",\n  \"depth_pixels_below_one\": "<<occupied<<",\n  \"before_native_ui\": true,\n  \"depth_space\": \"device_0_to_1_projection_unverified\",\n  \"motion_available\": false, \"jitter_available\": false,\n  \"temporal_sdk_ready\": false\n}\n";require(bool(file),"scene metadata file write failed");}
+    {std::ofstream file(std::filesystem::path(base.wstring()+L".json"));file<<"{\n  \"frame\": "<<info.frame<<",\n  \"width\": "<<info.width<<", \"height\": "<<info.height<<",\n  \"color_va\": "<<info.color_va<<", \"depth_va\": "<<info.depth_va<<",\n  \"depth_draws\": "<<info.depth_draws<<",\n  \"depth_min\": "<<low<<", \"depth_max\": "<<high<<",\n  \"depth_pixels_below_one\": "<<occupied<<",\n  \"before_native_ui\": "<<(before_ui?"true":"false")<<",\n";
+        if(stage)file<<"  \"capture_stage\": \""<<stage<<"\",\n";
+        file<<"  \"depth_space\": \"device_0_to_1_projection_unverified\",\n  \"motion_available\": false, \"jitter_available\": false,\n  \"temporal_sdk_ready\": false\n}\n";require(bool(file),"scene metadata file write failed");}
+}
+void dump(ID3D11DeviceContext *context,const BfSceneSnapshot &snapshot){
+    const auto &o=options();if(written>=o.limit||snapshot.info.frame<o.start||snapshot.info.depth_draws<o.min_draws)return;
+    std::filesystem::create_directories(o.directory);char prefix[80];
+    std::snprintf(prefix,sizeof prefix,"frame-%llu-%08X",(unsigned long long)snapshot.info.frame,snapshot.info.color_va);
+    auto base=o.directory/prefix;dump_pair(*state,context,snapshot,base,true,nullptr);
+    const auto &info=snapshot.info;
     ++written;std::fprintf(stderr,"[SCENE] captured real pre-UI color/device depth: %s (%ux%u, %u depth draws)\n",base.string().c_str(),info.width,info.height,info.depth_draws);
 }
+// Separate resources and budget: diagnostics must not mutate a normal
+// consumer's retained scene, invoke it, or imply pre-UI/SDK provenance.
+std::unique_ptr<State> probe_state;
+struct ProbeKey {uint64_t frame{};uint32_t color{},depth{};BfDepthProbeStage stage{};};
+std::array<ProbeKey,8> probe_keys{};
+unsigned probe_written{};
+const CaptureOptions &probe_options(){static CaptureOptions value=[](){CaptureOptions o;const auto *dir=std::getenv("BF_DEPTH_PROBE_DIR");if(dir&&*dir){o.directory=std::filesystem::path(dir);const auto *trigger=std::getenv("BF_DEPTH_PROBE_TRIGGER");if(trigger&&*trigger)o.trigger=std::filesystem::path(trigger);o.limit=setting("BF_DEPTH_PROBE_COUNT",4,8);o.min_draws=setting("BF_DEPTH_PROBE_MIN_DRAWS",64,100000);}return o;}();return value;}
 }
 extern "C" void bf_scene_snapshot_consumer(BfSceneSnapshotConsumer callback,void *user){consumer=callback;consumer_user=user;}
 extern "C" int bf_scene_snapshot_enabled(void){return consumer||written<options().limit;}
@@ -124,3 +139,23 @@ extern "C" int bf_scene_snapshot_publish(ID3D11Device *device,ID3D11DeviceContex
     if(consumer)consumer(&snapshot,consumer_user);dump(context,snapshot);return 1;
 }catch(const std::exception &e){static bool warned=false;if(!warned){std::fprintf(stderr,"[SCENE] snapshot rejected; original scene retained: %s\n",e.what());warned=true;}return 0;}
 extern "C" void bf_scene_snapshot_shutdown(void){consumer=nullptr;consumer_user=nullptr;state.reset();}
+extern "C" int bf_depth_probe_enabled(void){return probe_written<probe_options().limit;}
+extern "C" int bf_depth_probe_publish(ID3D11Device *device,ID3D11DeviceContext *context,ID3D11Texture2D *color,ID3D11Texture2D *depth,const BfSceneSnapshotInfo *info,BfDepthProbeStage stage)try{
+    static const char *stages[]={"before_depth_clear","shared_depth_write","depth_recreate"};
+    if(!bf_depth_probe_enabled()||!info||!info->frame||!info->depth_draws||unsigned(stage)>=std::size(stages))return 0;
+    const auto &o=probe_options();if(info->depth_draws<o.min_draws||(!o.trigger.empty()&&!std::filesystem::exists(o.trigger)))return 0;
+    for(unsigned i=0;i<probe_written;i++){const auto &key=probe_keys[i];if(key.frame==info->frame&&key.color==info->color_va&&key.depth==info->depth_va&&key.stage==stage)return 0;}
+    require(device&&context&&color&&depth&&color!=depth,"invalid depth probe arguments");
+    if(!probe_state)probe_state=std::make_unique<State>();
+    probe_state->capture(device,context,color,depth);
+    auto actual=*info;actual.width=probe_state->previous_color.Width;actual.height=probe_state->previous_color.Height;
+    require(info->width==actual.width&&info->height==actual.height,"depth probe descriptor dimensions differ");
+    BfSceneSnapshot snapshot{actual,probe_state->color.Get(),probe_state->depth.Get(),probe_state->color_view.Get(),probe_state->depth_view.Get()};
+    std::filesystem::create_directories(o.directory);char prefix[128];
+    std::snprintf(prefix,sizeof prefix,"probe-%u-%llu-%08X-%s",probe_written,(unsigned long long)actual.frame,actual.color_va,stages[unsigned(stage)]);
+    const auto base=o.directory/prefix;dump_pair(*probe_state,context,snapshot,base,false,stages[unsigned(stage)]);
+    probe_keys[probe_written++]={actual.frame,actual.color_va,actual.depth_va,stage};
+    std::fprintf(stderr,"[DEPTH-PROBE] captured %s color/device depth: %s (%ux%u, %u depth draws; SDK-ready=false)\n",stages[unsigned(stage)],base.string().c_str(),actual.width,actual.height,actual.depth_draws);
+    return 1;
+}catch(const std::exception &e){static bool warned=false;if(!warned){std::fprintf(stderr,"[DEPTH-PROBE] diagnostic rejected; original scene retained: %s\n",e.what());warned=true;}return 0;}
+extern "C" void bf_depth_probe_shutdown(void){probe_state.reset();}

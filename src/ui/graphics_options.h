@@ -18,6 +18,7 @@ struct GraphicsOptions {
     unsigned interpolation = 0;
     unsigned texture_scale = 1;
     bool antialiasing = true;
+    bool native_widescreen = false;
 };
 inline bool valid_graphics(const GraphicsOptions &o) {
     return (o.backend=="auto"||o.backend=="dx12"||o.backend=="dx11"||o.backend=="gdi") &&
@@ -55,6 +56,9 @@ inline GraphicsOptions load_graphics(const std::filesystem::path &path, Graphics
     if(input.peek()!=std::char_traits<char>::eof()&&(!(input>>result.texture_scale)||!valid_graphics(result)))return fallback;
     input>>std::ws;
     if(input.peek()!=std::char_traits<char>::eof()&&!(input>>result.antialiasing))return fallback;
+    // Append-only version-1 preference: old files retain original 4:3 behavior.
+    input>>std::ws;
+    if(input.peek()!=std::char_traits<char>::eof()&&!(input>>result.native_widescreen))return fallback;
     return result;
 }
 inline void save_graphics(const std::filesystem::path &path,const GraphicsOptions &o) {
@@ -63,7 +67,7 @@ inline void save_graphics(const std::filesystem::path &path,const GraphicsOption
     std::ofstream output(temporary,std::ios::trunc);
     output<<"BF_GRAPHICS 1\n"<<o.backend<<' '<<o.scene<<' '<<o.fsr1<<' '<<o.gpu_programs<<' '
           <<o.scale<<' '<<o.height<<' '<<o.mouse_menus<<' '<<o.prompts<<' '<<o.muted<<' '<<o.volume
-          <<' '<<o.mouse_sensitivity<<" 30 "<<o.interpolation<<' '<<o.texture_scale<<' '<<o.antialiasing<<'\n';
+          <<' '<<o.mouse_sensitivity<<" 30 "<<o.interpolation<<' '<<o.texture_scale<<' '<<o.antialiasing<<' '<<o.native_widescreen<<'\n';
     output.close();
     if(!output)throw std::runtime_error("Cannot write graphics settings");
     // Windows rename cannot replace a file. Remove only this preference file,

@@ -37,6 +37,12 @@ int main() {
     bounds(0x70000000,0x70000008);saved=memory;
     CHECK(bf_ui_try_scene_marker(device)==0&&memory==saved);
     CHECK(bf_ui_try_scene_marker(0)==0&&bf_ui_try_scene_marker(device+1)==0);
+    for(const auto marker:{BF_SCENE_WIDE_BEGIN,BF_SCENE_WIDE_END,BF_UI_ANCHOR_LEFT,BF_UI_ANCHOR_CENTER,BF_UI_ANCHOR_RIGHT}) {
+        bounds(commands,commands+8);
+        CHECK(bf_ui_try_marker(device,marker)==1&&word(commands+4)==marker);
+    }
+    bounds(commands,commands+8);saved=memory;
+    CHECK(bf_ui_try_marker(device,0x12345678u)==0&&memory==saved);
 #ifdef _WIN32
     // A valid cursor whose destination page is read-only must not be written.
     SYSTEM_INFO info{};GetSystemInfo(&info);

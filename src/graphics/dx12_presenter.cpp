@@ -62,7 +62,7 @@ struct Presenter {
     UINT width{}, height{}, back_width{}, back_height{}, output_width{}, output_height{};
     UINT scale_factor{},compute_width{},compute_height{};
     UINT descriptor_size{}, rtv_size{}, last_back{};
-    bool fsr{}, vsync{true}, valid{}, has_frame{}, capture{};
+    bool fsr{}, vsync{true}, valid{}, has_frame{}, capture{}, wide{};
     UINT64 serial{};
     HANDLE event{};
     ComPtr<ID3D12Device> device;
@@ -227,10 +227,11 @@ struct Presenter {
             device->GetCopyableFootprints(&desc, 0, 1, 0, &readback_layout, nullptr, nullptr, &readback_bytes);
             readback_buffer = buffer(readback_bytes, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
         }
-        const double scale = std::min(double(w) / width, double(h) / height);
-        output_width = std::max(1u, UINT(std::lround(width * scale)));
-        output_height = std::max(1u, UINT(std::lround(height * scale)));
-        compute_width=scale_factor?width*scale_factor:output_width;
+        const double aspect=wide?16.0/9.0:double(width)/height;
+        const double fit_height=std::min(double(h),double(w)/aspect);
+        output_width = std::max(1u, UINT(std::lround(fit_height*aspect)));
+        output_height = std::max(1u, UINT(std::lround(fit_height)));
+        compute_width=scale_factor?UINT(std::lround(height*scale_factor*aspect)):output_width;
         compute_height=scale_factor?height*scale_factor:output_height;
         if(compute_width>16384||compute_height>16384)throw std::runtime_error("Upscale target exceeds the device texture limit");
         if (fsr && output_width >= width && output_height >= height) {
@@ -438,6 +439,18 @@ bool dx12_init(HWND window, uint32_t width, uint32_t height, bool fsr) {
 }
 bool dx12_active() { return presenter && presenter->valid; }
 PresentationStats dx12_stats(){return presenter?presenter->stats:PresentationStats{};}
+bool dx12_aspect(bool wide) {
+    if(!dx12_active())return false;
+    if(presenter->wide==wide)return true;
+    try {
+        presenter->wide=wide;
+        // Recreate spatial output resources and discard interpolation history;
+        // frames from different camera aspects must never interpolate together.
+        presenter->resize(presenter->back_width,presenter->back_height);return true;
+    } catch(const std::exception &error) {
+        std::fprintf(stderr,"[DX12] aspect change: %s; disabling presenter\n",error.what());presenter.reset();return false;
+    }
+}
 bool dx12_scale(unsigned factor) {
     if(!dx12_active() || (factor!=0&&factor!=2&&factor!=4&&factor!=8))return false;
     if(presenter->scale_factor==factor)return true;

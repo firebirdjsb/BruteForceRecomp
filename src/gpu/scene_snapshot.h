@@ -26,6 +26,17 @@ int bf_scene_snapshot_enabled(void);
 int bf_scene_snapshot_publish(ID3D11Device *,ID3D11DeviceContext *,
     ID3D11Texture2D *color,ID3D11Texture2D *depth,const BfSceneSnapshotInfo *);
 void bf_scene_snapshot_shutdown(void);
+/* Independent, bounded file diagnostic. It has no consumer and never replaces
+ * the normal export's retained resources or its pre-UI provenance contract. */
+typedef enum {
+    BF_DEPTH_PROBE_BEFORE_CLEAR,
+    BF_DEPTH_PROBE_SHARED_WRITE,
+    BF_DEPTH_PROBE_RECREATE
+} BfDepthProbeStage;
+int bf_depth_probe_enabled(void);
+int bf_depth_probe_publish(ID3D11Device *,ID3D11DeviceContext *,
+    ID3D11Texture2D *color,ID3D11Texture2D *depth,const BfSceneSnapshotInfo *,BfDepthProbeStage);
+void bf_depth_probe_shutdown(void);
 #ifdef __cplusplus
 }
 #endif

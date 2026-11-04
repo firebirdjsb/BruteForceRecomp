@@ -2,6 +2,7 @@
 add_library(bf_scene_boundary STATIC src/ui/scene_boundary.cpp src/ui/scene_aa_state.cpp src/graphics/edge_aa.cpp)
 target_include_directories(bf_scene_boundary PRIVATE src "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
 target_link_libraries(xbox_kernel PUBLIC bf_scene_boundary)
+target_link_libraries(xbox_kernel PUBLIC bf_aspect_state)
 add_executable(bf_scene_boundary_test tests/scene_boundary_test.cpp)
 target_include_directories(bf_scene_boundary_test PRIVATE src)
 target_link_libraries(bf_scene_boundary_test PRIVATE bf_scene_boundary)
@@ -24,6 +25,30 @@ foreach(item IN LISTS sources)
             message(FATAL_ERROR "Expected ordered NV2A NO_OPERATION handler.")
         endif()
         set(boundary [=[case NV097_NO_OPERATION:
+]=])
+        if(TARGET bf_scene_backend)
+            string(APPEND boundary [=[        if(param==BF_SCENE_WIDE_BEGIN||param==BF_SCENE_WIDE_END) {
+            /* Camera-scope commands must follow every preceding vertex and
+             * draw, just like the existing native-UI boundary. */
+            xf_queue_flush();
+            if(backend_draws()&&s_xbackend&&s_xbackend->draw)xbackend_flush();
+            else if(backend_draws())backend_flush(!s_xf_no_tex);
+            if(backend_draws())bf_aspect_command_scope(param==BF_SCENE_WIDE_BEGIN);
+            return;
+        }
+        if(param>=BF_UI_ANCHOR_LEFT&&param<=BF_UI_ANCHOR_RIGHT) {
+            /* Neither queue may retain geometry across a widget anchor. */
+            xf_queue_flush();
+            if(backend_draws()) {
+                backend_flush(!s_xf_no_tex);
+                if(s_xbackend&&s_xbackend->draw)xbackend_flush();
+                bf_aspect_command_anchor(param-BF_UI_ANCHOR_LEFT);
+            }
+            return;
+        }
+]=])
+        endif()
+        string(APPEND boundary [=[
         if(param==BF_UI_SCENE_BOUNDARY) {
             Nv2aSurface ui_surface;
             xf_queue_flush();
@@ -45,6 +70,9 @@ foreach(item IN LISTS sources)
         }
 ]=])
         string(PREPEND text "#include \"ui/scene_boundary.h\"\n")
+        if(TARGET bf_scene_backend)
+            string(PREPEND text "extern void bf_aspect_command_scope(int);\nextern void bf_aspect_command_anchor(unsigned);\n")
+        endif()
         string(REPLACE "${anchor}" "${boundary}" text "${text}")
         set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/aa-boundary/nv2a_pb_exec.c")
         file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/runtime-fixes/aa-boundary")

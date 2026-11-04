@@ -362,6 +362,7 @@ size_t gpu_vsh_hlsl(const uint32_t (*prog)[4], uint32_t n, uint32_t input_mask,
         "  P.x *= vsinfo.x; P.y *= vsinfo.y;\n"
         "  float w = P.w;\n"
         "  float x = P.x * surf.z * 2.0 - 1.0;\n"
+        "  x = alpha.w>=2.0 && alpha.w<=4.0 ? x*.75+(alpha.w-3.0)*.25 : x*(alpha.w>0.0?alpha.w:1.0);\n"
         "  float y = 1.0 - P.y * surf.w * 2.0;\n"
         "  float zr = (P.z - depth.x) * depth.y;\n"
         "  float z = depth.z > 0.5 ? saturate(zr) : zr;\n"

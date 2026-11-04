@@ -64,8 +64,9 @@ Graphics and F1 > Renderer. This reconstructs eligible sampled textures, includi
 HUD artwork and cube faces, with original mip levels retained and a bounded
 256-MiB additional cache. It is spatial filtering, not an AI texture pack; it
 cannot recover missing artistic detail. Movies, depth and render targets keep
-their original path. The final scene still renders at its existing resolution;
-native higher resolution, 16:9 projection and temporal FSR/DLSS remain unfinished.
+their original path. The scene retains its 640x480 render allocations. Optional
+native 16:9 expands the camera view and anchors complete HUD groups to the
+corners; native-HD scene detail and gameplay temporal FSR/DLSS remain unfinished.
 
 The desktop input update adds full-speed WASD with normalized
 diagonals, held mouse-button reports, and mouse sampling independent of USB
@@ -153,7 +154,17 @@ the launcher reloads them on return. Direct runs without `BF_UI_SETTINGS` use
 session-only preferences. Original swap-interval pacing, exact texture
 validation and automatic shader caches are reported on that page.
 
-The renderer retains the original 4:3 game image. The 16:9 window presets are **not native widescreen gameplay**. Correct projection/HUD behavior and cheats remain unavailable, and complete campaign/mission validation remains unfinished. The experimental GPU tutorial run reported about 30 presented frames/s in its late scene; loading dips and full mission/input/effects QA remain. See STATUS.md for measured limits and test evidence.
+**Native Widescreen** in launcher Graphics or F1 > Renderer switches supported
+3D gameplay between 4:3 and 16:9. It defaults off. The wider camera preserves
+vertical framing; health/radar and ammo/items follow their left/right corners,
+including fills, map markers, text and keyboard keycaps. The reticle stays
+centered. Output resolution presets are separate: they resize presentation and
+fit the available monitor area, while scene allocations remain 640x480.
+Spatial FSR1 supports both aspect modes. A local tutorial and the user's smoke
+test passed aspect switching, HUD placement, output selectors and controls;
+complete campaign, split-screen and unsupported cinematic-camera coverage remain
+unverified. No general FPS improvement is claimed. Cheats remain unavailable.
+See [aspect evidence and limits](docs/NATIVE_ASPECT_RATIO.md) and STATUS.md.
 
 ## Exact input
 

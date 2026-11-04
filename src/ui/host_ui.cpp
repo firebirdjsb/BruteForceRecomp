@@ -3,6 +3,7 @@
 #include "pad_pulses.h"
 #include "graphics_options.h"
 #include "scene_boundary.h"
+#include "../graphics/native_aspect_state.h"
 #include "../input/desktop_bindings.h"
 #include <algorithm>
 #include <array>
@@ -41,7 +42,8 @@ Clock::time_point menu_seen{};
 bf::ui::PadPulses pulses;
 std::deque<BfUiPointer> pointers;
 uint64_t serial{};
-struct Prompt { BfUiRect rect;std::array<char,33> key{}; };
+struct Prompt { BfUiRect rect;std::array<char,33> key{};unsigned anchor=1; };
+thread_local unsigned prompt_anchor=1;
 struct PromptBatch { std::array<Prompt,64> items;unsigned count{}; };
 struct PromptFrame { PromptBatch batch;uint64_t id{};bool valid{}; };
 PromptBatch pending_prompts,shown_prompts;
@@ -88,7 +90,7 @@ void paint_tutorial(bf::ui::Canvas &c) {
     c.text5x7(x+18,y+264,"TIP: ENEMIES CAN HEAR YOUR MOVEMENT.",muted_ink);
 }
 bool menu(){return mouse_menus&&Clock::now()-menu_seen<std::chrono::milliseconds(500);}
-int row_count(){return page==2?1:page==1?6:rows;}
+int row_count(){return page==2?1:page==1?7:rows;}
 void persist() {
     preferences.fsr1=fsr;preferences.scale=scales[scale_index];preferences.height=heights[resolution_index];
     preferences.mouse_menus=mouse_menus;preferences.prompts=prompts_on;preferences.muted=muted;preferences.volume=volume;
@@ -121,6 +123,10 @@ void adjust(int row,int direction=1) {
             preferences.antialiasing=!preferences.antialiasing;
             antialiasing.store(preferences.antialiasing,std::memory_order_relaxed);
             bf_scene_aa_set_enabled(preferences.antialiasing);
+        }
+        if(row==6&&bf_aspect_available()) {
+            preferences.native_widescreen=!preferences.native_widescreen;
+            bf_aspect_request(preferences.native_widescreen);
         }
 #ifdef _WIN32
         if(row==2) {
@@ -165,8 +171,13 @@ extern "C" int bf_ui_contains(BfUiRect r,float x,float y) {
 }
 extern "C" int bf_ui_point(int x,int y,int w,int h,float *gx,float *gy) {
     if(!gx||!gy||w<=0||h<=0)return 0;
-    const float scale=std::min(float(w)/640.0f,float(h)/480.0f);
-    *gx=(x-(w-640*scale)*0.5f)/scale;*gy=(y-(h-480*scale)*0.5f)/scale;
+    const bool wide=bf_aspect_frame_wide()!=0;
+    const float aspect=wide?16.0f/9.0f:4.0f/3.0f;
+    const float view_height=std::min(float(h),float(w)/aspect),view_width=view_height*aspect;
+    const float scale_x=view_width/640.0f,scale_y=view_height/480.0f;
+    // Invert viewport fitting, then Canvas's centered horizontal compensation.
+    *gx=320.0f+((x-(w-view_width)*0.5f)/scale_x-320.0f)/(wide?0.75f:1.0f);
+    *gy=(y-(h-view_height)*0.5f)/scale_y;
     return *gx>=0&&*gx<640&&*gy>=0&&*gy<480;
 }
 extern "C" void bf_ui_mouse(int x,int y,int w,int h,int action) try {
@@ -246,12 +257,13 @@ extern "C" int bf_ui_pad(uint16_t *digital,uint8_t analog[8]) {
     else *digital|=uint16_t(1u<<(control-8));
     return 1;
 }
+extern "C" void bf_ui_prompt_anchor(unsigned anchor) {prompt_anchor=anchor<=2?anchor:1;}
 extern "C" void bf_ui_prompt(BfUiRect rect,const char *key) {
     if(!key||!*key||std::strlen(key)>32||!std::isfinite(rect.x)||!std::isfinite(rect.y)||
        !std::isfinite(rect.w)||!std::isfinite(rect.h)||rect.w<=0||rect.h<=0||
        std::abs(rect.x)>4096||std::abs(rect.y)>4096||rect.w>4096||rect.h>4096)return;
     std::lock_guard lock(guard);
-    const auto assign=[&](Prompt &p){p.rect=rect;p.key.fill(0);std::memcpy(p.key.data(),key,std::strlen(key));};
+    const auto assign=[&](Prompt &p){p.rect=rect;p.anchor=prompt_anchor;p.key.fill(0);std::memcpy(p.key.data(),key,std::strlen(key));};
     for(unsigned i=0;i<pending_prompts.count;i++) {
         auto &p=pending_prompts.items[i];
         if(p.rect.x==rect.x&&p.rect.y==rect.y){assign(p);return;}
@@ -297,6 +309,8 @@ extern "C" void bf_ui_settings_initial(int available) {
     std::lock_guard lock(guard);gpu_available=available!=0;
     if(const auto *path=std::getenv("BF_UI_SETTINGS");path&&*path)settings_path=std::filesystem::u8path(path);
     preferences=settings_path.empty()?bf::GraphicsOptions{}:bf::load_graphics(settings_path);
+    if(const auto *wide=std::getenv("BF_NATIVE_WIDESCREEN"))preferences.native_widescreen=std::strcmp(wide,"1")==0;
+    bf_aspect_request(preferences.native_widescreen);
     active_scene="CPU REFERENCE";
     if(const auto *scene=std::getenv("RECOMP_GPU")) {
         auto candidate=preferences;candidate.scene=scene;if(bf::valid_graphics(candidate))preferences.scene=scene;
@@ -332,26 +346,28 @@ extern "C" int bf_ui_antialiasing(){return antialiasing.load(std::memory_order_r
 extern "C" int bf_ui_interpolation_allowed(){std::lock_guard lock(guard);return !opened&&!tutorial_active()&&Clock::now()-menu_seen>std::chrono::milliseconds(500);}
 extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try {
     if(!pixels||width!=640||height!=480)return;
-    std::lock_guard lock(guard);bf::ui::Canvas c{pixels,width,height};
+    std::lock_guard lock(guard);bf::ui::Canvas c{pixels,width,height,bf_aspect_frame_wide()?0.75f:1.0f};
     if(tutorial_active())paint_tutorial(c);
     const auto &batch=prompt_frame_mode?shown_prompts:pending_prompts;
     if(keyboard&&prompts_on)for(unsigned i=0;i<batch.count;i++) {
         const auto &p=batch.items[i];
+        auto key_canvas=c;
+        if(bf_aspect_frame_wide())key_canvas.xoffset=(int(p.anchor)-1)*80.0f;
         const int key_width=std::max(17,int(std::strlen(p.key.data()))*4+4);
         // Right-align within the original icon's trailing edge, with a
         // two-pixel gap. Wider ENTER/SPACE caps extend away from the label.
         const int x=std::max(0,int(std::floor(p.rect.x+p.rect.w))-key_width-2);
         const int y=int(p.rect.y)+std::max(0,(int(p.rect.h)-15)/2);
-        c.box(x,y,key_width,15,0xff59bfd9);c.box(x+1,y+1,key_width-2,13,0xff112d41);
-        c.text(x+2,y+5,p.key.data(),0xffe1f5ff);
+        key_canvas.box(x,y,key_width,15,0xff59bfd9);key_canvas.box(x+1,y+1,key_width-2,13,0xff112d41);
+        key_canvas.text(x+2,y+5,p.key.data(),0xffe1f5ff);
     }
     if(!opened)return;
     c.box(92,60,456,374,0xff020e19);c.box(94,62,452,370,0xff102a3d);
     c.box(94,62,452,4,0xff55c5e8);c.text(112,82,"BRUTE FORCE",0xffe1f5ff,3);
     const char *tabs[]={"LIVE SETTINGS","RENDERER","CONTROLS"};
     for(int tab=0;tab<3;++tab){c.box(112+tab*140,105,136,22,page==tab?0xff245978:0xff17394e);c.text(120+tab*140,111,tabs[tab],0xff69cae9,2);}
-    const char *names[]={"MOUSE MENU SELECTION","KEYBOARD / MOUSE PROMPTS","AMD FSR 1 (DX12)","FSR OUTPUT SCALE","WINDOW RESOLUTION","MUTE AUDIO","MASTER VOLUME","RETURN TO GAME"};
-    const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION","VISUAL INTERPOLATION","TEXTURE RECONSTRUCTION","ANTI-ALIASING"};
+    const char *names[]={"MOUSE MENU SELECTION","KEYBOARD / MOUSE PROMPTS","AMD FSR 1 (DX12)","FSR OUTPUT SCALE","OUTPUT RESOLUTION","MUTE AUDIO","MASTER VOLUME","RETURN TO GAME"};
+    const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION","VISUAL INTERPOLATION","TEXTURE RECONSTRUCTION","ANTI-ALIASING","NATIVE WIDESCREEN"};
     for(int i=0;i<row_count();++i) {
         const int y=row_y+i*row_step;
         c.box(112,y,416,24,i==selected?0xff245978:0xff17394e);
@@ -368,6 +384,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
             if(i==3)value=fsr_supported?(preferences.interpolation?std::to_string(preferences.interpolation):"OFF"):"N/A";
             if(i==4)value=gpu_available?(preferences.texture_scale==1?"OFF":std::to_string(preferences.texture_scale)+"X"):"N/A";
             if(i==5)value=preferences.antialiasing?"EDGE AA":"OFF";
+            if(i==6)value=bf_aspect_available()?(preferences.native_widescreen?"16:9":"4:3"):"N/A";
 #ifndef _WIN32
             if(i==2)value="SDL";
 #endif
@@ -402,15 +419,13 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         c.text(122,357,"F1 SETTINGS RELEASES THE MOUSE",0xff9bc0d5);
     }
     if(page==1) {
-        c.text(122,307,"DEVICE CHANGES: NEXT LAUNCH",0xffe6b47e);
-        c.text(122,319,"ACTIVE: "+active_scene,0xffd9efff);
-        c.text(122,331,"GAME TIMING: ORIGINAL 30 FPS",0xff79dbb7);
-        c.text(122,343,"AA: SCENE ONLY / TEXT EXCLUDED",0xff9bc0d5);
-        c.text(122,359,settings_path.empty()?"DIRECT RUN: SESSION SETTINGS ONLY":"SETTINGS SHARED WITH LAUNCHER",0xff9bc0d5);
+        c.text(122,335,"ACTIVE: "+active_scene,0xffd9efff);
+        c.text(122,347,bf_aspect_available()?"ASPECT APPLIES TO SUPPORTED 3D FRAMES":"NATIVE 16:9 UNAVAILABLE ON THIS PATH",0xffe6b47e);
+        c.text(122,359,"DEVICE CHANGES: NEXT LAUNCH / GAME: 30 FPS",0xff9bc0d5);
     }
     c.text(112,373,"MOUSE OR ARROWS / ENTER TO CHANGE",0xff9bc0d5);
     c.text(112,388,"TAB: PAGE   F1 / ESC: CLOSE",0xff9bc0d5);
-    c.text(112,407,"ORIGINAL 4:3 VIEW / NATIVE 16:9 PENDING",0xffe6b47e);
+    c.text(112,407,"OUTPUT SIZE / FSR: INTERNAL SOURCE 640X480",0xffe6b47e);
     c.text(112,419,settings_error.empty()?"CHEATS UNAVAILABLE":settings_error,0xffe6b47e);
 } catch(const std::exception &e) {
     std::fprintf(stderr,"[UI] Overlay frame skipped: %s\n",e.what());

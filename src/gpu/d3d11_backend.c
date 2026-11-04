@@ -66,6 +66,7 @@ extern unsigned bf_ui_texture_scale(void);
 #include "xbox_memory_layout.h"
 #include "scene_device.h"
 #include "scene_snapshot.h"
+#include "graphics/native_aspect_state.h"
 
 extern ptrdiff_t xbox_GetMemoryOffset(void);
 
@@ -95,8 +96,39 @@ static struct {
 static unsigned s_q_reads;
 static double s_q_wait_ms;
 static unsigned s_rep_written, s_rep_flushes;
-static struct { double ms; uint64_t calls; } s_texture_profile;
+static struct { double ms; uint64_t calls, ticks; } s_texture_profile;
 static struct { double ms, max_ms; uint64_t calls; } s_completion_profile;
+enum { TEX_PROFILE_ALIAS, TEX_PROFILE_DESCRIPTOR, TEX_PROFILE_VALIDATE,
+       TEX_PROFILE_PREPARE, TEX_PROFILE_PHASES };
+static struct { uint64_t ticks, calls; } s_texture_phases[TEX_PROFILE_PHASES];
+typedef struct { unsigned phase; uint64_t started, last; } TextureProfileSample;
+
+static uint64_t texture_profile_ticks(void)
+{
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return (uint64_t)counter.QuadPart;
+}
+
+/* Nanoseconds express QPC elapsed time, not nanosecond clock precision.
+ * Convert bounded interval totals in floating point to avoid ticks*1e9
+ * overflowing an integer on a high-frequency performance counter. */
+static double texture_profile_ns(uint64_t ticks)
+{
+    static LARGE_INTEGER frequency;
+    if(!frequency.QuadPart)QueryPerformanceFrequency(&frequency);
+    return (double)ticks*1000000000.0/(double)frequency.QuadPart;
+}
+
+static void texture_profile_next(TextureProfileSample *sample,unsigned phase)
+{
+    uint64_t now;
+    if(!sample)return; /* Profile-off lookups never read the clock here. */
+    now=texture_profile_ticks();
+    s_texture_phases[sample->phase].ticks+=now-sample->last;
+    sample->phase=phase;sample->last=now;
+    ++s_texture_phases[phase].calls;
+}
 
 static int profile_enabled(void)
 {
@@ -140,16 +172,28 @@ static void stats_flip(void)
                 s_st.tex_gpu, s_st.tex_cpu, s_st.tex_bc, s_st.tex_direct, s_st.tex_pitch,
                 s_st.depth_seeds, s_st.depth_samples, s_st.depth_snapshots, s_st.depth_rejected,
                 (unsigned long long)s_st.tex_compared_bytes);
-        if (profile_enabled())
-            fprintf(stderr, "[GPU-PERF] texture lookup/validation/upload %.2f ms/s across %llu calls; interval %.3f s; lookup hints %u, searches %u\n",
+        if (profile_enabled()) {
+            static const char *names[TEX_PROFILE_PHASES]={"alias_sync","descriptor_search","exact_validation","decode_upload_prepare"};
+            unsigned phase;
+            fprintf(stderr, "[GPU-PERF] texture lookup/validation/upload %.2f ms/s across %llu calls; interval %.3f s; lookup hints %u, searches %u; total %.0f ns; requested source spans %llu bytes\n",
                 s_texture_profile.ms * 1000.0 / (now - last),
                 (unsigned long long)s_texture_profile.calls, (now - last) / 1000.0,
-                s_st.tex_hint_hits, s_st.tex_searches);
+                s_st.tex_hint_hits, s_st.tex_searches,texture_profile_ns(s_texture_profile.ticks),
+                (unsigned long long)s_st.tex_compared_bytes);
+            for(phase=0;phase<TEX_PROFILE_PHASES;phase++) {
+                const double ns=texture_profile_ns(s_texture_phases[phase].ticks);
+                fprintf(stderr,"[GPU-PERF] texture phase %s: %.0f ns across %llu calls; %.2f ns/call; %.2f ms/s\n",
+                    names[phase],ns,(unsigned long long)s_texture_phases[phase].calls,
+                    s_texture_phases[phase].calls?ns/(double)s_texture_phases[phase].calls:0.0,
+                    ns/1000.0/(now-last));
+            }
+        }
         if (profile_enabled())
             fprintf(stderr, "[GPU-PERF] ordered completion waits %.2f ms/s across %llu calls; max %.3f ms\n",
                 s_completion_profile.ms * 1000.0 / (now - last),
                 (unsigned long long)s_completion_profile.calls, s_completion_profile.max_ms);
         memset(&s_texture_profile, 0, sizeof s_texture_profile);
+        memset(s_texture_phases,0,sizeof s_texture_phases);
         memset(&s_completion_profile, 0, sizeof s_completion_profile);
         s_q_reads = 0;
         s_q_wait_ms = 0.0;
@@ -193,6 +237,7 @@ static int compile(const char *src, size_t len, const char *name, const char *en
 static const char s_base_hlsl[] =
 GPU_WINDOW_CLIP_HLSL
 GPU_SHADOW_HLSL
+GPU_UI_ANCHOR_HLSL
 "cbuffer B : register(b0) { float4 surf; float4 texinfo; float4 alpha; float4 depth; };\n"
 "struct VSIn { float4 p : POSITION; float4 c : COLOR; float2 uv : TEXCOORD; };\n"
 "struct PSIn { float4 p : SV_Position; float4 c : COLOR; float2 uv : TEXCOORD; };\n"
@@ -200,6 +245,7 @@ GPU_SHADOW_HLSL
 "  PSIn o;\n"
 "  float w = (i.p.w > 0.0) ? 1.0 / i.p.w : 1.0;\n"
 "  float x = i.p.x * surf.z * 2.0 - 1.0;\n"
+"  x = ui_x(x,alpha.w);\n"
 "  float y = 1.0 - i.p.y * surf.w * 2.0;\n"
 "  float z = (i.p.z - depth.x) * depth.y;\n"
 "  o.p = float4(x * w, y * w, z * w, w);\n"
@@ -232,6 +278,7 @@ typedef struct {
  * surface pixels with 1/w, mapped to an affine image of clip space so the
  * texture coordinates interpolate perspective-correctly. */
 static const char s_xvs_hlsl[] =
+GPU_UI_ANCHOR_HLSL
 GPU_RC_CBUFFER
 "struct VSIn { float4 p : POSITION; float4 d0 : COLOR0; float4 d1 : COLOR1;\n"
 "  float4 fog : TEXCOORD4; float4 tc0 : TEXCOORD0; float4 tc1 : TEXCOORD1;\n"
@@ -244,6 +291,7 @@ GPU_RC_CBUFFER
 "  VSOut o;\n"
 "  float w = (i.p.w > 0.0) ? 1.0 / i.p.w : 1.0;\n"
 "  float x = i.p.x * surf.z * 2.0 - 1.0;\n"
+"  x = ui_x(x,alpha.w);\n"
 "  float y = 1.0 - i.p.y * surf.w * 2.0;\n"
 "  float zr = (i.p.z - depth.x) * depth.y;\n"
 "  float z = depth.z > 0.5 ? saturate(zr) : zr;\n"
@@ -387,6 +435,7 @@ static int ensure_device(void)
         || !s_xcb || !s_window_cb || !s_rs || !s_ps)
         return 0;
     s_failed = 0;
+    bf_aspect_scene_supported(1);
     fprintf(stderr, "[GPU-D3D11] %s device ready (feature level 0x%x)\n",
             s_warp ? "WARP" : "hardware", (unsigned)got);
     return 1;
@@ -398,7 +447,8 @@ static int ensure_device(void)
 typedef struct {
     uint32_t va, pitch, bpp, w, h;
     uint32_t aa_generation;
-    uint32_t scene_depth_va, scene_generation, scene_depth_draws;
+    uint32_t scene_depth_va, scene_generation, scene_depth_draws, scene_tainted;
+    uint32_t wide_generation, ui_generation;
     ID3D11Texture2D *tex, *snapshot;
     ID3D11RenderTargetView *rtv;
     ID3D11ShaderResourceView *srv, *snapshot_srv;
@@ -423,6 +473,14 @@ static int s_ndepth;
 static Surf *s_cur;
 static Depth *s_cur_depth;
 static uint32_t s_gen = 1;          /* completed-flip generation */
+static unsigned s_wide_scope;
+static unsigned s_ui_anchor=1;
+static int trace_aspect_queue(void)
+{
+    static int enabled=-1;
+    if(enabled<0){const char *value=getenv("BF_TRACE_ASPECT_QUEUE");enabled=value&&strcmp(value,"1")==0;}
+    return enabled;
+}
 static int readable_guest_range(uint32_t va, uint64_t bytes);
 static int d3d_readback(uint32_t color_va);
 static int resolve_depth_color_alias(const Nv2aTexture *t,int cube);
@@ -447,6 +505,80 @@ static void release_surf(Surf *s)
     free(s->guest_shadow);s->guest_shadow=NULL;s->guest_shadow_bytes=0;
     s->guest_check_gen=0;s->gpu_dirty=0;
     s->scene_depth_va=0;s->scene_generation=0;s->scene_depth_draws=0;
+    s->scene_tainted=1;
+    s->wide_generation=s->ui_generation=0;
+}
+
+/* Executor-thread-only, after preceding queued geometry has been flushed. */
+void bruteforce_d3d11_wide_scope(int begin_scope)
+{
+    int i;
+    if(begin_scope) {
+        ++s_wide_scope;
+        s_ui_anchor=1;
+        for(i=0;i<s_nsurf;i++)s_surf[i].ui_generation=0;
+    } else if(s_wide_scope)--s_wide_scope;
+    if(trace_aspect_queue()) {
+        static unsigned lines;
+        if(lines++<16)fprintf(stderr,"[ASPECT-QUEUE] frame=%u %s scope=%u\n",s_gen,begin_scope?"begin":"end",s_wide_scope);
+    }
+}
+void bruteforce_d3d11_ui_anchor(unsigned anchor) {if(anchor<=2)s_ui_anchor=anchor;}
+
+static int completed_surface_wide(uint32_t va)
+{
+    int i;
+    for(i=0;i<s_nsurf;i++) {
+        const Surf *s=&s_surf[i];
+        if(s->va==va&&s->tex&&s->w==640&&s->h==480&&s->bpp==4) {
+            const int wide=s->wide_generation==s_gen;
+            if(wide&&trace_aspect_queue()) {
+                static unsigned lines;
+                if(lines++<8)fprintf(stderr,"[ASPECT-QUEUE] frame=%u publish=%08X wide=1 ui=%d\n",s_gen,va,s->ui_generation==s_gen);
+            }
+            return wide;
+        }
+    }
+    return 0;
+}
+
+/* Call only while scene export is enabled. A shared/replaced depth attachment
+ * invalidates every dependent color, including dependencies from older flips.
+ * One later draw cannot prove that the retained color was fully rebuilt. */
+static void invalidate_scene_depth(uint32_t va,const Surf *owner)
+{
+    int i;
+    for(i=0;i<s_nsurf;i++)if(&s_surf[i]!=owner&&s_surf[i].scene_depth_va&&
+        (s_surf[i].scene_depth_va&0x0FFFFFFFu)==(va&0x0FFFFFFFu)) {
+        s_surf[i].scene_tainted=1;s_surf[i].scene_depth_draws=0;
+    }
+}
+
+static int scene_tracking_enabled(void)
+{
+    return bf_scene_snapshot_enabled()||bf_depth_probe_enabled();
+}
+
+/* Diagnostic copies precede destructive depth commands. They use a separate
+ * bounded publisher and never satisfy the validated pre-UI export contract. */
+static void probe_scene_depth(Depth *depth,const Surf *owner,BfDepthProbeStage stage)
+{
+    int i;
+    if(!bf_depth_probe_enabled()||!depth||!depth->tex||!depth->initialized||
+       depth->format!=2||depth->surface_type!=1)return;
+    for(i=0;i<s_nsurf;i++) {
+        Surf *sf=&s_surf[i];
+        if(sf!=owner&&sf->tex&&sf->bpp==4&&!sf->scene_tainted&&sf->scene_generation==s_gen&&
+           sf->scene_depth_draws&&sf->scene_depth_va==depth->va&&sf->w==depth->w&&sf->h==depth->h) {
+            BfSceneSnapshotInfo info={(uint64_t)s_gen,sf->va,depth->va,sf->scene_depth_draws,sf->w,sf->h};
+            bf_depth_probe_publish(s_dev,s_ctx,sf->tex,depth->tex,&info,stage);
+        }
+    }
+}
+
+static void probe_depth_write(const Nv2aRenderState *rs)
+{
+    if(rs&&rs->depth_write)probe_scene_depth(s_cur_depth,rs->depth_test_enable?s_cur:NULL,BF_DEPTH_PROBE_SHARED_WRITE);
 }
 
 /* The backend's device/cache lifetime is process-wide. Release the snapshot
@@ -457,6 +589,7 @@ static void release_color_snapshots(void)
 {
     int i;
     bf_scene_snapshot_shutdown();
+    bf_depth_probe_shutdown();
     release_asset_cache();
     for(i=0;i<s_nsurf;i++) {
         if(s_surf[i].snapshot_srv)ID3D11ShaderResourceView_Release(s_surf[i].snapshot_srv);
@@ -530,6 +663,7 @@ static int create_surf(Surf *s)
     D3D11_TEXTURE2D_DESC td;
     D3D11_SUBRESOURCE_DATA init, *pinit = NULL;
     if(!snapshot_guest_surface(s))return 0;
+    s->scene_tainted=1; // Export needs a known combined color/depth reset.
 
     memset(&td, 0, sizeof td);
     td.Width = s->w;
@@ -690,6 +824,10 @@ static Depth *get_depth(uint32_t va, uint32_t w, uint32_t h)
         d->format == format && d->surface_type == surface_type)
         return d;
     if (d) {
+        if(scene_tracking_enabled()) {
+            probe_scene_depth(d,NULL,BF_DEPTH_PROBE_RECREATE);
+            invalidate_scene_depth(d->va,NULL);
+        }
         if (s_cur_depth == d)
             s_cur_depth = NULL;
         if (d->pitch == pitch && d->format == format && d->surface_type == surface_type) {
@@ -926,12 +1064,17 @@ static int begin(const Nv2aSurface *s, const Nv2aRenderState *rs)
 
 static void mark_depth_written(const Nv2aRenderState *rs)
 {
+    if(s_wide_scope&&s_cur&&s_cur->w==640&&s_cur->h==480)
+        s_cur->wide_generation=s_gen;
     if(s_cur_depth&&rs&&(rs->depth_write||rs->stencil_enable))s_cur_depth->gpu_dirty=1;
-    /* Retain the actual depth attachment written by this color surface in
-     * this source frame. Later postprocessing can unbind it before UI.
-     * No cross-frame/depth-surface guess is used by the exporter. */
-    if(s_cur&&s_cur_depth&&rs&&rs->depth_test_enable&&rs->depth_write&&bf_scene_snapshot_enabled()) {
-        if(s_cur->scene_generation!=s_gen||s_cur->scene_depth_va!=s_cur_depth->va)
+    /* Metadata only: potential writes through another color, or unconditional
+     * depth writes without a world depth test, invalidate prior provenance.
+     * Disabled export does no surface iteration. Stencil-only work is safe. */
+    if(s_cur&&s_cur_depth&&rs&&rs->depth_write&&scene_tracking_enabled()) {
+        invalidate_scene_depth(s_cur_depth->va,rs->depth_test_enable?s_cur:NULL);
+        if(s_cur->scene_depth_va!=s_cur_depth->va)s_cur->scene_tainted=1;
+        if(!rs->depth_test_enable||s_cur->scene_tainted)return;
+        if(s_cur->scene_generation!=s_gen)
             s_cur->scene_depth_draws=0;
         s_cur->scene_generation=s_gen;s_cur->scene_depth_va=s_cur_depth->va;
         ++s_cur->scene_depth_draws;
@@ -1220,7 +1363,7 @@ static int upload(Tex *e, const Nv2aTexture *t, int cube, unsigned palette_entri
 /* The view a stage samples, and the size its texel-space coordinates are
  * divided by (*tw, *th). */
 static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, unsigned stage,
-                                             float *tw, float *th)
+                                             float *tw, float *th,TextureProfileSample *profile)
 {
     Tex *e = NULL;
     Surf *rt;
@@ -1230,6 +1373,7 @@ static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, 
     unsigned palette_entries = t && t->color == 0x0B ? 256u >> ((nv2a_backend_reg(0x1B20 + stage * 0x40) >> 2) & 3u) : 0;
     int i, faces = cube ? 6 : 1;
     unsigned hint;
+    size_t source_bytes;
 
     if (!t || !t->width || !t->height || t->width > 4096 || t->height > 4096)
         return NULL;
@@ -1266,14 +1410,18 @@ static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, 
             }
         }
     }
-    if (!tex_bytes(t, faces)) {
+    /* The normalized host descriptor and face count stay fixed in this
+     * synchronous lookup. Guest byte rewrites cannot change this pure span;
+     * retain its original first evaluation point after direct-alias returns. */
+    source_bytes=tex_bytes(t,faces);
+    if (!source_bytes) {
         fprintf(stderr, "[GPU-D3D11] invalid texture span for format 0x%02X, %ux%u\n",
                 t->color, t->width, t->height);
         return NULL;
     }
     {
         uint64_t offset = t->offset & 0x0FFFFFFFu;
-        if (offset + tex_bytes(t, faces) > g_xbox_total_ram ||
+        if (offset + source_bytes > g_xbox_total_ram ||
             (palette_entries && (!t->palette || (uint64_t)(t->palette & 0x0FFFFFFFu) + palette_entries * 4 > g_xbox_total_ram))) {
             fprintf(stderr, "[GPU-D3D11] texture outside mapped guest RAM\n"); abort();
         }
@@ -1287,13 +1435,14 @@ static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, 
             Surf *source=&s_surf[i];
             uint64_t start=source->va&0x0FFFFFFFu;
             uint64_t end=start+(uint64_t)source->pitch*source->h;
-            if(source->tex && offset<end && start<offset+tex_bytes(t,faces)) {
+            if(source->tex && offset<end && start<offset+source_bytes) {
                 asset_eligible=0;
                 s_st.overlap_rtt++;
                 if(source->gpu_dirty && !d3d_readback(source->va))return NULL;
             }
         }
     }
+    texture_profile_next(profile,TEX_PROFILE_DESCRIPTOR);
     hint=texture_hint(t,cube,palette_entries);
     i=(int)s_tex_hint[hint]-1;
     if(i>=0&&i<s_ntex&&texture_key_matches(&s_tex[i],t,cube,palette_entries)) {
@@ -1304,17 +1453,20 @@ static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, 
             e=&s_tex[i];s_tex_hint[hint]=(uint16_t)(i+1);break;
         }
     }
+    texture_profile_next(profile,TEX_PROFILE_VALIDATE);
     /* Exact source snapshots detect rewrites even within one frame. The old
      * full/sparse hashes were write-only metadata; do not scan these bytes a
      * second time. Count the requested comparison span, including early exits. */
-    if (e && e->source_bytes == tex_bytes(t, faces) && e->source_copy)
+    if (e && e->source_bytes == source_bytes && e->source_copy)
         s_st.tex_compared_bytes += e->source_bytes;
-    if (e && e->source_bytes == tex_bytes(t, faces) && e->source_copy
+    if (e && e->source_bytes == source_bytes && e->source_copy
         && !memcmp(e->source_copy, GUEST(t->offset), e->source_bytes)
         && (t->color != 0x0B || !memcmp(e->palette_copy, GUEST(t->palette), palette_entries * 4))) {
+        texture_profile_next(profile,TEX_PROFILE_PREPARE);
         e->last_use = s_gen;
         return asset_view(e,asset_eligible);
     }
+    texture_profile_next(profile,TEX_PROFILE_PREPARE);
     rewritten = e != NULL;
     e = tex_slot(e);
     memset(e, 0, sizeof *e);
@@ -1329,7 +1481,7 @@ static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, 
     e->offset = t->offset; e->w = t->width; e->h = t->height;
     e->color = t->color; e->pitch = t->pitch; e->cube = (uint8_t)cube;
     e->levels = t->levels; e->palette = t->palette;
-    e->source_bytes = tex_bytes(t, faces);
+    e->source_bytes = source_bytes;
     e->source_copy = (uint8_t *)malloc(e->source_bytes);
     if (!e->source_copy) { fprintf(stderr,"[GPU-D3D11] texture snapshot allocation failed\n"); abort(); }
     memcpy(e->source_copy,GUEST(t->offset),e->source_bytes);
@@ -1349,11 +1501,19 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
                                              float *tw, float *th)
 {
     ID3D11ShaderResourceView *view;
-    double start;
-    if (!profile_enabled()) return lookup_texture(t, cube, stage, tw, th);
-    start = qpc_ms();
-    view = lookup_texture(t, cube, stage, tw, th);
-    s_texture_profile.ms += qpc_ms() - start;
+    TextureProfileSample sample;
+    uint64_t finished,elapsed;
+    if (!profile_enabled()) return lookup_texture(t, cube, stage, tw, th,NULL);
+    sample.phase=TEX_PROFILE_ALIAS;sample.started=sample.last=texture_profile_ticks();
+    ++s_texture_phases[TEX_PROFILE_ALIAS].calls;
+    view = lookup_texture(t, cube, stage, tw, th,&sample);
+    /* The wrapper closes the last phase even for invalid/unsupported or
+     * direct-RTT early returns. Four exclusive phases partition this exact
+     * lookup's wall time; nested GPU waits belong to alias_sync. */
+    finished=texture_profile_ticks();elapsed=finished-sample.started;
+    s_texture_phases[sample.phase].ticks+=finished-sample.last;
+    s_texture_profile.ticks+=elapsed;
+    s_texture_profile.ms += texture_profile_ns(elapsed)/1000000.0;
     ++s_texture_profile.calls;
     return view;
 }
@@ -1577,6 +1737,8 @@ static void set_alpha_test(const Nv2aRenderState *rs, float out[4])
         out[1] = (float)(rs->alpha_ref & 0xFF);
         out[2] = 1.0f;
     }
+    /* One anchor for the complete original widget/string, ordered in FIFO. */
+    out[3]=s_cur&&s_cur->wide_generation==s_gen&&s_cur->ui_generation==s_gen?(float)(2+s_ui_anchor):1.0f;
 }
 
 /* ---- vertex ring ----------------------------------------------------------- */
@@ -1820,6 +1982,20 @@ static void d3d_clear(const Nv2aSurface *s, const Nv2aRenderState *rs, uint32_t 
     full_depth = s_cur_depth && rect.left == 0 && rect.top == 0 &&
                  (uint32_t)rect.right == s_cur_depth->w &&
                  (uint32_t)rect.bottom == s_cur_depth->h;
+    if(scene_tracking_enabled()) {
+        if(s_cur_depth&&(flags&1)) {
+            probe_scene_depth(s_cur_depth,NULL,BF_DEPTH_PROBE_BEFORE_CLEAR);
+            invalidate_scene_depth(s_cur_depth->va,NULL);
+        }
+        if(color_flags==0xF0u&&full_color) {
+            s_cur->scene_generation=s_gen;s_cur->scene_depth_draws=0;
+            s_cur->scene_depth_va=s_cur_depth?s_cur_depth->va:0;
+            // A color-only clear, separate resets or opaque-looking draws
+            // cannot establish matching depth. Accept only a combined full
+            // color/depth reset, then require actual subsequent world draws.
+            s_cur->scene_tainted=!(full_depth&&(flags&1));
+        }
+    }
     z = zeta_max() == 65535.0f ? (zstencil & 0xFFFFu) / 65535.0f
                                : (zstencil >> 8) / 16777215.0f;
     if ((flags & 0xF0) == 0xF0 && full_color) {
@@ -1880,6 +2056,11 @@ static int set_window_clip(const Nv2aSurface *s)
             c.rect[i][1] = (h >> 16) & 0xFFFu;
             c.rect[i][2] = v & 0xFFFu;
             c.rect[i][3] = (v >> 16) & 0xFFFu;
+            if(s_cur->wide_generation==s_gen&&s_cur->ui_generation==s_gen) {
+                const uint32_t origin=s_ui_anchor*80u;
+                c.rect[i][0]=origin+(c.rect[i][0]*3u)/4u;
+                c.rect[i][1]=origin+((c.rect[i][1]+1u)*3u+3u)/4u-1u;
+            }
         }
     }
     if (!have_last || memcmp(&last, &c, sizeof c)) {
@@ -1961,6 +2142,7 @@ static void d3d_draw(const Nv2aSurface *s, const Nv2aBatch *b)
     ID3D11DeviceContext_OMSetBlendState(s_ctx, get_blend(rs), bf, 0xFFFFFFFFu);
     ID3D11DeviceContext_OMSetDepthStencilState(s_ctx, get_ds(rs, s_cur_depth != NULL),
                                                rs->stencil_ref & 0xFF);
+    probe_depth_write(rs);
     ID3D11DeviceContext_Draw(s_ctx, b->count, 0);
     s_cur->gpu_dirty=1;
     mark_depth_written(rs);
@@ -2115,6 +2297,7 @@ static void d3d_xdraw(const Nv2aSurface *s, const Nv2aXBatch *b)
     ID3D11DeviceContext_VSSetShader(s_ctx, s_xvs, NULL, 0);
     ID3D11DeviceContext_VSSetConstantBuffers(s_ctx, 0, 1, &s_xcb);
     ID3D11DeviceContext_GSSetShader(s_ctx, NULL, NULL, 0);
+    probe_depth_write(b->state);
     ID3D11DeviceContext_Draw(s_ctx, b->count, 0);
     s_cur->gpu_dirty=1;
     mark_depth_written(b->state);
@@ -2627,6 +2810,7 @@ static int d3d_xdraw_vsh(const Nv2aSurface *s, const Nv2aXVsBatch *b)
     ID3D11DeviceContext_VSSetShader(s_ctx, v->vs, NULL, 0);
     ID3D11DeviceContext_VSSetConstantBuffers(s_ctx, 0, 2, cbs);
     ID3D11DeviceContext_GSSetShader(s_ctx, vsh_filter_gs(), NULL, 0);
+    probe_depth_write(b->xb.state);
     ID3D11DeviceContext_DrawIndexed(s_ctx, b->nindices, ioff / 4u, 0);
     s_cur->gpu_dirty=1;
     mark_depth_written(b->xb.state);
@@ -2722,7 +2906,9 @@ static int d3d_vsh_readback(Nv2aXVsOut *out, uint32_t n)
         float *p = out[i].pos, w = p[3];
         if (w != 0.0f) {
             float zd = p[2] / w;
-            p[0] = (p[0] / w + 1.0f) * 0.5f * s_xlast.surf[0];
+            const float mode=s_xlast.alpha[3],scale=mode>=2&&mode<=4?.75f:mode>0?mode:1.0f;
+            const float shift=mode>=2&&mode<=4?(mode-3)*.25f:0;
+            p[0] = ((p[0] / w-shift) / scale + 1.0f) * 0.5f * s_xlast.surf[0];
             p[1] = (1.0f - p[1] / w) * 0.5f * s_xlast.surf[1];
             p[2] = s_xlast.depth[1] != 0.0f ? zd / s_xlast.depth[1] + s_xlast.depth[0] : zd;
         }
@@ -3145,9 +3331,10 @@ static void d3d_before_ui(const Nv2aSurface *surface)
     /* Mark even when disabled, so enabling AA midway through interface draws
      * cannot filter text that has already been painted into this surface. */
     sf->aa_generation=s_gen;
+    sf->ui_generation=s_gen;
     if(s_q_active)return;
     if((bf_scene_aa_enabled()||bf_scene_snapshot_enabled())&&!sync_guest_surface(sf,1))return;
-    if(bf_scene_snapshot_enabled()&&sf->scene_generation==s_gen) {
+    if(bf_scene_snapshot_enabled()&&!sf->scene_tainted&&sf->scene_depth_draws&&sf->scene_generation==s_gen) {
         int i;
         for(i=0;i<s_ndepth;i++) {
             Depth *d=&s_depth[i];
@@ -3168,6 +3355,7 @@ static void d3d_before_ui(const Nv2aSurface *surface)
 
 static void d3d_flip(void)
 {
+    s_wide_scope=0;s_ui_anchor=1;
     s_gen++;
     stats_flip();
 }
@@ -3214,6 +3402,8 @@ int bruteforce_d3d11_install(void)
     }
     nv2a_backend_ext_register(&s_backend_ext);
     nv2a_backend_register(&s_backend);
+    bf_aspect_surface_reader(completed_surface_wide);
+    bf_aspect_backend_commands(bruteforce_d3d11_wide_scope,bruteforce_d3d11_ui_anchor);
     fprintf(stderr, "[GPU] %s scene backend registered (RECOMP_GPU=%s%s)\n",
             s_d3d12?"Direct3D 12 via D3D11On12":"Direct3D 11",s_d3d12?"d3d12":"d3d11",s_warp ? ", WARP" : "");
     if (s_depth_texture)

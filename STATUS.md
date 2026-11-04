@@ -5,6 +5,72 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Local widescreen and HUD continuation - 4 November
+
+The launcher and F1 now share a reversible, default-off 16:9 request. The
+authenticated camera transaction widens the actual horizontal view, preserves
+vertical framing and restores the original projection/frustum after dispatch.
+The original 640x480 guest allocations remain. Completed-image metadata keeps
+camera, HUD and presentation aspect attached to the same source frame.
+Output presets 720p/1080p/1440p/2160p are presentation sizes, not native-HD scene
+detail. Hardware checks passed all four sizes with bilinear and spatial FSR1,
+including exact restoration of the 4:3 presentation. Normal native checks pass
+40/40 and launcher checks pass4/4.
+
+The first HUD attempt failed actual-title QA: sprite-based classification split
+the health bar and left the radar's custom geometry behind. A bounded tutorial
+trace identified complete health, radar, ammo, item and co-op-prompt owners.
+The second repair anchors those complete draw transactions, including their
+text, keycaps and raw geometry. Actual tutorial QA verified intact health/radar
+groups, left/right corners, centered reticle, live 4:3 -> 16:9 -> 4:3 switching
+and all output selectors. Higher-than-monitor window requests are fitted to
+usable screen bounds; the actual game test does not prove physical 4K output.
+
+The tested player is now installed at the workspace root: SHA256
+`9b2c79bdd8e0f28140b1caa274913dff1a6b528a641cf3ffdedefd0cc7f2563e`.
+Its paired map is `.local/installed-player.map`; BF172 rollback is
+`.local/widescreen-install-20261104-164317`. Installed media validation passed;
+all656 library files, including preferences and permanent saves, kept their
+hashes. The user confirmed all requested smoke checks pass for this installed
+candidate, satisfying the standing gate for a source-only push to main.
+This was a bounded tutorial test, not campaign/split-screen/cutscene acceptance
+or a measured FPS improvement. Its owned timeout ended the process before a
+normal-close check; no normal-exit result is claimed. No production service was
+touched. Exact evidence and rollback are in the current native-aspect notes.
+
+The pre-mutation depth diagnostic also captured real tutorial world depth:
+240,741 samples strictly between zero and one and no zero samples. Projection
+correspondence and per-instance motion remain unverified; gameplay temporal
+FSR3/4 and DLSS are not enabled. See the current sections in
+[native aspect notes](docs/NATIVE_ASPECT_RATIO.md) and
+[FSR notes](docs/FSR_TEMPORAL.md). Earlier same-day entries below are historical
+checkpoints and do not supersede this continuation.
+
+### Local update, export provenance and camera trace - 4 November
+
+Pulled checkpoint `754117e` and main `52354bf`, merged locally as `8b5e187`,
+and retained the unpublished texture profiling/span-hoist work. The normal
+640x480 player and native launcher were rebuilt. Root player SHA256 is
+`bf172a1f24cfb495e6004fa397684022d24025d38d70ce0744512bd99e4d8f4b`;
+its paired map is `.local/installed-player.map`. Rollback is
+`.local/update-20261104-152152`. All656 existing library files, including
+preferences and permanent saves, remained byte-identical; installed validation
+passed. New source remains unpublished pending the user's gameplay smoke test.
+
+The pre-UI exporter now rejects cleared, reused or recreated depth associations.
+It requires a combined full color/depth reset and subsequent qualifying draws
+to recover a tainted color. This changes export bookkeeping, not scene pixels
+or completion rules. Native37/37, launcher4/4 and public renderer13/13 pass,
+including38 provenance cases across D3D11/D3D12. The real tutorial reproduced
+the old99.6%-zero depth export; the guarded private run rejected it.
+
+A private read-only trace recorded64 pre-dispatch camera samples after tutorial
+entry, resolving one camera/projection through original `6FCB0 -> D9F00`.
+Its aspect was4/3, viewport640x480 and half angles35/27.706 degrees. These are
+render-dispatch candidates, not proof of final composed-view/culling ownership.
+No camera writes, HD allocations or gameplay temporal SDK connection were made.
+See [native aspect notes](docs/NATIVE_ASPECT_RATIO.md) for the next gate.
+
 ### Native aspect investigation and AV mode fix - 4 November
 
 The original 720p device-creation failure is diagnosed: AV option6 lacked the
@@ -19,6 +85,28 @@ diagnostic got past that failure; it is not included in production. Camera,
 culling, UI/movie/F1 sizing and matched gameplay validation remain open. No
 experimental player was installed and no gameplay temporal FSR/DLSS success is
 claimed. Read docs/NATIVE_ASPECT_RATIO.md for exact evidence and next steps.
+
+### Local continuation - texture phase measurements and span reuse
+
+The Windows workspace was fast-forwarded to `5006c30`, then its player and native
+launcher were rebuilt and installed. All 33 player, four launcher and four
+public rendering checks passed; native content validation succeeded and all
+156 existing save/data files plus preferences retained their hashes.
+
+Local continuation adds opt-in four-phase texture timing and reuses the source
+span after its original first validation. Disassembly confirms six span-helper
+call sites became one. Exact comparisons, alias ordering, waits, original
+simulation timing, accepted mouse input and AA remain intact. All 33 player
+checks and five focused renderer/profile checks pass; 60 fixture images are
+unchanged. The candidate is kept separate from the published build for rollback.
+
+Three disposable tutorial runs completed 35-second static-view profiles. Source
+flips remained about 7.54/s, so no overall FPS gain is claimed. Descriptor search
+was about 1 ms/s, versus about 50 ms/s for alias/synchronization and substantial
+ordered completion waits. The main computer's mission 3/4 saves are not on this
+computer; exact M02_a acceptance remains pending. See RENDER_PERFORMANCE.md for
+phase definitions, actual sample numbers and measurement limits. New source
+changes remain local until the user confirms the candidate's smoke test.
 
 ### Bound texture lookup search cost - 4 November
 

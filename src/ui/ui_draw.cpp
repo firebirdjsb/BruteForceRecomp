@@ -1,8 +1,41 @@
 #include "ui_draw.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 namespace bf::ui {
 void Canvas::box(int x,int y,int w,int h,uint32_t color) {
+    if(xscale!=1.0f) {
+        if(w<=0||h<=0||!std::isfinite(xscale)||xscale<=0)return;
+        // Keep the centered 4:3 safe area without rounding away a thin font
+        // column. Fractional edge pixels receive their horizontal area coverage.
+        const double left=width*0.5+(x-width*0.5)*xscale+xoffset;
+        const double right=width*0.5+(x+w-width*0.5)*xscale+xoffset;
+        const int x0=std::max(0,int(std::floor(left))),x1=std::min(int(width),int(std::ceil(right)));
+        const int y0=std::max(0,y),y1=std::min(int(height),y+h);
+        if(x1<=x0||y1<=y0)return;
+        const auto edge=[&](uint32_t &pixel,int column) {
+            const double coverage=std::clamp(std::min(right,double(column+1))-std::max(left,double(column)),0.0,1.0);
+            if(coverage>=1.0){pixel=color;return;}
+            uint32_t blended{};
+            // Interpolate every stored channel, including alpha, by coverage;
+            // the canvas framebuffer already contains the underlying panel.
+            for(unsigned shift:{0u,8u,16u,24u}) {
+                const double source=(color>>shift)&255,destination=(pixel>>shift)&255;
+                blended|=uint32_t(std::lround(destination+(source-destination)*coverage))<<shift;
+            }
+            pixel=blended;
+        };
+        for(int row=y0;row<y1;++row) {
+            auto *line=pixels+size_t(row)*width;
+            edge(line[x0],x0);
+            if(x1-x0>1) {
+                std::fill(line+x0+1,line+x1-1,color);
+                edge(line[x1-1],x1-1);
+            }
+        }
+        return;
+    }
+    // Preserve the original uncompensated rasterizer byte for byte.
     const int x0=std::max(0,x),y0=std::max(0,y);
     const int x1=std::min(int(width),x+w),y1=std::min(int(height),y+h);
     if(x1<=x0||y1<=y0)return;

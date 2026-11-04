@@ -1,5 +1,5 @@
 add_library(bf_host_ui STATIC src/ui/host_ui.cpp src/ui/ui_draw.cpp)
-target_link_libraries(bf_host_ui PUBLIC bf_scene_boundary)
+target_link_libraries(bf_host_ui PUBLIC bf_scene_boundary bf_aspect_state)
 add_executable(bf_edge_aa_test tests/edge_aa_test.cpp src/graphics/edge_aa.cpp)
 target_include_directories(bf_edge_aa_test PRIVATE src)
 add_test(NAME edge_antialiasing COMMAND bf_edge_aa_test)

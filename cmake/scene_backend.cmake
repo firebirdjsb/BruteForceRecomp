@@ -34,6 +34,12 @@ set_property(TARGET xbox_kernel PROPERTY SOURCES "${sources}")
 if(BF_RUNTIME_CHECKS_ONLY)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_library(bf_scene_test_ui STATIC src/ui/host_ui.cpp src/ui/ui_draw.cpp)
+    target_link_libraries(bf_scene_test_ui PUBLIC bf_aspect_state)
+    add_executable(bf_hud_anchor_test tests/hud_anchor_test.cpp src/ui/hud_anchor.cpp)
+    target_include_directories(bf_hud_anchor_test PRIVATE src "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
+    target_link_libraries(bf_hud_anchor_test PRIVATE bf_scene_test_ui)
+    add_test(NAME hud_widget_anchors COMMAND bf_hud_anchor_test)
+    add_test(NAME hud_owner_trace COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/check_hud_owner_trace.py" "$<TARGET_FILE:bf_hud_anchor_test>")
     add_executable(bf_gpu_scene_test tests/gpu_scene_test.c tests/gpu_scene_textures.c)
     target_include_directories(bf_gpu_scene_test PRIVATE src src/gpu src/gpu/runtime
         "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
@@ -53,6 +59,25 @@ if(BF_RUNTIME_CHECKS_ONLY)
             "${PROJECT_SOURCE_DIR}/tests/check_scene_snapshot.py" "$<TARGET_FILE:bf_gpu_scene_test>"
             "${XBOXRECOMP_DIR}/tools/conformance/test.xbe" "${CMAKE_BINARY_DIR}/scene-snapshot-${snapshot_api}" ${snapshot_api})
         set_tests_properties(ordered_scene_snapshot_${snapshot_api} PROPERTIES TIMEOUT 90)
+        add_test(NAME depth_probe_${snapshot_api} COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/check_depth_probe.py" "$<TARGET_FILE:bf_gpu_scene_test>"
+            "$<TARGET_FILE:bf_scene_snapshot_test>" "${XBOXRECOMP_DIR}/tools/conformance/test.xbe"
+            "${CMAKE_BINARY_DIR}/depth-probe-${snapshot_api}" ${snapshot_api})
+        set_tests_properties(depth_probe_${snapshot_api} PROPERTIES TIMEOUT 90)
+        add_test(NAME ordered_scene_aspect_${snapshot_api} COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/check_scene_aspect.py" "$<TARGET_FILE:bf_gpu_scene_test>"
+            "${XBOXRECOMP_DIR}/tools/conformance/test.xbe" "${CMAKE_BINARY_DIR}/scene-aspect-${snapshot_api}" ${snapshot_api})
+        set_tests_properties(ordered_scene_aspect_${snapshot_api} PROPERTIES TIMEOUT 90)
+    endforeach()
+    foreach(api IN ITEMS d3d11 d3d12)
+        set(profile_api)
+        if(api STREQUAL "d3d12")
+            set(profile_api --d3d12)
+        endif()
+        add_test(NAME texture_profile_${api} COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/check_texture_profile.py" "$<TARGET_FILE:bf_gpu_scene_test>"
+            "${XBOXRECOMP_DIR}/tools/conformance/test.xbe" "${CMAKE_BINARY_DIR}/texture-profile-${api}" ${profile_api})
+        set_tests_properties(texture_profile_${api} PROPERTIES TIMEOUT 120)
     endforeach()
 endif()
 target_include_directories(xbox_kernel BEFORE PRIVATE "${PROJECT_SOURCE_DIR}/src/gpu/runtime" "${PROJECT_SOURCE_DIR}/src/gpu")
@@ -61,7 +86,7 @@ add_library(bf_scene_backend STATIC src/gpu/d3d11_backend.c src/gpu/texture_deco
 target_include_directories(bf_scene_backend PRIVATE src src/gpu src/gpu/runtime
     "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
 target_compile_definitions(bf_scene_backend PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(bf_scene_backend PUBLIC bf_scene_snapshot bf_nv2a_hlsl bf_nv2a_pscache d3d11 d3d12 dxgi d3dcompiler)
+target_link_libraries(bf_scene_backend PUBLIC bf_aspect_state bf_scene_snapshot bf_nv2a_hlsl bf_nv2a_pscache d3d11 d3d12 dxgi d3dcompiler)
 
 # The asynchronous visibility callback must also progress while the guest is
 # waiting and is not publishing a new PUT. No USB/event/IRQ source is replaced.

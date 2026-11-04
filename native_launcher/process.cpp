@@ -34,6 +34,7 @@ static std::map<std::string,std::string> game_environment(const std::filesystem:
     std::map<std::string,std::string> result{
         {"RECOMP_SAVE_DIR",path_text(saves)},{"BF_RENDER_BACKEND",graphics.backend},
         {"BF_UPSCALER",graphics.fsr1?"fsr1":"off"},{"RECOMP_GPU",graphics.scene},
+        {"BF_NATIVE_WIDESCREEN",graphics.native_widescreen?"1":"0"},
         {"RECOMP_GPU_VSH",graphics.gpu_programs?"1":"0"},
         {"RECOMP_FLIP_PACING",graphics.scene!="cpu"?"edge":"0"},
         {"BF_UI_SETTINGS",path_text(settings)}};

@@ -90,14 +90,23 @@ void App::command() {
         ImGui::TextWrapped("Reconstructs sampled color textures, including UI and cube faces, with original mip levels preserved. Uses up to 256 MiB extra VRAM; depth, movies and render targets retain their original path. This does not create an HD texture pack.");
         changed|=ImGui::Checkbox("Anti-aliasing (Edge AA)",&options.antialiasing);
         ImGui::TextWrapped("Smooths scene edges before game text and HUD are drawn. Text, HUD and the F1 overlay are excluded from the AA pass.");
+        const bool aspect_available=options.scene!="cpu"&&options.gpu_programs&&
+            (options.backend=="auto"||options.backend=="dx12");
+        ImGui::BeginDisabled(!aspect_available);
+        int aspect=options.native_widescreen?1:0;
+        if(ImGui::Combo("Native widescreen",&aspect,"Original 4:3\0 16:9 camera\0")) {
+            options.native_widescreen=aspect!=0;changed=true;
+        }
+        ImGui::EndDisabled();
+        ImGui::TextWrapped(aspect_available?"16:9 applies live to supported 3D camera frames. Menus and movies retain their original aspect. F1 > Renderer can change it during play.":"Native 16:9 requires GPU scene rendering, GPU vertex programs and DX12 presentation. Runtime support is checked before changing a camera.");
         const unsigned heights[]={0,720,1080,1440,2160};int resolution=0;
         for(int i=0;i<5;++i)if(options.height==heights[i])resolution=i;
-        if(ImGui::Combo("Window resolution",&resolution,"Automatic\0 720p\0 1080p\0 1440p\0 2160p (4K)\0")){options.height=heights[resolution];changed=true;}
+        if(ImGui::Combo("Output window resolution",&resolution,"Automatic\0 720p\0 1080p\0 1440p\0 2160p (4K)\0")){options.height=heights[resolution];changed=true;}
         if(changed)library_.set_graphics(options);
         ImGui::PushFont(theme_.small);
         ImGui::TextWrapped("The game keeps its original 30 FPS timing. Visual interpolation generates extra presentation frames on DX12; it adds one source frame of latency. Device changes apply on the next launch.");
         ImGui::TextWrapped("The D3D12 scene option uses Microsoft's D3D11On12 bridge. Presentation is a separate choice below the scene renderer.");
-        ImGui::TextWrapped("The original 4:3 picture is preserved. Window size and FSR output scale do not enable native widescreen or increase scene resolution.");
+        ImGui::TextWrapped("The internal source remains 640 x 480. Output resolution and FSR 1 EASU + RCAS scale that source; they do not add native HD scene detail. Native widescreen changes the supported camera's field of view.");
         ImGui::TextWrapped("Interpolation can produce artifacts around occlusion and fast motion. Menus use original frames. Actual output depends on display refresh. This is motion interpolation, separate from temporal FSR/DLSS, which remain unfinished.");
         ImGui::PopFont();
         ImGui::EndDisabled();

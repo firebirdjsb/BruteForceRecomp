@@ -1,4 +1,6 @@
 # The GPU presenter is independent of generated/private game code.
+include("${CMAKE_CURRENT_LIST_DIR}/aspect_state.cmake")
+bf_add_aspect_state()
 function(bf_shader_chunks input output)
     # VS 2022 limits individual raw string tokens. Keep each token below
     # 8 KB and assemble separate appends, preserving the source bytes.
@@ -43,7 +45,7 @@ function(bf_add_dx12_library)
         "${PROJECT_SOURCE_DIR}/src/graphics/frame_interpolation.cpp")
     target_include_directories(bf_dx12 PRIVATE "${CMAKE_BINARY_DIR}/graphics" "${PROJECT_SOURCE_DIR}/third_party/fsr1")
     target_include_directories(bf_dx12 PUBLIC "${PROJECT_SOURCE_DIR}/src/graphics")
-    target_link_libraries(bf_dx12 PUBLIC d3d12 dxgi dxguid d3dcompiler)
+    target_link_libraries(bf_dx12 PUBLIC bf_aspect_state d3d12 dxgi dxguid d3dcompiler)
     if(MSVC)
         target_compile_options(bf_dx12 PRIVATE /W4)
     endif()

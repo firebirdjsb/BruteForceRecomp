@@ -1,5 +1,73 @@
 # Rendering performance and remaining graphics work
 
+## Local continuation: reusable texture spans
+
+Texture lookups now compute their validated source span once at the original
+first span check and reuse it for later bounds, overlap, cache and snapshot
+checks. The normalized host descriptor is unchanged during alias synchronization;
+guest pixel changes still receive the original exact byte comparisons. The
+experimental depth and direct-render-target early returns keep their original
+order. Release object inspection confirms six span-helper call sites became one.
+No GPU completion, source timing, input, cache-validation or AA rule changes.
+
+On this computer, disposable copies of the available tutorial save reached the
+same static view for three 35-second samples: published source, finer timing,
+then finer timing plus span reuse. The last 20 seconds measured approximately
+7.538, 7.537 and 7.538 source flips/s. There is no observed overall FPS gain.
+The main computer's mission 3/4 saves are unavailable here; this is not a
+replacement for the recorded M02_a comparison or a 30-FPS result.
+
+Before span reuse, complete ten-second windows put descriptor lookup around
+0.98-0.99 ms/s with 98.75% hint hits, alias/synchronization at 49.79-54.58 ms/s,
+exact equality checks at 13.96-14.39 ms/s and preparation at 13.32-13.62 ms/s.
+Weighted alias-phase elapsed time was about 5,300 ns/call before reuse and
+4,885 ns/call afterward. These are sequential local samples, not a statistical
+performance study. Ordered completion waits remained substantial; their timer
+can overlap other work and must not be added to these buckets as independent cost.
+
+All 33 player checks pass. Five focused public checks cover DX11/DX12 scene
+parity, AA preservation and profile accounting/reset/off behavior; all 60
+existing fixture output images remain byte-identical after span reuse.
+Private logs, source-frame CSVs, matching executable/map records and summaries
+are under `.local/render-followup`. Further producer/consumer and command-decoder
+profiling is required before choosing another optimization. The installed
+candidate still requires the user's smoke test before publishing its source.
+
+## Texture timing breakdown
+
+`BF_PROFILE_RENDER=1` additionally partitions the existing whole texture lookup
+timer into four exclusive phases. Fixed counters reset with the same ten-second
+report. Each phase reports total QPC elapsed nanoseconds, phase-entry calls,
+nanoseconds per call and milliseconds per second, using the same interval as
+the whole-call report. Nanoseconds are a reporting unit, not a claim about
+clock precision. Profiling itself has measurement overhead.
+
+- `alias_sync`: descriptor normalization and bounds checks, surface-alias lookup,
+  guest/GPU synchronization, snapshots and any readback waits inside this call.
+- `descriptor_search`: the descriptor hint and fallback cache search.
+- `exact_validation`: the original short-circuit exact-equality checks of cached
+  source and palette bytes. A phase entry can find no comparable cache
+  entry; the call count does not claim a `memcmp` was executed.
+- `decode_upload_prepare`: cache-slot preparation, palette-index validation, original decoding/upload,
+  new source/palette snapshots and sampled-view preparation, including optional
+  asset reconstruction. Cache hits also enter this phase to select their view.
+
+Direct render-target aliases can finish entirely in `alias_sync`. The wrapper
+closes whichever phase is active on every returning path. The four phase totals
+partition the outer texture timer; they must not be added to that timer or to
+overlapping renderer/wait timers as independent costs. GPU work submitted by a
+decode/upload call is timed as CPU submission unless that existing path waits.
+The requested-source-span counter still includes comparisons that exit early
+and excludes palette spans; it is not actual bytes read or memory bandwidth.
+
+When the flag is absent, the existing profile-off route performs no additional
+clock reads, profiling allocations or timing reports. The phase checkpoints
+have predictable null-sample guards. The change preserves every byte comparison,
+cache/surface rule, GPU wait, original timing, AA and input path. Public synthetic
+fixtures exercise two reporting windows and an actual profile-off reporting
+boundary, checking counter reset, units/accounting and exact output pixels.
+This is diagnostic instrumentation; it establishes no mission-FPS improvement.
+
 ## Follow-up: bounded texture lookup hints
 
 The GPU scene cache now has an 8-KiB, 4,096-bucket descriptor lookup hint table.

@@ -5,6 +5,19 @@
 #include "recomp_types.h"
 #include <string.h>
 #include "ui/scene_boundary.h"
+#include "ui/hud_anchor.h"
+#include "graphics/native_aspect_state.h"
+int bf_ui_menu_active(void);
+void bf_ui_prompt_anchor(unsigned);
+static unsigned s_guest_ui_anchor=BF_HUD_CENTER;
+static BfHudOwnerScope s_hud_owner_scope={0,BF_HUD_CENTER};
+static uint32_t s_hud_trace_token;
+static int bf_guest_marker(uint32_t marker);
+static void bf_guest_anchor(unsigned anchor) {
+    if(anchor>BF_HUD_RIGHT)anchor=BF_HUD_CENTER;
+    if(anchor!=s_guest_ui_anchor&&bf_guest_marker(BF_UI_ANCHOR_LEFT+anchor))s_guest_ui_anchor=anchor;
+    bf_ui_prompt_anchor(s_guest_ui_anchor);
+}
 void bf_original_keyboard_draw(void);
 void bf_original_keyboard_update(void);
 void bf_game_text_seen(uint32_t keyboard);
@@ -42,6 +55,16 @@ static void restore_registers(const BfGuestRegisters *s) {
     g_df=s->direction;g_fp_top=s->top;g_fp_cmp=s->comparison;
     g_fp_control_word=s->control;g_fp_cc=s->status;
 }
+uint32_t bf_guest_hud_trace_begin(unsigned stage,uint32_t component) {
+    if(!bf_hud_trace_configured())return 0;
+    BfGuestRegisters state;save_registers(&state);
+    const uint32_t token=bf_hud_trace_begin(stage,g_esp,component);
+    restore_registers(&state);return token;
+}
+void bf_guest_hud_trace_end(uint32_t token) {
+    if(!token)return;
+    BfGuestRegisters state;save_registers(&state);bf_hud_trace_end(token);restore_registers(&state);
+}
 int bf_game_ui_scratch_writable(uint32_t,unsigned);
 void sub_001012E0(void);
 int bf_guest_view_origin(uint32_t view,float *x,float *y) {
@@ -65,10 +88,61 @@ void sub_000CCD20(void) {
     // prompt uses a private copy of those 44 bytes below the caller's stack;
     // source strings and caller arguments remain untouched. Relocate only
     // the resulting ESP, preserving the original body's cleanup/error delta.
+    const uint32_t trace_previous=s_hud_trace_token,trace_token=bf_guest_hud_trace_begin(3,0);
+    s_hud_trace_token=trace_token;
     const uint32_t original=g_esp,relay=bf_prompt_text_frame(original);
     if(relay)g_esp=relay;
     bf_original_font_draw();
     if(relay)g_esp=original+(g_esp-relay);
+    bf_guest_hud_trace_end(trace_token);s_hud_trace_token=trace_previous;
+}
+void bf_original_hud_image(void);
+void bf_original_ui_quad(void);
+/* Leaf wrappers only collect optional diagnostics. The complete component
+ * scope owns every sprite/font/raw draw; leaves never reclassify its anchor. */
+void sub_000BA950(void) {
+    const uint32_t trace_previous=s_hud_trace_token,trace_token=bf_guest_hud_trace_begin(1,g_ecx);
+    s_hud_trace_token=trace_token;
+    bf_original_hud_image();
+    bf_guest_hud_trace_end(trace_token);s_hud_trace_token=trace_previous;
+}
+void sub_000EE6E0(void) {
+    const uint32_t trace_previous=s_hud_trace_token,trace_token=bf_guest_hud_trace_begin(2,0);
+    s_hud_trace_token=trace_token;
+    bf_original_ui_quad();
+    bf_guest_hud_trace_end(trace_token);s_hud_trace_token=trace_previous;
+}
+int bf_guest_hud_trace_active(void) {return s_hud_trace_token!=0;}
+void bf_guest_hud_trace_rect(float x,float width) {
+    BfGuestRegisters state;save_registers(&state);
+    if(s_hud_trace_token)bf_hud_trace_rect(s_hud_trace_token,x,width,s_guest_ui_anchor);
+    restore_registers(&state);
+}
+void bf_guest_ui_boundary(void);
+uint32_t bf_guest_hud_owner_begin(uint32_t component) {
+    BfGuestRegisters state;uint32_t token;unsigned anchor;
+    if(!bf_aspect_ready())return 0;
+    save_registers(&state);
+    anchor=s_hud_owner_scope.anchor;
+    if(!s_hud_owner_scope.depth) {
+        // Raw geometry can precede the first sprite/font in this owner.
+        bf_guest_ui_boundary();
+        anchor=bf_hud_owner_anchor(component,bf_ui_menu_active());
+    }
+    token=bf_hud_scope_enter(&s_hud_owner_scope,anchor);
+    if(token) {
+        bf_guest_anchor(s_hud_owner_scope.anchor);
+        // If a validated marker reservation fails, all descendants retain
+        // the actual prior anchor together instead of retrying per leaf.
+        s_hud_owner_scope.anchor=s_guest_ui_anchor;
+    }
+    restore_registers(&state);return token;
+}
+void bf_guest_hud_owner_end(uint32_t token) {
+    BfGuestRegisters state;if(!token)return;
+    save_registers(&state);bf_hud_scope_leave(&s_hud_owner_scope,token);
+    bf_guest_anchor(s_hud_owner_scope.anchor);s_hud_owner_scope.anchor=s_guest_ui_anchor;
+    restore_registers(&state);
 }
 void bf_guest_ui_boundary(void) {
     BfGuestRegisters state;save_registers(&state);
@@ -86,6 +160,28 @@ void bf_guest_ui_boundary(void) {
         }
     }
     restore_registers(&state);
+}
+/* Ordered camera/render scope. Every original register is restored, including
+ * the original reserve-space call's ESP delta. The command changes only the
+ * native backend's framing metadata; it is not a hardware Xbox method. */
+static int bf_guest_marker(uint32_t marker) {
+    BfGuestRegisters state;save_registers(&state);
+    int result=bf_ui_try_marker(MEM32(0x0037DD88u),marker);
+    if(result==2) {
+        const uint32_t bytes=MEM32(0x0037EC88u);
+        if(bytes>=16&&bytes<=0x100000&&state.integer[6]>=0x1000Cu&&
+           bf_game_ui_scratch_writable(state.integer[6]-12,12)) {
+            PUSH32(g_esp,bytes);PUSH32(g_esp,bytes>>1);
+            PUSH32(g_esp,0x0036CD71u);sub_00371E10();
+            if(g_esp==state.integer[6])result=bf_ui_try_marker(MEM32(0x0037DD88u),marker);
+            else result=0;
+        } else result=0;
+    }
+    restore_registers(&state);
+    return result==1;
+}
+int bf_guest_aspect_marker(int active) {
+    return bf_guest_marker(active?BF_SCENE_WIDE_BEGIN:BF_SCENE_WIDE_END);
 }
 void sub_0010D560(void) {
     const uint32_t keyboard=g_ecx;

@@ -3,5 +3,8 @@
 #define BRUTEFORCE_D3D11_BACKEND_H
 
 int bruteforce_d3d11_install(void);
+/* Executor-thread-only, ordered by private NO_OPERATION camera markers. */
+void bruteforce_d3d11_wide_scope(int begin_scope);
+void bruteforce_d3d11_ui_anchor(unsigned anchor);
 
 #endif

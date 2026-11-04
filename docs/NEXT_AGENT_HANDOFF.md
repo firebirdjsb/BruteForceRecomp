@@ -1,7 +1,85 @@
+> Current HUD/widescreen checkpoint, 4 November, 16:43: actual checkout is
+> `C:/Users/kolby/Documents/ChatGPT/BFRecomp`, branch
+> `codex/texture-profile-followup`, base `8b5e187` plus unpublished changes.
+> Root `bruteforce_recomp.exe` is now the tested widescreen/HUD player, SHA256
+> `9b2c79bdd8e0f28140b1caa274913dff1a6b528a641cf3ffdedefd0cc7f2563e`.
+> Paired map `.local/installed-player.map` SHA256 is
+> `bfafd0ba5189de74b5756381a2d5a70c6c549d5cf5137a30a73311021b35da63`.
+> Rollback BF172 pair: `.local/widescreen-install-20261104-164317`.
+> Current receipt: `.local/render-followup/latest-candidate.json`.
+> Installed validation, native40/40, launcher4/4 and preserved656 library-file
+> hashes pass. Permanent saves/preferences, including sensitivity1.23, are intact.
+> The user subsequently confirmed **all checks pass** for this installed
+> candidate: live aspect/output selectors, intact corner HUD, centered reticle
+> and movement/aim/fire. The standing user instruction now authorizes pushing
+> this source checkpoint to main. Verify the actual commit/remote after pushing;
+> do not treat earlier pending-smoke notes below as current.
+>
+> A shared default-off launcher/F1 setting now invokes a hash-authenticated camera
+> transaction at the actual `6FCB0 -> D9F00` dispatch, calls original projection/
+> frustum helpers, preserves vertical framing and restores124 owned bytes. Real
+> horizontal visibility expands; original640x480 guest allocations remain.
+> Source-owned metadata follows the image into presentation.720p/1080p/1440p/
+> 2160p are output sizes, not native-HD scene detail. Hardware tests cover exact
+>1280x720 through3840x2160 with bilinear/FSR1; desktop window requests fit usable
+> monitor bounds. Do not repeat the exhausted native720p memory-credit experiments.
+>
+> HUD repair loop1 (per-sprite/pivot guesses) failed actual-title QA. Loop2 uses
+> trace-proven complete owners in B2720: health39FC84/B22A0 and radar39F5B8/C2D10
+> left; ammo39F004/B22A0 and inventory3A019C/B22A0 right; co-op39F0F8/B22A0 left.
+> All descendants inherit one anchor, including raw radar geometry/text/keycaps.
+> Unknown/menu roots and reticles center. Actual tutorial QA confirms intact
+> groups and live4:3/16:9 restoration; do not make a third speculative repair loop
+> for the same issue. Native owner scopes preserve TLS
+> and original calls. Trace `uid` is raw+1C and not a semantic identity.
+>
+> Exact final QA: `.local/render-followup/integration-8b5e187/hud-groups-d`.
+> It reached tutorial at66.89s, held120.39s and ended by owned timeout (exit1),
+> before an attempted Alt+F4; **do not call this normal-close acceptance**.
+> Scripted navigation plus agent visual/input QA is not a user smoke test.
+> Full campaign, split-screen, unsupported cinematic cameras, mission3/4
+> performance and a general FPS improvement remain unverified. No production
+> service was touched. Main-PC mission3/4 saves are unavailable here.
+>
+> FSR progress: bounded pre-mutation probe captures actual world/player color
+> and substantial D24 depth (frame2625:240741 fractional samples,66459 clear1,
+> zero exact0,162063 distinct). Separate consumer/provenance ordering tests pass.
+> Projection/camera samples do not match that exact generation. Per-instance/
+> skinned motion, applied jitter, scene-native DX12 SDK handoff and composition
+> remain missing. Gameplay temporalFSR3/4 and DLSS are not enabled; keep SDK-ready
+> false, never fabricate vectors/jitter. Existing FSR1 is real spatial EASU+RCAS.
+> Read current NATIVE_ASPECT_RATIO.md and FSR_TEMPORAL.md for evidence and gates.
+>
+> Build `.local/game-build` is normal (no CMAKE_PROJECT_INCLUDE), output
+> `.local/widescreen-player/Release`. Immutable tested pair is
+> `.local/widescreen-qa/final-player`; do not overwrite it while used by a run.
+> `.local/native-aspect-followup` retains older private proof; its old cache
+> conflicts with public hooks and must not be reconfigured with its private
+> project include. Preserve canonical generated/recovered sources and toolkit.
+> Never stage retail code/assets, binaries, captures, saves or BruteForceDLC.zip.
+>
+> Historical earlier local continuation, 4 November: actual checkout is
+> `C:/Users/kolby/Documents/ChatGPT/BFRecomp`, branch
+> `codex/texture-profile-followup`, source base `8b5e187` plus unpublished
+> profiling/span-hoist and export-provenance changes. Main `52354bf` and
+> checkpoint `754117e` are pulled. The normal updated native player is installed
+> at the workspace root; its matching map is `.local/installed-player.map`.
+> Rollback is `.local/update-20261104-152152` and current receipt is
+> `.local/render-followup/latest-candidate.json`. Native37/37, launcher4/4,
+> renderer13/13 (38 provenance cases) and installed validation pass; all656
+> existing library files/preferences remained unchanged. The user has not yet
+> smoke-tested this candidate: **do not push new changes until confirmation**.
+> Read the local follow-up in [NATIVE_ASPECT_RATIO.md](NATIVE_ASPECT_RATIO.md):
+> stale depth exports are rejected and64 actual render-camera candidates were
+> traced without camera writes. Useful world depth, native16:9 and gameplay
+> temporal FSR/DLSS remain unfinished. Scripted tutorial runs used cloned saves;
+> no mission3/4 or performance improvement is claimed. This PC lacks the main
+> computer's campaign saves. The isolated trace player was never installed.
+>
 > Current continuation: the user resumed work and prioritized native aspect ratio,
 > then temporal FSR/DLSS. Read [NATIVE_ASPECT_RATIO.md](NATIVE_ASPECT_RATIO.md)
 > for the confirmed AV fix, tests, private 720p allocation findings and remaining
-> camera/HUD work. The installed working player was preserved.
+> camera/HUD work. The previous installed player was retained in rollback.
 > The final AV-only candidate also captured actual campaign pre-UI color/depth;
 > depth is overwhelmingly zero and requires diagnosis before temporal integration.
 >
@@ -27,6 +105,48 @@ ISO/assets/DLC payloads, generated/recovered game C, captures, logs, save data,
 private dumps or binaries. The launcher is a native application, never a website.
 
 ## Latest continuation - texture lookup hints
+
+### Unpublished local continuation on the other computer
+
+The `C:\Users\kolby\Documents\ChatGPT\BFRecomp` workspace was updated from
+fd27458 to 5006c30 and rebuilt locally. The published player/launcher update
+passed 33 player, four launcher and four rendering checks. Native verification
+passed; all 156 existing player-data files and both preference files retained
+their hashes. This machine does not have the main computer's mission 3/4 saves.
+Do not assume the D: paths or M02_a session records below exist here.
+
+Further local work adds four exclusive opt-in texture timing buckets and reuses
+the validated texture span at its original first check. Release disassembly
+confirms six helper call sites became one. Comparisons, alias synchronization,
+cache semantics, GPU waits, input and original simulation timing are retained.
+All 33 player checks and five focused renderer/profile tests pass; all 60
+existing fixture images are byte-identical. The profile tests exercise two
+reporting windows, reset/accounting and disabled-profiling output.
+
+Three 35-second disposable tutorial profiles recorded about 7.54 source flips/s
+in each case. No overall FPS gain was measured. Descriptor search is around
+1 ms/s with 98.75% hint hits; alias/synchronization is about 50 ms/s and ordered
+completion waits remain significant. Timers overlap; see RENDER_PERFORMANCE.md
+for definitions and limits. No main-computer mission 3/4 result is established.
+The owned drivers ended their own processes after collection; those endings
+are not normal shutdown or mission-completion acceptance.
+
+The new candidate is installed at the normal root `bruteforce_recomp.exe`, with
+its matching map at `.local/installed-player.map`. Exact SHA-256, source-file
+hashes, previous published executable/map backup and preserved-file evidence
+are in `.local/render-followup/latest-candidate.json`. Its player hash starts
+573719f9. The source changes are local on `codex/texture-profile-followup` and
+require a confirmed user smoke test before pushing to main. The normal launcher
+still selects the root player; profiling is enabled only by session environment,
+not by changing user preferences. Recheck actual running processes before any
+replacement; never terminate a user's session to install a build.
+
+Another chat, `Implement widescreen and DLSS`, is concurrently working on
+temporal SDK/camera integration. Its CMakeLists/graphics.cmake/temporal files
+are separate work and are not included in this candidate or this change's
+validation. Preserve those files and scope commits explicitly. Continue by
+profiling command decoding/producer-consumer time and obtaining the matching
+M02_a position on the main computer before another performance repair.
 
 The user authorized continuing within the remaining usage and explicitly asked
 for another GitHub checkpoint/handoff before stopping. Keep source-only pushes.

@@ -96,10 +96,40 @@ work without a swapchain; game frame pacing/presentation still requires integrat
 
 ## Scene export follow-up
 
-The renderer now exports pre-UI color/device depth and supports fenced native
-D3D12 access to D3D11On12 snapshots. Seven renderer tests pass. Campaign export,
-projection validation and gameplay temporal inputs remain unverified. See the
-[stopped-work agent handoff](FSR_SCENE_HANDOFF.md) for exact evidence and blockers.
+The renderer exports color/device depth and supports fenced native D3D12 access
+to D3D11On12 snapshots. The later provenance guard rejects depth attachments
+which were cleared, replaced or reused after their recorded world draws.
+
+The 4 November local continuation identified the missing capture point:
+another color target writes the shared depth attachment before the old UI
+boundary. Optional `BF_DEPTH_PROBE_DIR` diagnostics now copy the actual color
+and D24 attachments **before** that overwrite, on the owning render thread.
+They own separate resources, limits and output; they neither invoke nor replace
+the normal snapshot consumer. `BF_DEPTH_PROBE_COUNT` defaults to4 (maximum8),
+`BF_DEPTH_PROBE_MIN_DRAWS` defaults to64, and optional
+`BF_DEPTH_PROBE_TRIGGER` delays capture until a host file exists. Output labels
+the exact stage and sets `before_native_ui=false`, projection unverified and
+`temporal_sdk_ready=false`. No production upscaler consumes these diagnostics.
+
+Actual local tutorial frame2625 produced214 recorded draws and240,741 finite
+depth samples strictly between zero and one,66,459 clear-one pixels, no zero
+pixels and162,063 distinct values. The range was approximately .971743..1.
+Visual inspection confirms the accompanying color is the world/player without
+native HUD. This is substantial scene depth, unlike the late export's306,081
+zero pixels. Near/far reconstruction, orientation/projection correspondence and
+per-instance motion still require validation; plausible distance calculations
+are not source proof. Seven consecutive tutorial captures retained similar
+distributions. Private evidence is
+`.local/render-followup/integration-8b5e187/wide-view-a/depth-analysis.json` and
+its `depth-probes` directory.
+
+Focused D3D11/D3D12 tests cover pre-clear/reuse/recreation copies, their .75/.25
+depth and blue/red color, resource/consumer independence, subsequent overwrite,
+compute state, bounded budgets and trigger behavior. The original validated
+export continues rejecting stale attachments. The actual 16:9 output path can
+use existing spatial FSR1 EASU+RCAS; this does not enable temporal FSR3/4.
+See [native aspect work](NATIVE_ASPECT_RATIO.md) for integrated camera/HUD QA and
+the [earlier scene handoff](FSR_SCENE_HANDOFF.md) for original SDK evidence.
 
 ## Remaining game integration
 
@@ -138,12 +168,18 @@ Existing low source FPS may be CPU/runtime limited; adding an upscaler does not
 establish an improvement. Do not advertise a 30/60-FPS gameplay result from these
 SDK conformance runs.
 
-Native widescreen needs a separate coherent camera/frustum/render-target/HUD
-implementation. This task inspected the authenticated projection functions
-`0x0006AD00`/`0x0006AD90`, frustum construction `0x0006C840`, FOV/aspect setters
-`0x0006E450`/`0x0006E4A0`, script resets `0x00172CA0`/`0x00172CF0` and initial
-640x480 setup `0x00068340`. No speculative patch was installed. Adjusting only
-an aspect constant or stretching presentation would not satisfy native 16:9.
+The current widescreen continuation uses authenticated original projection and
+frustum helpers to widen the consumed view while preserving the original
+640x480 guest allocations. Its presentation, FSR1 path and complete native HUD
+grouping passed bounded actual-title tutorial QA. User smoke confirmation and
+broader campaign/split-screen/cinematic acceptance remain pending. See
+`NATIVE_ASPECT_RATIO.md` for the current installation and acceptance state.
+This aspect transaction does not supply temporal motion or validate the depth
+projection. The saved camera samples and depth probe are not from the same
+exact source generation. Correlate an exact generation's projection/view
+transform and depth-tested vertices with captured D24 pixels before marking
+projection verified. Keep `temporal_sdk_ready=false` until the independent
+motion, jitter and native-resource integration gates also pass.
 
 References: [AMD SDK](https://gpuopen.com/amd-fsr-sdk/),
 [FSR 4.1.2 integration](https://gpuopen.com/manuals/fsr_sdk/techniques/super-resolution-ml/),
