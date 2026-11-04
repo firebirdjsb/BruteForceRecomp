@@ -1,7 +1,14 @@
-> FSR/scene checkpoint, 4 November 2026: **work stopped at user request**.
+> Current continuation: the user resumed work and prioritized native aspect ratio,
+> then temporal FSR/DLSS. Read [NATIVE_ASPECT_RATIO.md](NATIVE_ASPECT_RATIO.md)
+> for the confirmed AV fix, tests, private 720p allocation findings and remaining
+> camera/HUD work. The installed working player was preserved.
+> The final AV-only candidate also captured actual campaign pre-UI color/depth;
+> depth is overwhelmingly zero and requires diagnosis before temporal integration.
+>
+> Historical FSR/scene checkpoint, 4 November 2026: **work stopped at user request**.
 > Read [FSR_SCENE_HANDOFF.md](FSR_SCENE_HANDOFF.md) for implemented code, test
 > evidence, incomplete gameplay integration and native 720p device-creation failure.
-> Do not resume implementation without a new user instruction.
+> The later user request above authorizes continuation of this historical checkpoint.
 
 # Next-agent handoff prompt - 4 November 2026
 

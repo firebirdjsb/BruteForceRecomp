@@ -5,6 +5,21 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Native aspect investigation and AV mode fix - 4 November
+
+The original 720p device-creation failure is diagnosed: AV option6 lacked the
+480p/720p mode bits, and the original 720p row requires a progressive request.
+A private probe now creates a real1280x720 framebuffer without bypassing errors.
+The confirmed AV capability fix is retained with a regression executing the
+original retail selector; full Windows37/37, Linux23/23 and renderer/AV8/8 pass.
+
+Native widescreen remains incomplete. The larger guest buffers reduce the
+asset arena and the first720p campaign probe failed. A private memory-accounting
+diagnostic got past that failure; it is not included in production. Camera,
+culling, UI/movie/F1 sizing and matched gameplay validation remain open. No
+experimental player was installed and no gameplay temporal FSR/DLSS success is
+claimed. Read docs/NATIVE_ASPECT_RATIO.md for exact evidence and next steps.
+
 ### Bound texture lookup search cost - 4 November
 
 A fixed descriptor hint table now avoids repeated linear searches of the
