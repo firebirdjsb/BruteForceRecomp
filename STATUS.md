@@ -19,7 +19,9 @@ their hashes. See docs/RENDER_PERFORMANCE.md for evidence and limitations.
 Busy tutorial gameplay still measured about 15-19 real source FPS. No universal
 30-FPS result is claimed. Live user mission4 (`M02_a`) confirmed13-20 source FPS
 and5,863 semaphore releases in10.13seconds. A follow-up diagnostic now measures
-real scene-completion wait durations; no ordering/wait behavior was changed.
+real scene-completion wait durations; a live interval measured120.16ms/s of
+completion waits and101.21ms/s of texture work at about17 source FPS. The
+full bottleneck is not established; no ordering/wait behavior was changed.
 Missions3/4 still need repeatable comparisons. Native16:9 and temporal DLSS remain
 unfinished. Read-only sampling points to original GPU kickoff acknowledgement
 waits as a next investigation; those waits and physics timing were preserved.

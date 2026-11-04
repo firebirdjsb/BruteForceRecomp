@@ -16,6 +16,10 @@ private dumps or binaries. The launcher is a native application, never a website
 
 ## Latest continuation - graphics performance checkpoint
 
+Code checkpoint `e75e5b27cb8820ff63211c46f9dc6975bbe50fbc` is pushed to main;
+GitHub source CI 41846334680 succeeded. This later handoff-only checkpoint adds
+the live timing evidence below; it changes no installed binary.
+
 This section supersedes the installed-player hash below. Read
 docs/RENDER_PERFORMANCE.md before claiming performance, widescreen or DLSS.
 User identified **missions 3 and 4** as dropping to about 14 FPS. Native 16:9,
@@ -77,6 +81,39 @@ Keep the build map paired with its exe: work/render-milestone/installed-1bf35ae7
 belongs to the earlier live sample. A rebuild changes the build map before any
 installation; installed copies beside the executables remain the authority.
 No production service or original game/DLC data changed.
+
+### Final live timing evidence and current session
+
+The user reloaded mission 4 after installation. First they reopened the launcher
+outside the profiled environment, so session 17938020419926511 lacks detailed
+timers despite running the correct build. Do not mistake missing timer lines
+for zero wait time. The user then closed both apps normally; the agent reopened
+the launcher with BF_PROFILE_RENDER=1 and BF_PRESENT_STATS=1. Start the game from
+THAT window; reopening the launcher from Explorer loses those session flags.
+
+Successful current session: real library sessions/17938023096452869/game.log,
+original M02_a, installed e5f3846d build. Representative 10.012-second interval:
+
+- 170 source flips, about 17 source FPS, 180 display presents/s, about 51 new
+  generated phases/s, 17 uploads/s and about 73 FSR evaluations/s.
+- Texture lookup/validation/upload: 101.21 ms/s across 164,506 calls.
+- Ordered scene-completion waits: 120.16 ms/s across 5,555 calls, maximum 2.367 ms.
+- Readback: 0.80 ms/flip, zero synchronous visibility-query wait count.
+
+These costs are meaningful but do not establish the entire bottleneck. Texture
+timing is contained in some renderer work; do not add overlapping timers as
+independent costs. No asynchronous-semaphore rewrite, fake completion, wait
+bypass or physics patch was applied. No 30-FPS gameplay success is claimed.
+
+The current log also reports unsupported texture format 0x2E and a CPU-write/
+pending-color-work overlap warning. Neither was fixed here. Keep experimental
+depth-texture behavior gated until real frame/FX parity is established.
+
+At this handoff launcher PID 39188 and game PID 30028 were running. These are
+observations, never future constants: recheck process paths, hashes, matching
+maps and current session before inspecting or replacing files. Leave the user's
+game alone; no controls or guest-memory writes were used during live inspection.
+No build/test/QA helper remains running. Do not overwrite a running executable.
 
 Continue from the actual mission3/4 slow scene, not a fake60-FPS simulation
 override or a visual refresh counter. Native widescreen must expand camera/

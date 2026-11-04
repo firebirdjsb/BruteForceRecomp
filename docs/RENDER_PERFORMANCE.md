@@ -65,6 +65,14 @@ with DMA_GET behind PUT. These are observations, not measured wait durations or
 proof that changing semaphore handling will recover30FPS. The follow-up build
 adds explicit completion-wait duration telemetry for that comparison.
 
+The follow-up live M02_a session successfully captured a 10.012-second interval:
+170 flips (about 17 source FPS), 101.21 ms/s in texture work and 120.16 ms/s across
+5,555 ordered-completion waits (maximum 2.367 ms), with 0.80 ms/flip readback.
+About 180 display presents/s included about 51 new generated phases/s; FSR ran
+about 73 times/s. Wait cost alone is not proven to explain the entire deficit.
+Some timers overlap; these numbers must not be added as independent costs.
+Unsupported 0x2E texture and CPU-write/pending-color warnings also remain open.
+
 ## Next performance investigation
 
 A bounded read-only sample of a disposable QA process found substantial main
