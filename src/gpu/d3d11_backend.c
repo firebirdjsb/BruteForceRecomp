@@ -86,13 +86,22 @@ static struct {
     unsigned vdraws, vraw, vfall, kup, kskip;  /* draw_vsh: drawn, raw streams, CPU, constants */
     unsigned tex_gpu, tex_cpu, tex_bc, tex_direct, tex_pitch;
     unsigned depth_seeds, depth_samples, depth_snapshots, depth_rejected;
-    uint64_t tex_hashed_bytes;
+    uint64_t tex_compared_bytes;
     double readback_ms;
 } s_st;
 
 static unsigned s_q_reads;
 static double s_q_wait_ms;
 static unsigned s_rep_written, s_rep_flushes;
+static struct { double ms; uint64_t calls; } s_texture_profile;
+static struct { double ms, max_ms; uint64_t calls; } s_completion_profile;
+
+static int profile_enabled(void)
+{
+    static int enabled = -1;
+    if (enabled < 0) enabled = getenv("BF_PROFILE_RENDER") != NULL;
+    return enabled;
+}
 
 static double qpc_ms(void)
 {
@@ -120,7 +129,7 @@ static void stats_flip(void)
                         " asynchronously (%u polls found one pending),"
                         " textures GPU %u CPU %u BC %u direct %u, %u stale pitches,"
                         " depth seeds %u samples %u snapshots %u rejected %u,"
-                        " %llu bytes fully hashed\n",
+                        " %llu source bytes compared\n",
                 s_st.flips, s_st.draws, s_st.xdraws, s_st.vdraws, s_st.vraw, s_st.vfall,
                 s_st.tris, s_st.uploads, s_st.rtt, s_st.overlap_rtt, s_st.clears,
                 s_st.ps_compiles, s_st.kup, s_st.kskip,
@@ -128,7 +137,17 @@ static void stats_flip(void)
                 s_q_reads, s_q_wait_ms, s_rep_written, s_rep_flushes,
                 s_st.tex_gpu, s_st.tex_cpu, s_st.tex_bc, s_st.tex_direct, s_st.tex_pitch,
                 s_st.depth_seeds, s_st.depth_samples, s_st.depth_snapshots, s_st.depth_rejected,
-                (unsigned long long)s_st.tex_hashed_bytes);
+                (unsigned long long)s_st.tex_compared_bytes);
+        if (profile_enabled())
+            fprintf(stderr, "[GPU-PERF] texture lookup/validation/upload %.2f ms/s across %llu calls; interval %.3f s\n",
+                s_texture_profile.ms * 1000.0 / (now - last),
+                (unsigned long long)s_texture_profile.calls, (now - last) / 1000.0);
+        if (profile_enabled())
+            fprintf(stderr, "[GPU-PERF] ordered completion waits %.2f ms/s across %llu calls; max %.3f ms\n",
+                s_completion_profile.ms * 1000.0 / (now - last),
+                (unsigned long long)s_completion_profile.calls, s_completion_profile.max_ms);
+        memset(&s_texture_profile, 0, sizeof s_texture_profile);
+        memset(&s_completion_profile, 0, sizeof s_completion_profile);
         s_q_reads = 0;
         s_q_wait_ms = 0.0;
         s_rep_written = s_rep_flushes = 0;
@@ -909,7 +928,6 @@ static void mark_depth_written(const Nv2aRenderState *rs)
 #define MAX_TEX 2048
 typedef struct {
     uint32_t offset, w, h, pitch, color, levels, palette;
-    uint64_t hash, sparse, palette_hash;
     uint8_t *source_copy;
     size_t source_bytes;
     uint8_t palette_copy[1024];
@@ -961,52 +979,10 @@ static ID3D11ShaderResourceView *asset_view(Tex *e,int eligible) {
     return e->enhanced_srv?e->enhanced_srv:e->srv;
 }
 
-static uint64_t hash_bytes(const uint8_t *p, size_t n)
-{
-    uint64_t h = 1469598103934665603ull;
-    size_t i = 0;
-    for (; i + 8 <= n; i += 8) {
-        uint64_t v;
-        memcpy(&v, p + i, 8);
-        h = (h ^ v) * 0x100000001B3ull;
-        h ^= h >> 29;
-    }
-    for (; i < n; i++)
-        h = (h ^ p[i]) * 0x100000001B3ull;
-    return h;
-}
-
 /* The bytes level 0 (all faces, for a cube) occupies in guest memory. */
 static size_t tex_bytes(const Nv2aTexture *t, int faces)
 {
     return gpu_texture_span(t, faces);
-}
-
-static uint64_t tex_hash(const Nv2aTexture *t, int faces)
-{
-    size_t n = tex_bytes(t, faces);
-    if (!n)
-        return 0;
-    s_st.tex_hashed_bytes += n;
-    return hash_bytes(GUEST(t->offset), n) ^ ((uint64_t)t->color << 56);
-}
-
-/* 128 eight-byte samples spread over the texture. */
-static uint64_t tex_sparse(const Nv2aTexture *t, int faces)
-{
-    size_t n = tex_bytes(t, faces), i;
-    const uint8_t *p = GUEST(t->offset);
-    uint64_t h = 1469598103934665603ull;
-    if (n < 8)
-        return 0;
-    for (i = 0; i < 128; i++) {
-        uint64_t v;
-        size_t off = ((n - 8) * i / 127) & ~(size_t)7;
-        memcpy(&v, p + off, 8);
-        h = (h ^ v) * 0x100000001B3ull;
-        h ^= h >> 29;
-    }
-    return h;
 }
 
 static void release_tex(Tex *e)
@@ -1209,13 +1185,12 @@ static int upload(Tex *e, const Nv2aTexture *t, int cube, unsigned palette_entri
 
 /* The view a stage samples, and the size its texel-space coordinates are
  * divided by (*tw, *th). */
-static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, unsigned stage,
+static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, unsigned stage,
                                              float *tw, float *th)
 {
     Tex *e = NULL;
     Surf *rt;
     Nv2aTexture normalized;
-    uint64_t h, palette_hash = 0;
     const char *path = NULL;
     int rewritten,asset_eligible=1;
     unsigned palette_entries = t && t->color == 0x0B ? 256u >> ((nv2a_backend_reg(0x1B20 + stage * 0x40) >> 2) & 3u) : 0;
@@ -1284,8 +1259,6 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
             }
         }
     }
-    if (palette_entries)
-        palette_hash = hash_bytes(GUEST(t->palette), palette_entries * 4);
     for (i = 0; i < s_ntex; i++)
         if (s_tex[i].offset == t->offset && s_tex[i].w == t->width && s_tex[i].h == t->height
                 && s_tex[i].color == t->color && s_tex[i].pitch == t->pitch
@@ -1295,14 +1268,17 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
             e = &s_tex[i];
             break;
         }
-    /* Exact source snapshots: detect rewrites even within one frame. */
+    /* Exact source snapshots detect rewrites even within one frame. The old
+     * full/sparse hashes were write-only metadata; do not scan these bytes a
+     * second time. Count the requested comparison span, including early exits. */
+    if (e && e->source_bytes == tex_bytes(t, faces) && e->source_copy)
+        s_st.tex_compared_bytes += e->source_bytes;
     if (e && e->source_bytes == tex_bytes(t, faces) && e->source_copy
         && !memcmp(e->source_copy, GUEST(t->offset), e->source_bytes)
         && (t->color != 0x0B || !memcmp(e->palette_copy, GUEST(t->palette), palette_entries * 4))) {
         e->last_use = s_gen;
         return asset_view(e,asset_eligible);
     }
-    h = tex_hash(t, faces);
     rewritten = e != NULL;
     e = tex_slot(e);
     memset(e, 0, sizeof *e);
@@ -1316,20 +1292,33 @@ static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, uns
         return NULL;
     e->offset = t->offset; e->w = t->width; e->h = t->height;
     e->color = t->color; e->pitch = t->pitch; e->cube = (uint8_t)cube;
-    e->levels = t->levels; e->palette = t->palette; e->palette_hash = palette_hash;
+    e->levels = t->levels; e->palette = t->palette;
     e->source_bytes = tex_bytes(t, faces);
     e->source_copy = (uint8_t *)malloc(e->source_bytes);
     if (!e->source_copy) { fprintf(stderr,"[GPU-D3D11] texture snapshot allocation failed\n"); abort(); }
     memcpy(e->source_copy,GUEST(t->offset),e->source_bytes);
     e->palette_entries = palette_entries;
     if (palette_entries) memcpy(e->palette_copy,GUEST(t->palette),palette_entries * 4);
-    e->hash = h; e->gen = s_gen; e->last_use = s_gen;
+    e->gen = s_gen; e->last_use = s_gen;
     if (s_tex_log)
         fprintf(stderr, "[GPU-TEX] %s %s va=0x%08X format=0x%02X %ux%u pitch=%u"
                         " faces=%d levels=%u palette=0x%08X\n",
                 rewritten ? "changed" : "new", path, t->offset, t->color, t->width,
                 t->height, t->pitch, faces, t->levels, t->palette);
     return asset_view(e,asset_eligible);
+}
+
+static ID3D11ShaderResourceView *get_texture(const Nv2aTexture *t, int cube, unsigned stage,
+                                             float *tw, float *th)
+{
+    ID3D11ShaderResourceView *view;
+    double start;
+    if (!profile_enabled()) return lookup_texture(t, cube, stage, tw, th);
+    start = qpc_ms();
+    view = lookup_texture(t, cube, stage, tw, th);
+    s_texture_profile.ms += qpc_ms() - start;
+    ++s_texture_profile.calls;
+    return view;
 }
 
 /* ---- state objects --------------------------------------------------------- */
@@ -3185,7 +3174,7 @@ int bruteforce_d3d11_install(void)
 /* GPU semaphore and software-event writes must follow real GPU completion.
  * EVENT queries are ended after the preceding immediate-context commands;
  * Flush alone only submits them. This runs solely on the NV2A consumer. */
-void bruteforce_d3d11_wait(void)
+static void wait_for_scene(void)
 {
     static ID3D11Query *event;
     D3D11_QUERY_DESC descriptor = {D3D11_QUERY_EVENT,0};
@@ -3213,4 +3202,16 @@ void bruteforce_d3d11_wait(void)
         }
         SwitchToThread();
     }
+}
+
+void bruteforce_d3d11_wait(void)
+{
+    double start, elapsed;
+    if (!profile_enabled()) { wait_for_scene(); return; }
+    start = qpc_ms();
+    wait_for_scene();
+    elapsed = qpc_ms() - start;
+    s_completion_profile.ms += elapsed;
+    if (elapsed > s_completion_profile.max_ms) s_completion_profile.max_ms = elapsed;
+    ++s_completion_profile.calls;
 }

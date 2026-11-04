@@ -5,6 +5,25 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Remove repeated rendering work - 4 November
+
+The scene cache no longer computes unused texture/palette hashes; exact per-use
+source comparisons remain. DX12 skips uploads of identical composed images,
+reuses identical FSR output and reuses repeated interpolation phases. Same-ID
+F1 edits, scale/resize transitions and original timing remain supported.
+Hardware tests verify unchanged repeated output, live edits and both FSR passes;
+NV2A parity and HUD/text AA preservation pass. Windows 33/33 and Linux 22/22
+checks pass. The installed player is `e5f3846d...`; all 64 protected files kept
+their hashes. See docs/RENDER_PERFORMANCE.md for evidence and limitations.
+
+Busy tutorial gameplay still measured about 15-19 real source FPS. No universal
+30-FPS result is claimed. Live user mission4 (`M02_a`) confirmed13-20 source FPS
+and5,863 semaphore releases in10.13seconds. A follow-up diagnostic now measures
+real scene-completion wait durations; no ordering/wait behavior was changed.
+Missions3/4 still need repeatable comparisons. Native16:9 and temporal DLSS remain
+unfinished. Read-only sampling points to original GPU kickoff acknowledgement
+waits as a next investigation; those waits and physics timing were preserved.
+
 ### Menu keycap spacing, lifetime and mission arrows - 4 November
 
 Wider keycaps now align against the original icon's right edge with a small

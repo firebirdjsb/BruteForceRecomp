@@ -14,7 +14,77 @@ to continue. Push source, tests and documentation only. Never commit retail XBE,
 ISO/assets/DLC payloads, generated/recovered game C, captures, logs, save data,
 private dumps or binaries. The launcher is a native application, never a website.
 
-## Latest continuation - menu polish and carousel clicks (4 November)
+## Latest continuation - graphics performance checkpoint
+
+This section supersedes the installed-player hash below. Read
+docs/RENDER_PERFORMANCE.md before claiming performance, widescreen or DLSS.
+User identified **missions 3 and 4** as dropping to about 14 FPS. Native 16:9,
+genuine temporal DLSS and a real 30-FPS minimum remain requested and unfinished.
+
+Source changes remove write-only texture/palette hashes, preserve exact per-use
+source/palette comparisons and add opt-in texture/completion-wait timings. DX12 compares the
+whole composed color image before upload, preserving same-ID F1 edits. It reuses
+FSR output when the sampled image is unchanged; resizes/scales invalidate it.
+Interpolation reuses already generated quantized phases. Presentation stats
+now include uploads and FSR evaluations. No guest timing/wait/physics/input,
+AA boundaries, launcher preferences or game assets were changed.
+
+Checks: Windows player link and33/33 checks; Linux link and22/22; public NV2A
+DX11/DX12 parity plus AA preservation3/3; hardware graphics/interpolation smokes
+on RTX3060Ti. Fixtures cover same-frame texture/palette rewrites, same-ID UI
+edits, repeated frames/phases, FSR, scale/resize, stall/skip/off and shutdown.
+
+Private runs (never commit logs/captures/generated code):
+- work/combat-input-quality/interval-original-zfq4o5o4: installed baseline,
+  original timing, interpolation Off. Actual tutorial level reached.
+- interval-original-j16w6ejc under the same parent: unused hashes removed,
+  texture profile enabled, interpolation Off. Busy gameplay still below30.
+- interval-original-ylk955yw: final cache build, D3D12 scene, interpolation120,
+  FSR Off. About15-19 source FPS in busy view; about15 uploads/s versus180
+  presents/s. Different timing/navigation means these are NOT controlled
+  before/after FPS comparisons. All ended at watchdog, no diagnosed guest failure.
+- Live user mission4: session17938011019080432 in the real library's sessions.
+  Resource pathM02_a,13-20 source FPS, stable60-Hz vblank,0.77-0.82ms/flip
+  readback, texture85-98ms/s. About71-73 FSR evaluations/s for180 presents/s
+  with16-18 uploads/s confirms actual reuse, not a30-FPS gameplay success.
+  Read-only method sample work/render-milestone/mission4-methods.json:
+  5,863 semaphore releases/10.13s,23/100 PFB-busy and38/100 GET-behind samples.
+  No controls, progress or guest memory were changed during inspection.
+  User exited normally for the next build, which adds blocking-completion
+  count/total/max timings under BF_PROFILE_RENDER. Inspect the next live log
+  for [GPU-PERF] ordered completion waits before changing queue behavior.
+- work/render-milestone contains hardware/scene/player logs and a bounded
+  read-only QA sample (qa-samples.json / resolve_samples.py / modules.json).
+  Main thread samples often hit original372180 PFB flush acknowledgement;
+  consumer samples hit clock/polling routines. Keep original waits; measure
+  producer/consumer durations before changing scheduling or acknowledgements.
+
+Installed exe SHA256:
+e5f3846d3dd0605f3c3f499e0879691916627bbe0b27278ca79277108fec429c.
+Candidate remains work/menu-polish/player/Release; both canonical launcher
+path work/diagnostic-build/Release and old work/aa-input-quality/player/Release
+were updated with matching maps. Build-cache output redirection still applies.
+Backup: work/menu-polish/install-20261104-091740/install-manifest.json.
+All64 TDATA/UDATA/settings files kept identical hashes; native validation0.
+Rollback after closing apps: restore executable/map paths from this manifest,
+keep current player-data. Root native launcher binary unchanged. Reopened with
+BF_PROFILE_RENDER=1 and BF_PRESENT_STATS=1 in its process environment, so its
+next child game should record the slow mission's real rendering metrics. The
+first install attempt while the user was playing was refused by Windows;
+atomic replace preserved that running1bf35ae7 build. Successful installation
+occurred only after the user reported a normal exit and the process was absent.
+Keep the build map paired with its exe: work/render-milestone/installed-1bf35ae7.map
+belongs to the earlier live sample. A rebuild changes the build map before any
+installation; installed copies beside the executables remain the authority.
+No production service or original game/DLC data changed.
+
+Continue from the actual mission3/4 slow scene, not a fake60-FPS simulation
+override or a visual refresh counter. Native widescreen must expand camera/
+culling correctly and preserve HUD/input coordinates. DLSS needs exported
+depth/motion/camera/jitter/history from the renderer; CPU completed color alone
+cannot satisfy it. Details and primary SDK guide are in the new rendering doc.
+
+## Earlier continuation - menu polish and carousel clicks (4 November)
 
 This section supersedes earlier installed-binary and glyph-layout statements.
 Latest source adds menu keycap clearance, source-frame glyph lifetime, clickable

@@ -81,6 +81,9 @@ struct FrameInterpolation::Impl {
         if(!loaded)return nullptr;
         if(!step.pair||step.alpha>=1)return history[current].Get();
         if(step.alpha<=0)return history[1-current].Get();
+        // A 180-Hz display repeats quantized 60/120-Hz phases. The output
+        // remains shader-readable until a new pair/phase overwrites it.
+        if(flow_valid&&generated_sequence==stamp.sequence&&generated_phase==step.alpha)return output.Get();
         srv(history[1-current].Get(),0);srv(history[current].Get(),1);
         ID3D12DescriptorHeap *heaps[]={heap.Get()};commands->SetDescriptorHeaps(1,heaps);commands->SetComputeRootSignature(root.Get());
         std::array<uint32_t,8> constants{width,height,columns,rows};static_assert(sizeof(float)==sizeof(uint32_t));std::memcpy(&constants[4],&step.alpha,4);

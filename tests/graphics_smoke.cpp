@@ -45,6 +45,22 @@ int main() {
             std::fill(source.begin(), source.end(), 0xffc04020u);
             UINT width{}, height{};
             const auto flat = read_frame(source, width, height);
+            const auto first_stats=bf::graphics::dx12_stats();
+            for(unsigned repeat=0;repeat<3;++repeat)
+                require(read_frame(source,width,height)==flat,"Repeated source pixels changed");
+            const auto repeat_stats=bf::graphics::dx12_stats();
+            require(repeat_stats.uploads==first_stats.uploads&&repeat_stats.spatial_passes==first_stats.spatial_passes,
+                "Repeated source reuploaded or reran spatial scaling");
+            // Source IDs can repeat while the F1 compositor changes a single
+            // pixel. Exact content validation must refresh that frame too.
+            source[120*320+160]^=0x00ffffff;
+            bf::graphics::dx12_frame_timed(source.data(),{7,1000000,1000000,0});
+            const auto edited_stats=bf::graphics::dx12_stats();
+            source[120*320+160]^=0x00ffffff;
+            bf::graphics::dx12_frame_timed(source.data(),{7,1000000,2000000,0});
+            const auto restored=read_frame(source,width,height);
+            require(restored==flat&&edited_stats.uploads==repeat_stats.uploads+1&&
+                bf::graphics::dx12_stats().uploads==edited_stats.uploads+1,"Same-ID UI edit was cached incorrectly");
             require(width == 1000 && height == 720, "Incorrect client dimensions");
             const auto center = flat[size_t(height / 2) * width + width / 2];
             for (unsigned shift : {0u, 8u, 16u, 24u}) {

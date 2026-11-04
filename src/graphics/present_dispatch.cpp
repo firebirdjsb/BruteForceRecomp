@@ -77,8 +77,9 @@ extern "C" int gpu_present_frame(const uint32_t *pixels) {
         if(now-rate_time>=1000000000ull) {
             const double seconds=double(now-rate_time)/1e9;
             display_rate=(stats.presents-previous_stats.presents)/seconds;generated_rate=(stats.generated-previous_stats.generated)/seconds;
-            if(std::getenv("BF_PRESENT_STATS"))std::fprintf(stderr,"[PRESENT] source %.2f/s display %.2f/s generated %.2f/s target=%u\n",
-                (stats.source_frames-previous_stats.source_frames)/seconds,display_rate,generated_rate,rate);
+            if(std::getenv("BF_PRESENT_STATS"))std::fprintf(stderr,"[PRESENT] source %.2f/s display %.2f/s generated %.2f/s target=%u uploads %.2f/s FSR %.2f/s\n",
+                (stats.source_frames-previous_stats.source_frames)/seconds,display_rate,generated_rate,rate,
+                (stats.uploads-previous_stats.uploads)/seconds,(stats.spatial_passes-previous_stats.spatial_passes)/seconds);
             rate_time=now;previous_stats=stats;
         }
         return paced;

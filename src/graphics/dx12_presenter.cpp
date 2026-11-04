@@ -84,6 +84,10 @@ struct Presenter {
     D3D12_RESOURCE_STATES input_state{D3D12_RESOURCE_STATE_COPY_DEST};
     std::unique_ptr<FrameInterpolation> interpolation;
     PresentationStats stats;uint64_t last_source{};
+    std::vector<uint32_t> uploaded_pixels;
+    ID3D12Resource *scaled_source{};
+    uint64_t scaled_sequence{};
+    bool scaled_valid{};
 
     ~Presenter() {
         // All resources referenced by a command list remain owned until its fence.
@@ -206,6 +210,7 @@ struct Presenter {
         }
     }
     void resize(UINT w, UINT h) {
+        scaled_valid=false;scaled_source=nullptr;
         wait(); has_frame = false;
         if(interpolation)interpolation->reset();
         for (auto &image : back) image.Reset();
@@ -313,30 +318,39 @@ struct Presenter {
         if (rect.right <= 0 || rect.bottom <= 0 || IsIconic(window)) return false;
         if (UINT(rect.right) != back_width || UINT(rect.bottom) != back_height) resize(rect.right, rect.bottom);
         begin();
-        uint8_t *mapped{}; const D3D12_RANGE no_read{0, 0};
-        check(upload->Map(0, &no_read, reinterpret_cast<void **>(&mapped)), "Map frame upload");
-        // Each source row is width * 4 bytes; D3D12's upload row pitch is 256-byte aligned.
-        for (UINT y = 0; y < height; ++y)
-            std::memcpy(mapped + upload_layout.Offset + SIZE_T(y) * upload_layout.Footprint.RowPitch, bgra + SIZE_T(y) * width, SIZE_T(width) * 4);
-        upload->Unmap(0, nullptr);
-        transition(input.Get(), input_state, D3D12_RESOURCE_STATE_COPY_DEST);
-        D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource = upload.Get(); src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; src.PlacedFootprint = upload_layout;
-        D3D12_TEXTURE_COPY_LOCATION dest{}; dest.pResource = input.Get(); dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        commands->CopyTextureRegion(&dest, 0, 0, 0, &src, nullptr);
+        const size_t pixels=SIZE_T(width)*height,bytes=pixels*sizeof(uint32_t);
+        // The compositor can change F1/keycaps while a source ID repeats.
+        // Compare every byte rather than treating that ID as pixel identity.
+        const bool changed=uploaded_pixels.size()!=pixels||std::memcmp(uploaded_pixels.data(),bgra,bytes)!=0;
+        if(changed) {
+            uint8_t *mapped{}; const D3D12_RANGE no_read{0, 0};
+            check(upload->Map(0, &no_read, reinterpret_cast<void **>(&mapped)), "Map frame upload");
+            // Each source row is width * 4 bytes; upload pitch is 256-byte aligned.
+            for (UINT y = 0; y < height; ++y)
+                std::memcpy(mapped + upload_layout.Offset + SIZE_T(y) * upload_layout.Footprint.RowPitch, bgra + SIZE_T(y) * width, SIZE_T(width) * 4);
+            upload->Unmap(0, nullptr);
+            transition(input.Get(), input_state, D3D12_RESOURCE_STATE_COPY_DEST);
+            input_state=D3D12_RESOURCE_STATE_COPY_DEST;
+            D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource = upload.Get(); src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; src.PlacedFootprint = upload_layout;
+            D3D12_TEXTURE_COPY_LOCATION dest{}; dest.pResource = input.Get(); dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            commands->CopyTextureRegion(&dest, 0, 0, 0, &src, nullptr);
+            uploaded_pixels.assign(bgra,bgra+pixels);++stats.uploads;
+        }
         ID3D12Resource *sampled=input.Get();
         bool generated=false;
         if(stamp.output_fps==60||stamp.output_fps==120) {
             if(!interpolation)interpolation=std::make_unique<FrameInterpolation>(device.Get(),width,height);
-            transition(input.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition(input.Get(),input_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            input_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
             if(auto *image=interpolation->record(commands.Get(),input.Get(),stamp))sampled=image;
             generated=interpolation->generated();
-            transition(input.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_COPY_DEST);
         } else if(interpolation)interpolation->reset();
         srv(sampled,0);
-        input_state = scaled ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        transition(input.Get(), D3D12_RESOURCE_STATE_COPY_DEST, input_state);
+        const auto readable = scaled ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        transition(input.Get(), input_state, readable);input_state=readable;
         ID3D12DescriptorHeap *heaps[] = {descriptors.Get()}; commands->SetDescriptorHeaps(1, heaps);
-        if (scaled) {
+        if (scaled && (!scaled_valid||changed||sampled!=scaled_source||generated||
+                       (sampled!=input.Get()&&stamp.sequence!=scaled_sequence))) {
             std::array<uint32_t, 20> constants{};
             FsrEasuCon(constants.data(), constants.data() + 4, constants.data() + 8, constants.data() + 12,
                 float(width), float(height), float(width), float(height), float(compute_width), float(compute_height));
@@ -354,6 +368,7 @@ struct Presenter {
             transition(scaled.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             commands->Dispatch((compute_width + 7) / 8, (compute_height + 7) / 8, 1);
             transition(scaled.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            scaled_valid=true;scaled_source=sampled;scaled_sequence=stamp.sequence;++stats.spatial_passes;
         }
         last_back = swap->GetCurrentBackBufferIndex();
         transition(back[last_back].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);

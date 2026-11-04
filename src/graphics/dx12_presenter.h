@@ -5,7 +5,10 @@
 #include "interpolation_timeline.h"
 
 namespace bf::graphics {
-struct PresentationStats { uint64_t presents{},generated{},source_frames{}; };
+struct PresentationStats {
+    uint64_t presents{},generated{},source_frames{};
+    uint64_t uploads{},spatial_passes{};
+};
 PresentationStats dx12_stats();
 bool dx12_init(HWND window, uint32_t width, uint32_t height, bool fsr);
 bool dx12_active();

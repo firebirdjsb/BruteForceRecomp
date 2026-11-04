@@ -43,10 +43,29 @@ int main() {
             std::printf("phase %.2f: motion-warp error %.3f, unwarped error %.3f\n",fraction/4.0,error/samples,unwarped/samples);
             require(error/samples<5&&error<unwarped*.1,"Interpolation did not reconstruct translated pixels");
             require(image[5*w+5]==rgba(current[5*w+5]),"Static HUD pixel changed");
+            const auto stats=bf::graphics::dx12_stats();
+            const auto repeated=show(current,{2,start+step,start+step+step*fraction/4+1,120});
+            require(repeated==image&&bf::graphics::dx12_stats().generated==stats.generated&&
+                bf::graphics::dx12_stats().uploads==stats.uploads,"Repeated interpolation phase changed/uploaded again");
         }
         const auto stalled=show(current,{2,start+step,start+step*8,120});require(stalled[100*w+100]==rgba(current[100*w+100]),"Stalled history was reused");
         std::vector<uint32_t> cut(w*h,0xffc02010);const auto reset=show(cut,{4,start+step*9,start+step*9,120});require(reset[100*w+100]==rgba(cut[0]),"Skipped frame did not reset");
         const auto off=show(current,{5,start+step*10,start+step*10,0});require(off[100*w+100]==rgba(current[100*w+100]),"Off path changed source");
+        // Exercise phase reuse with both FSR passes active, including the
+        // previous/current-history and generated-output resource switches.
+        bf::graphics::dx12_shutdown();
+        require(bf::graphics::dx12_init(window,w,h,true)&&bf::graphics::dx12_scale(2),"FSR interpolation init");
+        show(old,{1,start,start,120});show(current,{2,start+step,start+step,120});
+        for(unsigned fraction=0;fraction<=4;++fraction) {
+            const bf::graphics::FrameStamp stamp{2,start+step,start+step+step*fraction/4+1,120};
+            const auto image=show(current,stamp);
+            const auto stats=bf::graphics::dx12_stats();
+            require(stats.spatial_passes>0,"FSR interpolation pass not exercised");
+            require(show(current,stamp)==image,"FSR repeated phase changed pixels");
+            const auto repeated=bf::graphics::dx12_stats();
+            require(repeated.spatial_passes==stats.spatial_passes&&repeated.uploads==stats.uploads&&
+                repeated.generated==stats.generated,"Repeated FSR phase did redundant work");
+        }
         std::puts("PASS: real GPU-generated quarter/half/three-quarter frames, static HUD, reset, stall and off paths.");
     }catch(const std::exception &error){std::fprintf(stderr,"FAIL: %s\n",error.what());status=1;}
     bf::graphics::dx12_shutdown();DestroyWindow(window);return status;
