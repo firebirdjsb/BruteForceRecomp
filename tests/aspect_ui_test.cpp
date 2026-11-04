@@ -17,6 +17,13 @@ int scope_value{};unsigned anchor_value=9;
 void scope_command(int value){scope_value=value;}
 void anchor_command(unsigned value){anchor_value=value;}
 bool near(float a,float b){return std::abs(a-b)<0.02f;}
+bool environment(const char *key,const char *value) {
+#ifdef _WIN32
+    return _putenv_s(key,value)==0;
+#else
+    return *value?setenv(key,value,1)==0:unsetenv(key)==0;
+#endif
+}
 }
 int main() {
     // CPU-only runtime hosts receive no graphics commands until a backend
@@ -44,7 +51,7 @@ int main() {
     if(bf::load_graphics(path).native_widescreen)return 8;
     auto options=bf::load_graphics(path);options.native_widescreen=true;bf::save_graphics(path,options);
     if(!bf::load_graphics(path).native_widescreen)return 9;
-    _putenv_s("BF_UI_SETTINGS",path.string().c_str());_putenv_s("BF_NATIVE_WIDESCREEN","");
+    if(!environment("BF_UI_SETTINGS",path.string().c_str())||!environment("BF_NATIVE_WIDESCREEN",""))return 25;
     bf_ui_settings_initial(1);if(!bf_aspect_requested())return 10;
     // Check inverse pointer mapping at multiple viewport shapes, including a
     // 4:3 window containing a letterboxed 16:9 camera and centered 4:3 controls.
@@ -98,6 +105,6 @@ int main() {
     bf_ui_paint(pixels.data(),640,480);
     bf_aspect_present_source(0);float gx{},gy{};
     if(!bf_ui_point(640,360,1280,720,&gx,&gy)||!near(gx,320)||!near(gy,240))return 17;
-    std::filesystem::remove(path);_putenv_s("BF_UI_SETTINGS","");
+    std::filesystem::remove(path);if(!environment("BF_UI_SETTINGS",""))return 26;
     std::puts("PASS native aspect gate, completed-frame independence, old/new preferences, canvas and pointer safe area, live F1 setting");
 }
