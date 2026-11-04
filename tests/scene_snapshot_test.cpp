@@ -12,6 +12,7 @@
 #include <vector>
 namespace {
 using Microsoft::WRL::ComPtr;
+void phase(const char *name){std::fprintf(stderr,"[SNAPSHOT-PHASE] %s\n",name);std::fflush(stderr);}
 void require(bool ok,const char *why){if(!ok)throw std::runtime_error(why);}
 void check(HRESULT h,const char *why){if(FAILED(h))throw std::runtime_error(why);}
 struct Received {
@@ -28,9 +29,13 @@ void receive(const BfSceneSnapshot *frame,void *user){
 }
 std::vector<unsigned char> read(ID3D11Device *d,ID3D11DeviceContext *c,ID3D11Texture2D *texture){
     D3D11_TEXTURE2D_DESC desc{};texture->GetDesc(&desc);desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;desc.MiscFlags=0;
-    ComPtr<ID3D11Texture2D> staging;check(d->CreateTexture2D(&desc,nullptr,&staging),"staging");c->CopyResource(staging.Get(),texture);
+    phase("readback: create staging");
+    ComPtr<ID3D11Texture2D> staging;check(d->CreateTexture2D(&desc,nullptr,&staging),"staging");
+    phase("readback: copy");c->CopyResource(staging.Get(),texture);
+    phase("readback: map");
     D3D11_MAPPED_SUBRESOURCE mapped{};check(c->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped),"readback");std::vector<unsigned char> pixels(size_t(desc.Width)*desc.Height*4);
-    for(unsigned y=0;y<desc.Height;++y)std::memcpy(pixels.data()+size_t(y)*desc.Width*4,(char*)mapped.pData+size_t(y)*mapped.RowPitch,desc.Width*4);c->Unmap(staging.Get(),0);return pixels;
+    for(unsigned y=0;y<desc.Height;++y)std::memcpy(pixels.data()+size_t(y)*desc.Width*4,(char*)mapped.pData+size_t(y)*mapped.RowPitch,desc.Width*4);
+    phase("readback: unmap");c->Unmap(staging.Get(),0);phase("readback: done");return pixels;
 }
 }
 struct NativeCopy {
@@ -39,6 +44,7 @@ struct NativeCopy {
 };
 static HRESULT native_copy(ID3D12Device *device,ID3D12CommandQueue *,ID3D12GraphicsCommandList *commands,
     ID3D12Resource *const *resources,UINT count,void *user) {
+    phase("native copy callback: enter");
     if(count!=2)return E_INVALIDARG;
     auto &out=*(NativeCopy*)user;
     for(UINT i=0;i<count;++i) {
@@ -56,15 +62,16 @@ static HRESULT native_copy(ID3D12Device *device,ID3D12CommandQueue *,ID3D12Graph
         commands->CopyTextureRegion(&dst,0,0,0,&src,nullptr);
         std::swap(barrier.Transition.StateBefore,barrier.Transition.StateAfter);commands->ResourceBarrier(1,&barrier);
     }
-    return S_OK;
+    phase("native copy callback: done");return S_OK;
 }
 static std::vector<unsigned char> native_read(NativeCopy &copy,unsigned i) {
-    void *mapped=nullptr;check(copy.readback[i]->Map(0,nullptr,&mapped),"native scene readback");
+    phase("native readback: map");void *mapped=nullptr;check(copy.readback[i]->Map(0,nullptr,&mapped),"native scene readback");
     std::vector<unsigned char> bytes(64*48*4);
     for(unsigned y=0;y<48;++y)std::memcpy(bytes.data()+y*64*4,(char*)mapped+copy.layout[i].Offset+y*copy.layout[i].Footprint.RowPitch,64*4);
-    D3D12_RANGE empty{0,0};copy.readback[i]->Unmap(0,&empty);return bytes;
+    phase("native readback: unmap");D3D12_RANGE empty{0,0};copy.readback[i]->Unmap(0,&empty);phase("native readback: done");return bytes;
 }
 int main(int argc,char **argv)try{
+    std::atexit([](){phase("atexit: main local COM resources destroyed");});
     bool d12=false,probe=false,warp=false;
     for(int i=1;i<argc;i++){d12|=!std::strcmp(argv[i],"--d3d12");probe|=!std::strcmp(argv[i],"--probe");warp|=!std::strcmp(argv[i],"--warp");}
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> context;D3D_FEATURE_LEVEL level;
@@ -114,24 +121,30 @@ float4 ps():SV_Target{return float4(1,0,0,1);}
         require(!bf_depth_probe_enabled()&&!bf_depth_probe_publish(device.Get(),context.Get(),color.Get(),depth.Get(),&diagnostic,BF_DEPTH_PROBE_BEFORE_CLEAR),"Diagnostic exceeded its bounded budget");
         ComPtr<ID3D11ComputeShader> restored;context->CSGetShader(&restored,nullptr,nullptr);
         require(restored.Get()==cs.Get(),"Diagnostic changed compute shader state");
+        phase("probe captures and compute-state checks: done");
     }
     // Subsequent UI/effect writes must not change the saved scene color/depth.
-    context->ClearRenderTargetView(target,green);context->ClearDepthStencilView(dsv.Get(),D3D11_CLEAR_DEPTH,1,0);
-    const auto pixels=read(device.Get(),context.Get(),received.color.Get()),z=read(device.Get(),context.Get(),received.depth.Get());
+    phase("post-probe UI clears: begin");context->ClearRenderTargetView(target,green);context->ClearDepthStencilView(dsv.Get(),D3D11_CLEAR_DEPTH,1,0);phase("post-probe UI clears: done");
+    phase("normal saved color: read begin");const auto pixels=read(device.Get(),context.Get(),received.color.Get());phase("normal saved color: read done");
+    phase("normal saved depth: read begin");const auto z=read(device.Get(),context.Get(),received.depth.Get());phase("normal saved depth: read done");
     const size_t left=24*64+16,right=24*64+48;
     require(pixels[left*4]==255&&pixels[left*4+2]==0&&pixels[right*4]==0&&pixels[right*4+2]==255,"Pre-UI color was changed by later UI rendering");
     float left_z,right_z;std::memcpy(&left_z,z.data()+left*4,4);std::memcpy(&right_z,z.data()+right*4,4);
     require(std::abs(left_z-.75f)<.000001f&&std::abs(right_z-.25f)<.000001f,"Actual D24 device depth was not normalized correctly");
-    const auto final=read(device.Get(),context.Get(),color.Get());require(final[left*4+1]==255&&final[right*4+1]==255,"Snapshot modified subsequent scene/UI rendering");
+    phase("final UI color: read begin");const auto final=read(device.Get(),context.Get(),color.Get());phase("final UI color: read done");require(final[left*4+1]==255&&final[right*4+1]==255,"Snapshot modified subsequent scene/UI rendering");
     if(d12) {
         NativeCopy copy;ID3D11Resource *inputs[]={received.color.Get(),received.depth.Get()};
-        check(bf_scene_d3d12_access(context.Get(),inputs,2,native_copy,&copy),"fenced native scene access");
+        phase("native access: begin");check(bf_scene_d3d12_access(context.Get(),inputs,2,native_copy,&copy),"fenced native scene access");phase("native access: done");
+        phase("native color/depth: reads begin");
         require(native_read(copy,0)==pixels&&native_read(copy,1)==z,"Native DX12 did not receive the actual scene color/depth");
+        phase("native color/depth: reads done");phase("returned D3D11 color/depth: reads begin");
         require(read(device.Get(),context.Get(),received.color.Get())==pixels&&read(device.Get(),context.Get(),received.depth.Get())==z,"11On12 scene resources were not returned correctly");
+        phase("returned D3D11 color/depth: reads done");
         std::puts("PASS fenced scene interop: native D3D12 received matching actual color/depth; D3D11 resources usable after return");
     }
-    bf_scene_snapshot_consumer(nullptr,nullptr);require(!bf_scene_snapshot_enabled(),"Snapshot remained enabled without a consumer/capture request");bf_scene_snapshot_shutdown();bf_depth_probe_shutdown();
-    if(d12)check(bf_scene_d3d12_wait(context.Get()),"11On12 completion");
+    phase("snapshot/probe teardown: begin");bf_scene_snapshot_consumer(nullptr,nullptr);require(!bf_scene_snapshot_enabled(),"Snapshot remained enabled without a consumer/capture request");bf_scene_snapshot_shutdown();bf_depth_probe_shutdown();phase("snapshot/probe teardown: done");
+    if(d12){phase("11On12 completion wait: begin");check(bf_scene_d3d12_wait(context.Get()),"11On12 completion");phase("11On12 completion wait: done");}
     std::printf("PASS %s: real pre-UI color, normalized device depth (.75/.25), source identity, mismatched-frame rejection, compute-state preservation, later UI exclusion\n",d12?"D3D12/11On12":"D3D11");
-    if(d12)bf_scene_d3d12_shutdown();return 0;
+    if(d12){phase("D3D12 shutdown: begin");bf_scene_d3d12_shutdown();phase("D3D12 shutdown: done");}
+    phase("main: returning success; local COM teardown follows");return 0;
 }catch(const std::exception &e){bf_scene_snapshot_shutdown();bf_depth_probe_shutdown();std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}
