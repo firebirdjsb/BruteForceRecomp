@@ -141,3 +141,13 @@ licensing must continue to respect the pinned runtime's own notices.
 - Rajdhani fonts retain the SIL Open Font License in
   `native_launcher/assets/fonts/OFL.txt`. Original game artwork and icons are
   extracted only from a user's local disc and are not included in source.
+
+## Optional AMD FSR SDK 2.4
+
+The optional temporal adapter uses AMD's public API headers at build time and
+loads the SDK's signed DX12 binary distribution for local hardware tests.
+The SDK is obtained separately and is not vendored in this repository.
+Binary packages must retain the official SDK license, copied beside the test
+executable as AMD-FSR-SDK-LICENSE.md. See
+[AMD SDK license](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/v2.4.0/Kits/FidelityFX/docs/license.md)
+and [integration notes](docs/FSR_TEMPORAL.md).

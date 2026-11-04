@@ -108,6 +108,12 @@ Windows selects hardware DX12 automatically and falls back to D3D11, then GDI wh
 
 FSR 1 runs AMD's EASU and RCAS GPU compute passes when the window is at least the source size; smaller windows use bilinear downscaling. Aspect ratio is preserved. The default scene renderer is the CPU reference. Windows builds with `-DBF_EXPERIMENTAL_NV2A_D3D11=ON` can select **D3D11 GPU (experimental)** and GPU vertex programs in the launcher or F1's Renderer page. The scene is read back for the existing DX12/FSR presenter. This is spatial FSR 1, not temporal reconstruction or frame generation. DLSS integration remains pending because the renderer does not yet expose valid depth, motion vectors and camera history. Linux/Android do not use DX12; native graphics integration on those platforms remains separate. See [GPU backend evidence and limits](docs/GPU_SCENE_BACKEND.md).
 
+An optional AMD SDK adapter now passes standalone RX 7600 tests for FSR 3.1.6,
+FSR 4.1.2 and FSR 3.1.6 Frame Generation, including the FSR 4.1.2 + FG combination.
+It is not connected to gameplay: coherent scene depth, engine motion/history,
+GPU handoff and HUD/presentation integration are still required. See
+[FSR implementation, tests and remaining work](docs/FSR_TEMPORAL.md).
+
 A standalone hardware test requires no game data:
 
 GPU-enabled builds also offer **D3D12 GPU via D3D11On12 (experimental)** for
