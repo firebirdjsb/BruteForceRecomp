@@ -19,6 +19,21 @@ extern "C" {
 int bf_guest_menu_focus(uint32_t,uint32_t);
 int bf_guest_list_focus(uint32_t,uint32_t);
 int bf_guest_keyboard_focus(uint32_t,uint32_t,uint32_t);
+int bf_guest_view_origin(uint32_t,float *,float *);
+}
+extern "C" int bf_game_ui_scratch_writable(uint32_t va,unsigned bytes) {
+    if(va<0x10000||!bytes||uint64_t(va)+bytes>g_xbox_total_ram)return 0;
+#ifdef _WIN32
+    uintptr_t cursor=uintptr_t(xbox_GetMemoryOffset())+va,end=cursor+bytes;
+    while(cursor<end) {
+        MEMORY_BASIC_INFORMATION info{};
+        if(!VirtualQuery(reinterpret_cast<void *>(cursor),&info,sizeof info)||info.State!=MEM_COMMIT||
+           (info.Protect&(PAGE_GUARD|PAGE_NOACCESS))||!(info.Protect&(PAGE_READWRITE|PAGE_WRITECOPY)))return 0;
+        const auto next=reinterpret_cast<uintptr_t>(info.BaseAddress)+info.RegionSize;
+        if(next<=cursor)return 0;cursor=next;
+    }
+#endif
+    return 1;
 }
 namespace {
 bool read(uint32_t va,void *out,size_t size) {
@@ -97,6 +112,14 @@ bool position(uint32_t object,BfUiRect &r) {
     // +0x1C/+0x20 unless flag 0x20 suppresses that offset.
     for(int depth=0;object&&depth<16;++depth) {
         if(!node(object,n))return false;
+        // Generic view overrides base GetPosition at virtual +8 with
+        // 001012E0. Root +65 bit0 requests the current player's viewport;
+        // bit1 centers within its safe area. Original code owns this layout.
+        // Summing only local offsets loses the pause panel's entire origin.
+        if(n.at(0)==0x0039E3D8&&!n.at(8)&&((n.at(0x64)>>8)&1)) {
+            float x{},y{};if(!bf_guest_view_origin(object,&x,&y))return false;
+            r.x+=x;r.y+=y;object=0;break;
+        }
         r.x+=n.number(0xC);r.y+=n.number(0x10);
         if(!(n.flags()&0x20)){r.x+=n.number(0x1C);r.y+=n.number(0x20);}
         object=n.at(8);
@@ -225,12 +248,17 @@ void tick(uint32_t view) {
     for(size_t i=0;i<children.size();++i) {
         Node item;BfUiRect rect;
         if(!node(children[i],item)||(item.flags()&6)!=6)continue;
-        if(item.at(0)!=0x0039E140&&item.at(0)!=0x0039E310&&item.at(0)!=0x0039DFC8&&item.at(0)!=0x0039E020)continue;
+        if(item.at(0)!=0x0039E140&&item.at(0)!=0x0039E310&&item.at(0)!=0x0039DFC8&&item.at(0)!=0x0039E020&&item.at(0)!=0x0039E060)continue;
         if(
            !position(children[i],rect)||!bf_ui_contains(rect,pointer.x,pointer.y))continue;
         if(item.at(0)==0x0039E140 && !(item.at(0x74)&255)) {
             if(!(item.flags()&1)&&!bf_guest_menu_focus(view,uint32_t(i)))return;
             if(pointer.action==1)bf_ui_pad_press(0);
+        } else if(item.at(0)==0x0039E060) {
+            // Original 10C410 cycles this value with right/left input (bits
+            // 0x10/0x08), rather than Accept. Keep its change notification.
+            if(!(item.flags()&1)&&!bf_guest_menu_focus(view,uint32_t(i)))return;
+            if(pointer.action==1)bf_ui_pad_press(11); // Normal D-pad Right.
         } else if(item.at(0)==0x0039E310) {
             if(!(item.flags()&1)&&!bf_guest_menu_focus(view,uint32_t(i)))return;
             std::vector<uint32_t> rows;if(!vector(children[i],0x7C,rows))continue;

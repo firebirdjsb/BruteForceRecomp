@@ -11,7 +11,7 @@ add_executable(bf_tutorial_ui_test tests/game_menu_tutorial_test.cpp src/game_me
 target_include_directories(bf_tutorial_ui_test PRIVATE src "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
 target_link_libraries(bf_tutorial_ui_test PRIVATE bf_host_ui bf_text_events)
 add_test(NAME native_tutorial_ui COMMAND bf_tutorial_ui_test)
-add_executable(bf_gameplay_glyph_test tests/gameplay_glyph_test.cpp src/ui/gameplay_glyphs.cpp)
+add_executable(bf_gameplay_glyph_test tests/gameplay_glyph_test.cpp src/ui/gameplay_glyphs.cpp src/ui/prompt_text.cpp)
 target_include_directories(bf_gameplay_glyph_test PRIVATE src "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
 target_link_libraries(bf_gameplay_glyph_test PRIVATE bf_host_ui)
 add_test(NAME gameplay_glyph_labels COMMAND bf_gameplay_glyph_test)

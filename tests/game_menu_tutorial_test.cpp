@@ -16,12 +16,14 @@ extern "C" {
 void *bf_game_tutorial_begin(uint32_t);
 void bf_game_tutorial_end(void *);
 void bf_game_menu_tick(uint32_t);
+int bf_game_prompt(uint32_t);
 }
 namespace {
 // A synthetic mutable guest heap, never a retail title/process or save file.
 std::vector<uint8_t> memory(8u<<20);
 constexpr uint32_t view=0x100000,table=0x110000,heap=0x200000;
 unsigned unexpected_focus{};
+uint32_t focused_view{},focused_index{};
 struct Fixture { uint32_t tag,vtable;float x,y,w,h; };
 constexpr Fixture fixtures[]={
     {0x0BB9C4AF,0x39E0C0,53,2,246,24},
@@ -81,9 +83,12 @@ ptrdiff_t xbox_GetMemoryOffset(){return reinterpret_cast<ptrdiff_t>(memory.data(
 size_t g_xbox_total_ram=8u<<20;
 // Focus callbacks are deliberately observable test doubles: this fixture's
 // two original prompt nodes must use ordinary controller pulses instead.
-int bf_guest_menu_focus(uint32_t,uint32_t){unexpected_focus++;return 1;}
+int bf_guest_menu_focus(uint32_t v,uint32_t i){unexpected_focus++;focused_view=v;focused_index=i;return 1;}
 int bf_guest_list_focus(uint32_t,uint32_t){unexpected_focus++;return 1;}
 int bf_guest_keyboard_focus(uint32_t,uint32_t,uint32_t){unexpected_focus++;return 1;}
+// Observable fixture for the original viewport-aware GetPosition. Production
+// calls the actual translated method; no viewport constants enter player code.
+int bf_guest_view_origin(uint32_t v,float *x,float *y){if(v!=view)return 0;*x=184;*y=138;return 1;}
 }
 #define CHECK(condition) do { if(!(condition)){std::fprintf(stderr,"Tutorial fixture failed at line %d\n",__LINE__);return 1;} } while(0)
 int main(int argc,char **argv) {
@@ -170,5 +175,31 @@ int main(int argc,char **argv) {
     bf_ui_focus_lost();bf_ui_mouse(190,395,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
     CHECK(bf_ui_pad(&digital,analog.data())&&analog[3]==255&&unexpected_focus==0);
     bf_ui_tutorial_clear();painted=unpainted;bf_ui_paint(painted.data(),640,480);CHECK(painted==unpainted);
-    std::puts("Basic Controls semantic recognition, original draw masking/restoration, device switching, unchanged accept/skip and unrelated-view preservation passed.");
+    // Pause root is local 0,0 but original GetPosition centers it within the
+    // current player safe area. Glyphs and pointer hits must use that origin.
+    setup();bf_ui_tutorial_clear();word(view+0x24,0xFDCD29B4);word(view+0x64,0x300);
+    number(view+0xC,0);number(view+0x10,0);number(view+0x14,272);number(view+0x18,204);
+    for(unsigned i=0;i<std::size(fixtures);i++)word(object(i)+0x28,0);
+    const auto resume=object(0),aim=object(1),prompt=object(2),hidden_button=object(3);
+    for(auto a:{resume,aim,prompt,hidden_button})word(a+0x28,6);
+    word(resume,0x39E140);word(resume+0x24,0x16C06C82);word(resume+0x74,0);
+    number(resume+0xC,0);number(resume+0x10,35);number(resume+0x14,272);number(resume+0x18,20);
+    word(aim,0x39E060);word(aim+0x24,0x1463DDF4);
+    number(aim+0xC,102);number(aim+0x10,85);number(aim+0x14,158);number(aim+0x18,20);
+    word(prompt,0x39E020);word(prompt+0x24,0x0499CE0B);word(prompt+0xC4,'A');
+    number(prompt+0xC,34);number(prompt+0x10,175);number(prompt+0x14,110);number(prompt+0x18,20);
+    word(prompt+0x68,prompt);number(prompt+0x6C,0);number(prompt+0x70,0);
+    number(prompt+0x74,24);number(prompt+0x78,20);number(prompt+0x7C,0);number(prompt+0x80,0);
+    word(hidden_button,0x39E140);word(hidden_button+0x28,2);word(hidden_button+0x74,0);
+    bf_ui_focus_lost();bf_ui_menu_seen();const auto focus_before=unexpected_focus;
+    bf_ui_mouse(10,45,640,480,0);bf_game_menu_tick(view);CHECK(unexpected_focus==focus_before);
+    bf_ui_mouse(194,183,640,480,0);bf_game_menu_tick(view);
+    CHECK(unexpected_focus==focus_before+1&&focused_view==view&&focused_index==0);
+    bf_ui_mouse(194,183,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
+    CHECK(bf_ui_pad(&digital,analog.data())&&analog[0]==255);
+    bf_ui_focus_lost();bf_ui_mouse(300,233,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
+    CHECK(focused_index==1&&bf_ui_pad(&digital,analog.data())&&(digital&8)&&!analog[0]);
+    CHECK(bf_game_prompt(prompt));painted=unpainted;bf_ui_paint(painted.data(),640,480);
+    CHECK(painted[315*640+218]==0xff59bfd9&&painted[177*640+34]==unpainted[177*640+34]);
+    std::puts("Tutorial preservation, viewport-aware pause hover/click/value input and prompt alignment passed.");
 }

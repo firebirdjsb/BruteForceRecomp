@@ -14,12 +14,85 @@ to continue. Push source, tests and documentation only. Never commit retail XBE,
 ISO/assets/DLC payloads, generated/recovered game C, captures, logs, save data,
 private dumps or binaries. The launcher is a native application, never a website.
 
+## Latest continuation - HUD and pause fixes (4 November)
+
+The screenshot report expanded to HUD AA, swapped R/MMB labels, Start/trigger
+wording, and displaced/unresponsive pause controls. Source and installed player
+now include the following corrections; verify them with a real mouse before
+claiming full player acceptance.
+
+- Native HUD images use original primitive BA950, before CCD20 font draws.
+  cmake/inline_glyphs.cmake now authenticates chunk0040 SHA
+  d51c8e0605f62e43f2b4179d860ddfa0206fdbc0d01e4970fc113f6ddf0c4035 and
+  places the ordered marker at that primitive's entry, before any HUD pixels.
+  The existing once-per-surface/frame gate protects later UI. Expanded real
+  NV2A CPU/D3D11/D3D12 test preserves all384 opaque HUD-art and256 text pixels
+  exactly On/Off;99 CPU /104 GPU remaining scene pixels change. Transparent
+  HUD naturally composites against the changed scene; no final-frame AA.
+- HUD C/D order is now X/Y -> R/MMB via hud_glyph_control. Generic-menu mapping
+  and all actual input reports remain unchanged. This is the user's requested
+  HUD correction, not a new controller remap.
+- src/ui/prompt_text.{h,cpp} renders English Start-button wording as ESC;
+  trigger-to-fire wording as LMB. User explicitly confirmed the left-trigger
+  instruction meant **weapon firing**. Inventory/throw wording remains G;
+  context handles original swapped-trigger descriptions. Labels come from the
+  primary binding table. Unmatched/localized strings and controller use retain
+  originals. A source-word boundary prevents edits to ordinary Restart/Start
+  Campaign labels. This is not a complete localized instruction translation.
+- Native CCD20 wrapper calls the renamed authenticated original font draw with
+  copied44-byte return/argument frame and changed UTF16 in2048 unused guest
+  stack bytes, at most383 units. It restores caller-relative ESP delta, leaves
+  caller args/source strings intact, keeps original fonts/alpha/wrapping path,
+  and refuses invalid/read-only scratch pages. Tests cover context labels,
+  controller fallback, source/argument identity and protected destinations.
+- Pause root virtual GetPosition+8 points to1012E0, not base EF0F0. Root+65 bit0
+  selects current player viewport; bit1 centers in its safe area. Native
+  original1013D0/101510/101590 own this calculation. The C bridge preserves all
+  guest GPR/SSE/x87 state, uses a validated8-byte scratch output and calls the
+  actual original getter. Both keycaps and mouse hit rectangles use it. No
+  viewport coordinates were hardcoded into player code. Original focus/action
+  methods remain. Class39E060 Aiming value now focuses on hover and queues
+  normal D-pad Right on click (original10C410 owns cycling and notification).
+
+Validation: Windows/Linux full links, all32 Windows and21 Linux tests passed;
+expanded AA preservation passed CPU/WARP11/WARP12; focused viewport fixture
+checks false hits at old coordinates, original-focus callback indices, Resume
+Accept pulse, Aiming Right pulse and exact keycap raster location. Glyph test
+was rerun after adding destination write-protection coverage. XBE verifier and
+Python compileall passed. Earlier59132b3 CI41823813815 succeeded.
+
+A real four-minute disposable campaign run:
+work/hud-aa-fix/interval-original-zesn5qij/boot-mwyefmt3/boot.log.
+Driver work/hud-aa-fix/pause_qa.py / boot_scratch.py copies only prior disposable
+TDATA/UDATA, omits Cache, uses forced pad input and BF_UI_INPUT_LIVE. It reached
+Basic Controls at~86s, opened pause at~91s, read native Resume rect184/173/272/20
+and Accept rect218/313/110/20. It hovered/clicked Resume at320,183, reopened
+pause, hovered Restart at320,208, returned to Resume and clicked again. Actual
+original focus flags changed (96->97 on Resume); no unresolved/invalid guest
+call was found. Its watchdog exit3 is a bounded ending, not mission completion.
+Framebuffer captures were solid-color in this headless mode: do not call them
+visual gameplay/HUD evidence. Physical mouse ownership/cursor and actual AA
+On/Off HUD appearance still need a visible player test. No Restart/Quit action
+was clicked. The run has finished; never reuse its PID44012.
+
+Installed player SHA256 at canonical, candidate and old-prototype paths:
+7eef314cdd101a9fda9427cf353af197b61cd614abf3d99649a4e822a917b61a.
+Newest backup work/hud-aa-fix/install-20261104-072558/install-manifest.json
+contains old executables/maps/settings and64 protected save/settings hashes.
+All64 retained identical bytes; native --validate-only returned0. Launcher
+settings still selects work/diagnostic-build/Release/bruteforce_recomp.exe.
+The launcher remains the prior updated build2e225405... and is open at root;
+no launcher binary or preferences changed in this second installation. Original
+ISO/XBE/DLC and production services remain untouched. Restore matching manifest
+paths only with apps closed, keeping current player-data. No game is currently
+running at handoff preparation; check processes rather than assuming this lasts.
+
 ## Immediate objective and remaining user reports
 
 1. Verify the scene-only AA correction in real gameplay: text, HUD, menus and
    prompts must stay sharp. Do not restore the old completed-frame AA path.
-2. Finish mouse hover/click on pause/Options/exit menu, retaining original focus,
-   action callbacks and Restart/Quit confirmations. It is NOT yet fixed here.
+2. Verify the installed pause-menu coordinate fix with real mouse hover/click,
+   especially Aiming and confirmation dialogs; retain original action callbacks.
 3. Verify inline gameplay keycaps, e.g. `Hold Xbox X to swap` -> `Hold R to swap`
    with the Windows raw desktop profile. Keep controller ownership/fallback.
    Fit longer labels (SPACE/ENTER) within their allocated space; current host
@@ -43,8 +116,8 @@ None of those broad milestones is established by this checkpoint.
 - `src/ui/scene_boundary.{h,cpp}`, `scene_aa_state.cpp`,
   `cmake/scene_antialias.cmake`, `src/game_text_guest.c` and
   `cmake/inline_glyphs.cmake`: enqueue private NV097_NO_OPERATION marker
-  `0xBF414100` before authenticated original font entry `0xCCD20` and generic
-  UI quad entry `0xEE6E0`. Original device global `0x37DD88`; device+0/+4 are
+  `0xBF414100` before authenticated native HUD image primitive `0xBA950`, original font
+  entry `0xCCD20` and generic UI quad entry `0xEE6E0`. Original device global `0x37DD88`; device+0/+4 are
   push cursor/threshold. Exact 8 command bytes, cursor advance and write-page
   checks. When necessary the wrapper uses original reserve function 0x371E10
   and its audited RET 8 ABI; integer/SSE/x87 guest registers are restored.
@@ -73,7 +146,7 @@ None of those broad milestones is established by this checkpoint.
   aliases remain. This does not implement arbitrary user rebinding.
 - `src/ui/gameplay_glyphs.cpp`: at original font instruction 0xCD219, validate
   resolved controller font ID `0x0E38A4CA`, UTF16 cursor and quad geometry.
-  Known glyphs A/B/C/D/H/I/J map to A/B/Y/X/Back/White/Black. Ordinary font ID
+  HUD glyphs A/B/C/D/H/I/J map to A/B/X/Y/Back/White/Black (corrected above). Ordinary font ID
   `0x0C626FD5`, unknown icons, invalid memory and controller use keep original
   draws. For replaced glyphs jump only over four vertices to original End
   0xCD2B9, retaining original stack cleanup. Shadow return PCs 0xC9A88/0x10A572
@@ -137,7 +210,8 @@ It IS registered in the primary manager at runtime (observed 0xE66FC0).
 An earlier guess that pause used a different unmanaged owner was wrong; do not
 add a broad managed-view bypass based on it. Snapshot omitted animation offsets
 +0x1C/+0x20 and failed to capture fresh +0x74 state; inspect those next.
-Existing `position()` adds owner transforms and animation offsets. `tick()`
+Current `position()` also calls the original viewport-aware root getter as
+described in the latest continuation; this older snapshot omitted that behavior. `tick()`
 requires registered active generic root and enabled children, queues normal
 pad input after original focus callback. Optional BF_TRACE_UI logs bounded
 `[UI-PAUSE]` child geometry/state when that view first becomes active.
@@ -148,7 +222,7 @@ Confirmed direct children (tag, vtable, local x/y/w/h):
 - Restart Chapter 1FFD6617,39E140, 0/85/272/20, HIDDEN in snapshot.
 - Aiming label 0E610311,39E140, 10/85/92/20.
 - Quit 13D713E1,39E140, 0/110/272/20.
-- Aiming value 1463DDF4,39E060, 102/85/158/20: class NOT handled by mouse tick.
+- Aiming value 1463DDF4,39E060, 102/85/158/20: now handled by mouse tick (see latest continuation).
 - Accept 0499CE0B / Back 0E8204A4,39E020, 34/175 and148/175.
 Original selectability 0x1097C0 requires visible bit4 and byte at +0x74 ==0;
 existing filter is intentional, not proven cause. Focus original0xFFDC0 owns
@@ -173,7 +247,7 @@ Literal D-pad help string key1432B41C; Hold prefix1CC51F04; squad glyph row
 ABCDJI and Back H confirmed. global469AB0 is asset/factory manager, NOT widget
 root. No squad artwork replacement has been implemented.
 
-## Installed AA correction - 4 November 2026 (supersedes old build paths)
+## Earlier AA installation - 4 November 2026 (superseded by latest continuation)
 
 User supplied AA Off / Edge AA screenshots showing corrupted F1 overlay text.
 Process inspection proved PID16376 was running the obsolete full-frame-AA

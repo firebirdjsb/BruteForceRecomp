@@ -5,6 +5,39 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### HUD artwork, prompt labels and pause-menu coordinates - 4 November
+
+AA's font boundary was too late for native HUD images. An additional ordered
+boundary now runs before the authenticated original image primitive 0xBA950.
+The CPU/D3D11/D3D12 test covers a HUD panel drawn before text: all 384 panel
+pixels and 256 text pixels remain identical with AA On/Off, while scene edges
+change. Full live HUD/FX coverage still needs player acceptance.
+
+Gameplay HUD C/D glyph labels now show R/MMB in the corrected order; physical
+bindings and the accepted raw mouse path remain unchanged. English literal
+Start-button instructions display ESC. Trigger instructions describing weapon
+fire display LMB, including the left-trigger firing variant confirmed by the
+user; inventory/throw instructions display G. Rendering uses a bounded temporary
+guest-stack argument/string copy, keeping original fonts and stored strings.
+Unknown/localized strings and controller input retain original behavior.
+
+The pause view overrides base GetPosition with 0x1012E0, which selects the
+current player's viewport/safe area and centers the panel. The former local
+coordinate sum missed this origin for keycaps and hit testing. The adapter now
+calls that original getter with register/stack preservation. Aiming values
+also accept mouse focus and normal Right input to cycle their original options.
+A disposable four-minute D3D12 campaign run reached the actual pause widgets,
+hovered Restart, returned to Resume and dispatched Resume clicks. It ended at
+the watchdog without a guest-call failure. Framebuffer captures from that
+headless run were solid-color and are not visual acceptance evidence.
+
+Both player links and all 32 Windows / 21 Linux checks pass. The updated player
+is installed at the canonical and previous-prototype paths; content validation
+passes, and all 64 permanent save/settings files checked remained byte-identical.
+No original game data or production service changed. See the handoff for the
+new hash, backup and remaining manual mouse/HUD checks. Earlier counts and
+installation notes below describe prior checkpoints.
+
 ### Scene-only AA and keyboard prompt checkpoint
 
 The earlier uncommitted AA prototype filtered completed frames and softened

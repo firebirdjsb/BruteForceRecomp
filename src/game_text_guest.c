@@ -42,7 +42,34 @@ static void restore_registers(const BfGuestRegisters *s) {
     g_df=s->direction;g_fp_top=s->top;g_fp_cmp=s->comparison;
     g_fp_control_word=s->control;g_fp_cc=s->status;
 }
+int bf_game_ui_scratch_writable(uint32_t,unsigned);
+void sub_001012E0(void);
+int bf_guest_view_origin(uint32_t view,float *x,float *y) {
+    BfGuestRegisters state;save_registers(&state);
+    const uint32_t stack=g_esp;
+    if(!x||!y||stack<0x10008u||!bf_game_ui_scratch_writable(stack-8,8))return 0;
+    const uint32_t output=stack-8;g_esp=output;
+    // Exact original virtual GetPosition: ECX=view, DWORD output pointer,
+    // RET 4. Original parent call returns at 0010130B. Its safe-area/player
+    // viewport selection remains original, including split-screen ownership.
+    g_ecx=view;PUSH32(g_esp,output);PUSH32(g_esp,0x0010130Bu);sub_001012E0();
+    const int valid=g_esp==output;
+    if(valid){*x=MEMF(output);*y=MEMF(output+4);}
+    restore_registers(&state);return valid;
+}
 void sub_00371E10(void);
+uint32_t bf_prompt_text_frame(uint32_t frame);
+void bf_original_font_draw(void);
+void sub_000CCD20(void) {
+    // Original font draw has ten DWORD arguments and RET 40. A rewritten
+    // prompt uses a private copy of those 44 bytes below the caller's stack;
+    // source strings and caller arguments remain untouched. Relocate only
+    // the resulting ESP, preserving the original body's cleanup/error delta.
+    const uint32_t original=g_esp,relay=bf_prompt_text_frame(original);
+    if(relay)g_esp=relay;
+    bf_original_font_draw();
+    if(relay)g_esp=original+(g_esp-relay);
+}
 void bf_guest_ui_boundary(void) {
     BfGuestRegisters state;save_registers(&state);
     // Authenticated retail D3D global; the device and pushbuffer allocations

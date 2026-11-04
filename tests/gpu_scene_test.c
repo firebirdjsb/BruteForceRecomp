@@ -1060,6 +1060,20 @@ static int scene_ui_aa(const char *out_path,int enabled)
     identity_matrix();surface(va,B_SIZE,0);clear(0xF0,0xFF000000u,0);combiners(0);
     method(0x030C,0);draw(5,triangle,white,uv,3,vb);
     bf_scene_aa_set_enabled(enabled);method(0x0100,BF_UI_SCENE_BOUNDARY);
+    /* HUD image edges precede font rendering in the actual native UI. Cover
+     * coloured one-pixel health-bar artwork before the later font boundary. */
+    {
+        const Pos panel[4]={{2,2,0,1},{34,2,0,1},{34,14,0,1},{2,14,0,1}};
+        const uint32_t fill[4]={0xFF112D41u,0xFF112D41u,0xFF112D41u,0xFF112D41u};
+        draw(8,panel,fill,uv,4,vb);
+    }
+    for(y=2;y<14;y++)for(x=2;x<34;x++)if(y==2||y==13||x==2||x==33||((x+y)&1)) {
+        const Pos pixel[4]={{(float)x,(float)y,0,1},{(float)x+1,(float)y,0,1},
+                            {(float)x+1,(float)y+1,0,1},{(float)x,(float)y+1,0,1}};
+        const uint32_t color[4]={0xFF33BBDDu,0xFF33BBDDu,0xFF33BBDDu,0xFF33BBDDu};
+        draw(8,pixel,color,uv,4,vb);
+    }
+    method(0x0100,BF_UI_SCENE_BOUNDARY); /* First font: too late to protect artwork alone. */
     /* Independently authored one-pixel text strokes after the scene boundary.
      * Repeated boundaries between strokes must never re-filter existing UI. */
     for(y=8;y<24;y++)for(x=40;x<56;x++)if((x+y)&1) {

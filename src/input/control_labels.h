@@ -19,4 +19,11 @@ inline int glyph_control(unsigned glyph) {
     case 'H':return 13;case 'I':return 5;case 'J':return 4;
     default:return -1;}
 }
+// The gameplay HUD's X/Y artwork uses C/D in ABXY order. Keep this separate
+// from the existing generic-menu adapter and from physical input reports.
+inline int hud_glyph_control(unsigned glyph) {
+    if(glyph=='C')return 2;
+    if(glyph=='D')return 3;
+    return glyph_control(glyph);
+}
 }

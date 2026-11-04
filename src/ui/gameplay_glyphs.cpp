@@ -34,7 +34,7 @@ extern "C" int bf_gameplay_glyph(uint32_t frame) try {
     uint32_t font_id{};uint16_t character{};
     if(!read(words[0x58/4],&font_id,4)||font_id!=0x0E38A4CA||
        words[0x68/4]<2||!read(words[0x68/4]-2,&character,2))return 0;
-    const auto control=bf::input::glyph_control(character);
+    const auto control=bf::input::hud_glyph_control(character);
     if(control<0)return 0; // Never replace ordinary letters or an unknown icon.
     bool desktop=false;
 #ifdef _WIN32
