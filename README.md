@@ -1,6 +1,6 @@
 # Brute Force recompilation prototype
 
-Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows, Linux and Android. This is a separate experimental project. It does not modify BruteForceDecomp or replace its evidence-led source reconstruction.
+Goal: a faithful native port of the original Xbox Brute Force (2003) to Windows with playing M&K in mind, Linux and Android. This is a separate experimental project. It does not modify BruteForceDecomp or replace its evidence-led source reconstruction.
 
 **This is not a finished or verified playable port.** Translation, compiling, booting, rendering and completing a mission are separate gates. Generated code and inferred calling conventions must be checked against the original executable and measured execution.
 
