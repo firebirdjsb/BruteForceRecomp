@@ -14,7 +14,42 @@ to continue. Push source, tests and documentation only. Never commit retail XBE,
 ISO/assets/DLC payloads, generated/recovered game C, captures, logs, save data,
 private dumps or binaries. The launcher is a native application, never a website.
 
-## Latest continuation - graphics performance checkpoint
+## Latest continuation - texture lookup hints
+
+The user authorized continuing within the remaining usage and explicitly asked
+for another GitHub checkpoint/handoff before stopping. Keep source-only pushes.
+
+The follow-up changes only src/gpu/d3d11_backend.c and documentation. An 8-KiB
+direct-mapped table stores slot+1 for 4,096 descriptor buckets. Before using any
+hint, validate its index and the full existing texture descriptor key. Empty,
+colliding or LRU-replaced hints fall back to the original full search. Exact
+texture/palette byte comparisons remain on every use; alias synchronization,
+original mips/alpha, reconstruction, AA and all GPU waits are unchanged.
+BF_PROFILE_RENDER now reports lookup hint hits versus fallback searches.
+
+Checks: full Windows player link, 33/33 player checks; public DX11/DX12 NV2A
+parity and scene-AA/HUD/text preservation 3/3. Existing real command fixtures
+cover same-frame source/palette rewrites, mip chains and format/surface aliases.
+These checks do not prove a mission-FPS improvement or complete gameplay.
+No new source-frame timing, mouse/input, physics, launcher schema or game-data
+change was made. Native 16:9, temporal DLSS and a 30-FPS minimum remain unfinished.
+
+Candidate: work/menu-polish/player/Release/bruteforce_recomp.exe, SHA256
+dbbed05203c537a9be3a49d0d95b7ab1c8b6fdc840ecf08696bc551e56dfb34a.
+The normal build cache still redirects its output to that folder. It does not
+automatically install the canonical work/diagnostic-build/Release executable.
+At candidate validation the user was still running e5f3846d. A normal-exit
+request is pending before replacement; verify current processes and installation
+state rather than assuming the built candidate is installed. The previous
+installation/rollback details below remain valid until a new manifest is recorded.
+
+Next: use the same M02_a position to compare hint hits/searches and texture CPU
+time, then profile the remaining decoder/producer/consumer work. Previous live
+timings show both texture work and ordered completion waits are material, but
+neither is proven to explain the entire deficit. Do not trade correctness for
+FPS by faking semaphore completion, DMA_GET, or changing original simulation.
+
+## Earlier continuation - graphics performance checkpoint
 
 Code checkpoint `e75e5b27cb8820ff63211c46f9dc6975bbe50fbc` is pushed to main;
 GitHub source CI 41846334680 succeeded. This later handoff-only checkpoint adds

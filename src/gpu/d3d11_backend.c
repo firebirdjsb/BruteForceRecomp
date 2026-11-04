@@ -87,6 +87,7 @@ static struct {
     unsigned tex_gpu, tex_cpu, tex_bc, tex_direct, tex_pitch;
     unsigned depth_seeds, depth_samples, depth_snapshots, depth_rejected;
     uint64_t tex_compared_bytes;
+    unsigned tex_hint_hits, tex_searches;
     double readback_ms;
 } s_st;
 
@@ -139,9 +140,10 @@ static void stats_flip(void)
                 s_st.depth_seeds, s_st.depth_samples, s_st.depth_snapshots, s_st.depth_rejected,
                 (unsigned long long)s_st.tex_compared_bytes);
         if (profile_enabled())
-            fprintf(stderr, "[GPU-PERF] texture lookup/validation/upload %.2f ms/s across %llu calls; interval %.3f s\n",
+            fprintf(stderr, "[GPU-PERF] texture lookup/validation/upload %.2f ms/s across %llu calls; interval %.3f s; lookup hints %u, searches %u\n",
                 s_texture_profile.ms * 1000.0 / (now - last),
-                (unsigned long long)s_texture_profile.calls, (now - last) / 1000.0);
+                (unsigned long long)s_texture_profile.calls, (now - last) / 1000.0,
+                s_st.tex_hint_hits, s_st.tex_searches);
         if (profile_enabled())
             fprintf(stderr, "[GPU-PERF] ordered completion waits %.2f ms/s across %llu calls; max %.3f ms\n",
                 s_completion_profile.ms * 1000.0 / (now - last),
@@ -944,6 +946,25 @@ typedef struct {
 
 static Tex *s_tex;
 static int s_ntex;
+/* Direct-mapped hints store slot+1, never an authority on texture identity or
+ * content. Slots are fixed for this device's lifetime. An LRU replacement or
+ * bucket collision must pass the full key check or use the original search. */
+#define TEX_HINT_COUNT 4096u
+static uint16_t s_tex_hint[TEX_HINT_COUNT];
+static unsigned texture_hint(const Nv2aTexture *t, int cube, unsigned palette_entries)
+{
+    uint32_t key=(t->offset>>7)^(t->offset>>19)^t->palette^t->pitch^
+        (t->width<<3)^(t->height<<15)^t->color^(t->levels<<8)^
+        (palette_entries<<20)^(uint32_t)(uint8_t)cube;
+    key^=key>>16;key*=0x9E3779B1u;key^=key>>16;
+    return key&(TEX_HINT_COUNT-1u);
+}
+static int texture_key_matches(const Tex *e,const Nv2aTexture *t,int cube,unsigned palette_entries)
+{
+    return e->offset==t->offset&&e->w==t->width&&e->h==t->height&&
+        e->color==t->color&&e->pitch==t->pitch&&e->cube==(uint8_t)cube&&
+        e->palette==t->palette&&e->palette_entries==palette_entries&&e->levels==t->levels;
+}
 static uint32_t *s_decode;
 static size_t s_decode_cap;
 static GpuTextureDecoder s_texture_decoder;
@@ -1195,6 +1216,7 @@ static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, 
     int rewritten,asset_eligible=1;
     unsigned palette_entries = t && t->color == 0x0B ? 256u >> ((nv2a_backend_reg(0x1B20 + stage * 0x40) >> 2) & 3u) : 0;
     int i, faces = cube ? 6 : 1;
+    unsigned hint;
 
     if (!t || !t->width || !t->height || t->width > 4096 || t->height > 4096)
         return NULL;
@@ -1259,15 +1281,16 @@ static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, 
             }
         }
     }
-    for (i = 0; i < s_ntex; i++)
-        if (s_tex[i].offset == t->offset && s_tex[i].w == t->width && s_tex[i].h == t->height
-                && s_tex[i].color == t->color && s_tex[i].pitch == t->pitch
-                && s_tex[i].cube == (uint8_t)cube && s_tex[i].palette == t->palette
-                && s_tex[i].palette_entries == palette_entries
-                && s_tex[i].levels == t->levels) {
-            e = &s_tex[i];
-            break;
+    hint=texture_hint(t,cube,palette_entries);
+    i=(int)s_tex_hint[hint]-1;
+    if(i>=0&&i<s_ntex&&texture_key_matches(&s_tex[i],t,cube,palette_entries)) {
+        e=&s_tex[i];s_st.tex_hint_hits++;
+    } else {
+        s_st.tex_searches++;
+        for(i=0;i<s_ntex;i++)if(texture_key_matches(&s_tex[i],t,cube,palette_entries)) {
+            e=&s_tex[i];s_tex_hint[hint]=(uint16_t)(i+1);break;
         }
+    }
     /* Exact source snapshots detect rewrites even within one frame. The old
      * full/sparse hashes were write-only metadata; do not scan these bytes a
      * second time. Count the requested comparison span, including early exits. */
@@ -1300,6 +1323,7 @@ static ID3D11ShaderResourceView *lookup_texture(const Nv2aTexture *t, int cube, 
     e->palette_entries = palette_entries;
     if (palette_entries) memcpy(e->palette_copy,GUEST(t->palette),palette_entries * 4);
     e->gen = s_gen; e->last_use = s_gen;
+    s_tex_hint[hint]=(uint16_t)(e-s_tex+1);
     if (s_tex_log)
         fprintf(stderr, "[GPU-TEX] %s %s va=0x%08X format=0x%02X %ux%u pitch=%u"
                         " faces=%d levels=%u palette=0x%08X\n",

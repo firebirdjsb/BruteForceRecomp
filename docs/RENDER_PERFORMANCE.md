@@ -1,5 +1,23 @@
 # Rendering performance and remaining graphics work
 
+## Follow-up: bounded texture lookup hints
+
+The GPU scene cache now has an 8-KiB, 4,096-bucket descriptor lookup hint table.
+Each bucket holds a cache slot index plus one. A candidate must pass the same
+complete descriptor comparison as the original linear search. Collisions,
+empty buckets and stale LRU slots fall back to that search. Hints never replace
+source/palette byte comparisons, overlapping-surface synchronization, decoding
+or original mip/alpha handling. Only descriptor integers are mixed for indexing;
+guest texture data is still checked exactly on every use.
+
+`BF_PROFILE_RENDER=1` now includes successful hint and fallback-search counts.
+Use those counts and the texture timer to evaluate this change in the same
+mission position; no minimum-FPS improvement has yet been established. The
+Windows player links and all 33 checks pass, as do public DX11/DX12 NV2A parity
+and scene-AA preservation (3/3). Those fixtures exercise same-frame texture and
+palette rewrites, mip chains, format changes and render-target aliases. No
+GPU wait, simulation timing, raw mouse, save data or launcher option was changed.
+
 ## Current optimization checkpoint
 
 The D3D11 and D3D12/11On12 scene cache no longer computes texture/palette

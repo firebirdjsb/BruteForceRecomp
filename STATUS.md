@@ -5,6 +5,18 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Bound texture lookup search cost - 4 November
+
+A fixed descriptor hint table now avoids repeated linear searches of the
+2,048-entry GPU texture cache. Full descriptor and source/palette byte checks
+remain; collisions and stale LRU slots use the original search. Profiling logs
+include hint-hit/search counts. The Windows player links, 33/33 checks pass,
+and DX11/DX12 scene parity plus HUD/text AA preservation pass (3/3).
+
+This is a lookup optimization, not proof that mission 4 reaches 30 FPS. Exact
+scene comparisons and the remaining native-widescreen/DLSS work are still open.
+See docs/NEXT_AGENT_HANDOFF.md for the current installation and rollback state.
+
 ### Remove repeated rendering work - 4 November
 
 The scene cache no longer computes unused texture/palette hashes; exact per-use
