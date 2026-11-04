@@ -4,6 +4,8 @@
 #include <dxgi1_4.h>
 #include <wrl/client.h>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <cstdint>
@@ -23,6 +25,10 @@ struct SceneDevice {
 // Explicit teardown after the runtime stops the NV2A consumer; no C++ static
 // destructor can race that consumer during atexit.
 SceneDevice *scene{};
+void access_trace(const char *stage,HRESULT result=S_OK) {
+    static const bool enabled=[](){const char *value=std::getenv("BF_SCENE_D3D12_TRACE");return value&&!std::strcmp(value,"1");}();
+    if(enabled){std::fprintf(stderr,"[SCENE-ACCESS] %s (%08lX)\n",stage,(unsigned long)result);std::fflush(stderr);}
+}
 }
 
 extern "C" HRESULT bf_scene_d3d12_create(int warp,ID3D11Device **device,
@@ -131,25 +137,33 @@ extern "C" HRESULT bf_scene_d3d12_access(ID3D11DeviceContext *context,
         try {result=work(scene->device.Get(),scene->queue.Get(),commands.Get(),borrowed,count,user);}
         catch(const std::exception &e){std::fprintf(stderr,"[GPU-D3D12] external scene work rejected: %s\n",e.what());result=E_FAIL;}
         catch(...){std::fprintf(stderr,"[GPU-D3D12] external scene work rejected by callback exception\n");result=E_FAIL;}
-        if(SUCCEEDED(result))result=commands->Close();
-        if(SUCCEEDED(result)) {ID3D12CommandList *lists[]={commands.Get()};scene->queue->ExecuteCommandLists(1,lists);}
+        if(SUCCEEDED(result)){access_trace("close begin");result=commands->Close();access_trace("close end",result);}
+        if(SUCCEEDED(result)) {ID3D12CommandList *lists[]={commands.Get()};access_trace("execute begin");scene->queue->ExecuteCommandLists(1,lists);access_trace("execute end");}
         // A rejected callback's command list is discarded; its recorded
         // transitions were never executed, so checked-out resources stay COMMON.
     }
     const UINT64 value=++scene->serial;
+    access_trace("signal begin");
     HRESULT signal=scene->queue->Signal(scene->fence.Get(),value);
+    access_trace("signal end",signal);
     HRESULT returned=S_OK;
     for(UINT i=0;i<acquired;++i) {
         ID3D12Fence *fence=scene->fence.Get();UINT64 completion=value;
+        access_trace(i?"return resource 1+ begin":"return resource 0 begin");
         const HRESULT r=SUCCEEDED(signal)?bridge->ReturnUnderlyingResource(resources[i],1,&completion,&fence):signal;
+        access_trace(i?"return resource 1+ end":"return resource 0 end",r);
         if(FAILED(r)&&SUCCEEDED(returned))returned=r;
     }
     if(FAILED(signal))return signal;
+    access_trace("event begin");
     HRESULT completion=scene->fence->SetEventOnCompletion(value,scene->event);
+    access_trace("event end",completion);
     if(FAILED(completion))return completion;
+    access_trace("wait begin");
     const DWORD waited=WaitForSingleObject(scene->event,5000);
+    access_trace("wait end",HRESULT(waited));
     if(waited!=WAIT_OBJECT_0)return HRESULT_FROM_WIN32(waited==WAIT_FAILED?GetLastError():WAIT_TIMEOUT);
-    completion=scene->device->GetDeviceRemovedReason();
+    access_trace("device status begin");completion=scene->device->GetDeviceRemovedReason();access_trace("device status end",completion);
     if(FAILED(completion))return completion;
     if(FAILED(returned))return returned;
     return result;

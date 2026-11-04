@@ -91,6 +91,8 @@ def main():
         env = dict(clean, BF_DEPTH_PROBE_DIR=str(case / 'probe'), BF_DEPTH_PROBE_MIN_DRAWS='1')
         if count:
             env['BF_DEPTH_PROBE_COUNT'] = count
+        if api == 'd3d12':
+            env['BF_SCENE_D3D12_TRACE'] = '1'
         # Match the backend variants and this public CI suite's WARP contract.
         # The standalone test keeps hardware as its default for native checks.
         arguments = [direct, '--probe', '--warp'] + (['--d3d12'] if api == 'd3d12' else [])
