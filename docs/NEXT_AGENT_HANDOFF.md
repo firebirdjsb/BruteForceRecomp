@@ -1,11 +1,12 @@
-# Next-agent handoff prompt - 3 November 2026
+# Next-agent handoff prompt - 4 November 2026
 
 Continue the native Brute Force recompilation in `D:\Documents\ChatGPT\bfRecomp`
 (Windows/PowerShell), private `firebirdjsb/BruteForceRecomp`, branch main.
 Read the user's AGENTS instructions, STATUS.md, docs/RAW_MOUSE.md,
 docs/FRAME_RATE.md and docs/DLC.md before editing. This document accompanies the
 scene-only-AA / keyboard-prompt source checkpoint. Use `git log -1` and verify
-remote/CI against the exact commit; earlier accepted checkpoint is
+remote/CI against the exact commit; scene-only-AA checkpoint `fd27458f8a4d5d85eeacfbc2073f5e24f4759969` passed
+CI 41709249003. Earlier accepted raw mouse checkpoint is
 `2bc47c9153f8d1c7cb39eeef9f83ea7d78318a39` (CI 41695942892 succeeded).
 
 The user explicitly requested a GitHub push and a handoff with everything needed
@@ -172,43 +173,67 @@ Literal D-pad help string key1432B41C; Hold prefix1CC51F04; squad glyph row
 ABCDJI and Back H confirmed. global469AB0 is asset/factory manager, NOT widget
 root. No squad artwork replacement has been implemented.
 
-## Local binaries, launch target and rollback (currently verified)
+## Installed AA correction - 4 November 2026 (supersedes old build paths)
 
-NEW candidate (built, NOT installed or selected in real launcher settings):
-`work/ui-scene-fix/player/Release/bruteforce_recomp.exe`
-SHA256 `c56db323cda62166d03703b6fb8299d87521e2d64afdf7f8f343d5b9413f7cb0`.
-Windows build cache `work/diagnostic-build` outputs there. Rebuilding this cache
-does NOT replace its older Release/bruteforce_recomp.exe path.
+User supplied AA Off / Edge AA screenshots showing corrupted F1 overlay text.
+Process inspection proved PID16376 was running the obsolete full-frame-AA
+prototype at work/aa-input-quality/player/Release, hash95a8a2bc1f5d9606afe106ca6ec1dd8ed7ffeb175eb385ea7b8b4e3e89a5218d.
+The correct fd27458 source was pushed, but its candidate had NOT been installed
+and launcher.settings still selected that old binary. This was an installation
+mismatch; no new speculative filter changes were made. The user closed both
+game and launcher normally for installation. Do not reuse these old PIDs.
 
-Accepted raw-mouse player remains at:
-`work/diagnostic-build/Release/bruteforce_recomp.exe`
-SHA256 `d3424454778dae60177a92098b04d10d90b7da3ff123d7ef4aa990df0c017f93`.
-Same accepted candidate retained in work/crash-mouse-fix/verified-player/Release.
-Backup `work/crash-mouse-fix/install-20261103-133522/install-manifest.json`
-records previous binaries and 179 save/settings hashes preserved on that install.
+The scene-only player is NOW installed at all three of these paths:
+- work/diagnostic-build/Release/bruteforce_recomp.exe (selected by launcher).
+- work/ui-scene-fix/player/Release/bruteforce_recomp.exe (current build output).
+- work/aa-input-quality/player/Release/bruteforce_recomp.exe (old path corrected).
+Matching SHA256:
+`88553bbcfc6e7b3365f9b64e324b099b7ef30330619111160fe4af409e0052e2`.
+The additional source change is a descriptive F1 label:
+`AA: SCENE ONLY / TEXT EXCLUDED`. Matching .map copies accompany both installed
+player paths. work/diagnostic-build remains the build cache and its output
+remains work/ui-scene-fix/player. Do not assume rebuilding updates other copies.
 
-Real launcher.settings STILL selects the obsolete full-frame-AA prototype:
-`work/aa-input-quality/player/Release/bruteforce_recomp.exe`
-SHA256 `95a8a2bc1f5d9606afe106ca6ec1dd8ed7ffeb175eb385ea7b8b4e3e89a5218d`.
-Do not call that build the AA fix. Next install/test must deliberately select
-new candidate and preserve rollback. Latest built launcher:
-`work/interpolation/launcher/Release/BruteForceLauncher.exe`
-SHA256 `02da7533ed25018498b104fa6bddabfed825efdd722a1685b0ae72454d042685`.
-Launcher cache work/native-launcher/build outputs there. Root launcher/normal
-installed copies have NOT been replaced by this checkpoint. Keep SDL2 DLL and
-private assets alongside the selected launcher. Previous launcher-settings
-backup: work/aa-input-quality/launcher-open-20261103-190734.
+Updated native launcher is installed at root BruteForceLauncher.exe and
+work/native-launcher/build/native_launcher/Release/BruteForceLauncher.exe;
+source build output work/interpolation/launcher/Release/BruteForceLauncher.exe.
+All three SHA256:
+`2e22540588387a8e49bd064ff806a25bf48bc3f1800bcf4b76d72851e075df6b`.
+Both installed SDL2 DLLs match the launcher build. Private artwork/DLC folders
+were retained. Launcher AA help now explicitly says text/HUD/F1 are excluded.
+Use `Launch Brute Force.cmd` or root launcher for the next test.
+
+New backup:
+`work/ui-scene-fix/install-20261104-064548/install-manifest.json`.
+It contains exact source/installed hashes, old binaries, both old maps where
+present, launcher/graphics settings and hashes of all63 permanent files under
+TDATA/UDATA plus graphics.settings. All63 verified byte-identical after install.
+Only launcher.settings intentionally changed to select the canonical player;
+its graphics/backend/FSR preference line was retained. Native --validate-only
+against the installed game-core returned0 (native-validation.log in backup).
+No original game/DLC file or production service was modified. Only local app
+executables, matching maps/DLLs and the selected executable preference changed.
 
 Permanent library `C:\Users\fireb\AppData\Roaming\Firebird\BruteForceRecomp`.
 Preserve player-data/TDATA/4d53001e and UDATA, global-data/global-gameflags and
-profiles. Current graphics.settings (explicit AA Off):
-`auto d3d12 1 1 0 0 1 1 0 100 2.03 30 120 2 0` under BF_GRAPHICS1.
-Do not reset sensitivity2.03, interpolation120, texture2 or AA without choice.
-No installation/settings/save changes were made while preparing this push.
-No production service or original game/DLC files were modified.
-Rollback source by reverting checkpoint; for binaries/settings close normally,
-restore matching backup paths, retain all current player-data. Never terminate
-the user's game merely to overwrite its executable.
+profiles. Current graphics.settings, after user turned AA Off before exit:
+`auto d3d12 1 1 0 0 1 1 0 100 2.03 30 120 1 0` under BF_GRAPHICS1.
+Do not reset sensitivity2.03, interpolation120, texture1 or AA without choice.
+The last field is AA; the user can toggle it in F1 for a real comparison.
+
+Full player and launcher rebuilt after the label-only edits; focused native
+menu check1/1 and launcher checks4/4 passed again. Existing AA CPU/GPU tests and
+32/21 suites above cover the unchanged filtering implementation. Actual new
+AA-On versus AA-Off F1/HUD/menu screenshots still need live player acceptance;
+installation and synthetic preservation checks alone are not gameplay proof.
+
+Rollback: close both apps normally, restore exact backup paths from this new
+manifest, and restore launcher.settings only if intentionally selecting that old
+build; retain current player-data. Restoring obsolete AA prototype reproduces
+its text issue. Accepted pre-AA raw mouse player remains privately retained at
+work/crash-mouse-fix/verified-player/Release, SHA
+`d3424454778dae60177a92098b04d10d90b7da3ff123d7ef4aa990df0c017f93`.
+Earlier backup work/crash-mouse-fix/install-20261103-133522 remains available.
 
 ## Build inputs, prior fixes and platform limits
 

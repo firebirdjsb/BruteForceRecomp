@@ -1,4 +1,4 @@
-# Current state - 3 November 2026
+# Current state - 4 November 2026
 
 This remains an experimental native recompilation. It is not a completed
 Windows/Linux/Android release.
@@ -20,7 +20,8 @@ while keeping all 256 subsequently drawn UI pixels byte-identical to AA Off,
 including repeated UI boundaries. A disposable D3D12 game run reached the
 Basic Controls view and logged scene-before-UI execution. It ended at the
 watchdog, without verifying pause-menu clicks, complete gameplay or every HUD
-layer. The candidate has not replaced the installed accepted player.
+layer. The corrected player was installed on 4 November after the user closed the old
+prototype; see the installation correction below.
 
 Prompt labels now share the actual primary desktop/menu key tables. The
 authenticated gameplay controller-font draw can replace inline Xbox X with R
@@ -38,6 +39,18 @@ GPU scene-parity suites and AA UI preservation; four Windows launcher checks;
 local build paths, rollback notes and continuation order are in
 [NEXT_AGENT_HANDOFF.md](docs/NEXT_AGENT_HANDOFF.md). Previous checkpoint test
 counts and installation statements below describe their historical builds.
+
+### AA installation correction - 4 November
+
+The new AA screenshots came from the obsolete full-frame-AA executable selected
+by launcher.settings, not the scene-only source checkpoint fd27458 (whose CI
+passed). After the user closed both apps, the scene-only build replaced the
+canonical player and the old prototype path, both installed launchers/DLLs were
+updated, and the launch target was corrected. F1 now says `AA: SCENE ONLY / TEXT
+EXCLUDED`. Native content validation passed; 63 permanent save/settings files
+retained identical hashes. AA remains Off as the user left it. Fresh AA-On/Off
+screenshots still need runtime acceptance. Backup/build hashes and rollback are
+recorded in the handoff. No production service or original game data was touched.
 
 ### Accepted raw mouse and new crash repair
 

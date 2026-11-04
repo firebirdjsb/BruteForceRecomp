@@ -380,7 +380,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         c.text(122,307,"DEVICE CHANGES: NEXT LAUNCH",0xffe6b47e);
         c.text(122,319,"ACTIVE: "+active_scene,0xffd9efff);
         c.text(122,331,"GAME TIMING: ORIGINAL 30 FPS",0xff79dbb7);
-        c.text(122,343,"AA: SPATIAL / BEFORE UPSCALING",0xff9bc0d5);
+        c.text(122,343,"AA: SCENE ONLY / TEXT EXCLUDED",0xff9bc0d5);
         c.text(122,359,settings_path.empty()?"DIRECT RUN: SESSION SETTINGS ONLY":"SETTINGS SHARED WITH LAUNCHER",0xff9bc0d5);
     }
     c.text(112,373,"MOUSE OR ARROWS / ENTER TO CHANGE",0xff9bc0d5);
