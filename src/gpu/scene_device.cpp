@@ -17,10 +17,14 @@ using Microsoft::WRL::ComPtr;
 struct SceneDevice {
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
+    ComPtr<ID3D12CommandQueue> translation_queue;
     ComPtr<ID3D12Fence> fence;
+    ComPtr<ID3D12Fence> translation_fence;
     HANDLE event{};
+    HANDLE translation_event{};
     UINT64 serial{};
-    ~SceneDevice(){if(event)CloseHandle(event);}
+    UINT64 translation_serial{};
+    ~SceneDevice(){if(event)CloseHandle(event);if(translation_event)CloseHandle(translation_event);}
 };
 // Explicit teardown after the runtime stops the NV2A consumer; no C++ static
 // destructor can race that consumer during atexit.
@@ -62,11 +66,22 @@ extern "C" HRESULT bf_scene_d3d12_create(int warp,ID3D11Device **device,
     D3D12_COMMAND_QUEUE_DESC queue{};queue.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;
     result=candidate->device->CreateCommandQueue(&queue,IID_PPV_ARGS(&candidate->queue));
     if(FAILED(result))return result;
+    // Older 11On12 runtimes can enqueue an unwrap wait before their own signal
+    // when the supplied native queue is the translation queue (Microsoft
+    // D3D11On12 issue51). Keep the two queues on the same device and let the
+    // documented unwrap/return fences carry their real cross-queue ownership.
+    // https://github.com/microsoft/D3D11On12/issues/51
+    result=candidate->device->CreateCommandQueue(&queue,IID_PPV_ARGS(&candidate->translation_queue));
+    if(FAILED(result))return result;
     result=candidate->device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&candidate->fence));
+    if(FAILED(result))return result;
+    result=candidate->device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&candidate->translation_fence));
     if(FAILED(result))return result;
     candidate->event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
     if(!candidate->event)return HRESULT_FROM_WIN32(GetLastError());
-    IUnknown *queues[]={candidate->queue.Get()};
+    candidate->translation_event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
+    if(!candidate->translation_event)return HRESULT_FROM_WIN32(GetLastError());
+    IUnknown *queues[]={candidate->translation_queue.Get()};
     const D3D_FEATURE_LEVEL requested=D3D_FEATURE_LEVEL_11_0;
     ComPtr<ID3D11Device> api;
     ComPtr<ID3D11DeviceContext> immediate;
@@ -81,21 +96,22 @@ extern "C" HRESULT bf_scene_d3d12_create(int warp,ID3D11Device **device,
 
 extern "C" HRESULT bf_scene_d3d12_wait(ID3D11DeviceContext *context) {
     if(!scene||!context)return E_UNEXPECTED;
-    // Flush the 11On12 translator before signaling its actual D3D12 queue.
+    // Flush and fence the translator's own queue. Native work has a separate
+    // fence/timeline; values from independent queues must not imply completion.
     context->Flush();
-    if(scene->serial==UINT64_MAX-1)return E_UNEXPECTED;
-    const UINT64 value=++scene->serial;
-    HRESULT result=scene->queue->Signal(scene->fence.Get(),value);
+    if(scene->translation_serial==UINT64_MAX-1)return E_UNEXPECTED;
+    const UINT64 value=++scene->translation_serial;
+    HRESULT result=scene->translation_queue->Signal(scene->translation_fence.Get(),value);
     if(FAILED(result))return result;
-    UINT64 completed=scene->fence->GetCompletedValue();
+    UINT64 completed=scene->translation_fence->GetCompletedValue();
     if(completed==UINT64_MAX)return DXGI_ERROR_DEVICE_REMOVED;
     if(completed<value) {
-        result=scene->fence->SetEventOnCompletion(value,scene->event);
+        result=scene->translation_fence->SetEventOnCompletion(value,scene->translation_event);
         if(FAILED(result))return result;
-        const DWORD waited=WaitForSingleObject(scene->event,5000);
+        const DWORD waited=WaitForSingleObject(scene->translation_event,5000);
         if(waited==WAIT_FAILED)return HRESULT_FROM_WIN32(GetLastError());
         if(waited!=WAIT_OBJECT_0)return HRESULT_FROM_WIN32(WAIT_TIMEOUT);
-        completed=scene->fence->GetCompletedValue();
+        completed=scene->translation_fence->GetCompletedValue();
     }
     if(completed==UINT64_MAX)return DXGI_ERROR_DEVICE_REMOVED;
     return completed>=value?S_OK:E_FAIL;

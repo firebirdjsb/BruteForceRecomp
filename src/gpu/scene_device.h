@@ -4,8 +4,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-// The bridge owns its D3D12 device, direct queue and completion fence. The
-// caller owns the returned D3D11 interfaces and uses them on its GPU thread.
+// The bridge owns one D3D12 device, distinct translation/native direct queues
+// and independent completion fences. Unwrap/return synchronize real ownership
+// between queues. The caller owns D3D11 interfaces and uses its GPU thread.
 HRESULT bf_scene_d3d12_create(int warp,ID3D11Device **device,ID3D11DeviceContext **context,D3D_FEATURE_LEVEL *level);
 HRESULT bf_scene_d3d12_wait(ID3D11DeviceContext *context);
 /* Synchronous, render-thread-only D3D11On12 -> native D3D12 handoff.
