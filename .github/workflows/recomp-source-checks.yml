@@ -31,6 +31,10 @@ jobs:
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -Isrc/gpu tests/frame_stats_test.c src/gpu/nv2a_frame_stats.c -o /tmp/bf-frame-stats
           /tmp/bf-frame-stats
+      - name: Check keycap spacing and exact source-frame glyph lifetime
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Isrc tests/ui_prompt_frames_test.cpp src/ui/host_ui.cpp src/ui/ui_draw.cpp src/ui/scene_aa_state.cpp -o /tmp/bf-ui-prompt-frames
+          /tmp/bf-ui-prompt-frames
       - name: Validate DX11/DX12-neutral render dimensions and letterboxing
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -Isrc tests/render_scale_policy_test.c -lm -o /tmp/bf-render-scale

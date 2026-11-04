@@ -107,6 +107,13 @@ int main() {
     bf_ui_prompt({100,100,18,17},"C");
 #endif
     CHECK(paint()==reload);
+    setup('G');CHECK(bf_gameplay_glyph(frame));const auto start=paint();
+#ifdef _WIN32
+    bf_ui_prompt({100,100,18,17},"ESC");
+#else
+    bf_ui_prompt({100,100,18,17},"ENTER");
+#endif
+    CHECK(paint()==start);
     bf_ui_controller_activity();CHECK(paint()==untouched&&!bf_gameplay_glyph(frame));
     std::puts("Gameplay font identity, actual binding pixels, shadows, controller fallback and guest-memory preservation passed.");
 }

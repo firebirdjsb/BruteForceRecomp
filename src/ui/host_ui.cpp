@@ -8,8 +8,10 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <exception>
 #include <mutex>
@@ -39,8 +41,12 @@ Clock::time_point menu_seen{};
 bf::ui::PadPulses pulses;
 std::deque<BfUiPointer> pointers;
 uint64_t serial{};
-struct Prompt { BfUiRect rect;std::string key;Clock::time_point time; };
-std::array<Prompt,32> prompts;
+struct Prompt { BfUiRect rect;std::array<char,33> key{}; };
+struct PromptBatch { std::array<Prompt,64> items;unsigned count{}; };
+struct PromptFrame { PromptBatch batch;uint64_t id{};bool valid{}; };
+PromptBatch pending_prompts,shown_prompts;
+std::array<PromptFrame,4> prompt_frames;
+bool prompt_frame_mode{};
 struct Tutorial { BfUiRect root{};Clock::time_point seen{};bool verified{}; } tutorial;
 // Stable object tags/classes from the authenticated Basic Controls hierarchy.
 // Keep the title and original accept/skip prompt objects outside this set.
@@ -210,7 +216,7 @@ extern "C" int bf_ui_key(unsigned key,int repeat) try {
 } catch(const std::exception &e) {
     std::fprintf(stderr,"[UI] Key event released: %s\n",e.what());return 0;
 }
-extern "C" void bf_ui_focus_lost(){std::lock_guard lock(guard);sensitivity_dragging=false;pointers.clear();pulses.clear();}
+extern "C" void bf_ui_focus_lost(){std::lock_guard lock(guard);sensitivity_dragging=false;pointers.clear();pulses.clear();pending_prompts.count=shown_prompts.count=0;for(auto &f:prompt_frames)f.valid=false;}
 extern "C" int bf_ui_menu_active(){std::lock_guard lock(guard);return menu();}
 extern "C" int bf_ui_capture(){std::lock_guard lock(guard);return opened||menu();}
 extern "C" int bf_ui_open(){std::lock_guard lock(guard);return opened;}
@@ -241,11 +247,26 @@ extern "C" int bf_ui_pad(uint16_t *digital,uint8_t analog[8]) {
     return 1;
 }
 extern "C" void bf_ui_prompt(BfUiRect rect,const char *key) {
-    if(!key)return;
-    std::lock_guard lock(guard);const auto now=Clock::now();
-    for(auto &p:prompts)if((p.rect.x==rect.x&&p.rect.y==rect.y)||now-p.time>std::chrono::milliseconds(300)) {
-        p={rect,key,now};break;
+    if(!key||!*key||std::strlen(key)>32||!std::isfinite(rect.x)||!std::isfinite(rect.y)||
+       !std::isfinite(rect.w)||!std::isfinite(rect.h)||rect.w<=0||rect.h<=0||
+       std::abs(rect.x)>4096||std::abs(rect.y)>4096||rect.w>4096||rect.h>4096)return;
+    std::lock_guard lock(guard);
+    const auto assign=[&](Prompt &p){p.rect=rect;p.key.fill(0);std::memcpy(p.key.data(),key,std::strlen(key));};
+    for(unsigned i=0;i<pending_prompts.count;i++) {
+        auto &p=pending_prompts.items[i];
+        if(p.rect.x==rect.x&&p.rect.y==rect.y){assign(p);return;}
     }
+    if(pending_prompts.count<pending_prompts.items.size())assign(pending_prompts.items[pending_prompts.count++]);
+}
+extern "C" void bf_ui_prompts_publish(uint64_t source_frame) {
+    std::lock_guard lock(guard);auto &f=prompt_frames[source_frame%prompt_frames.size()];
+    f={pending_prompts,source_frame,true};pending_prompts.count=0;prompt_frame_mode=true;
+}
+extern "C" void bf_ui_prompts_select(uint64_t source_frame) {
+    std::lock_guard lock(guard);const auto &f=prompt_frames[source_frame%prompt_frames.size()];
+    shown_prompts.count=0;
+    if(f.valid&&f.id==source_frame)shown_prompts=f.batch;
+    prompt_frame_mode=true;
 }
 extern "C" int bf_ui_tutorial_prepare(uint32_t root_tag,BfUiRect root,const BfUiTutorialNode *nodes,unsigned count) {
     std::lock_guard lock(guard);tutorial.verified=false;
@@ -312,13 +333,17 @@ extern "C" int bf_ui_interpolation_allowed(){std::lock_guard lock(guard);return 
 extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try {
     if(!pixels||width!=640||height!=480)return;
     std::lock_guard lock(guard);bf::ui::Canvas c{pixels,width,height};
-    const auto now=Clock::now();
     if(tutorial_active())paint_tutorial(c);
-    if(keyboard&&prompts_on)for(auto &p:prompts)if(now-p.time<std::chrono::milliseconds(250)) {
-        const int x=int(p.rect.x),y=int(p.rect.y);
-        const int key_width=std::max(17,int(p.key.size())*4+4);
-        c.box(x,y+2,key_width,15,0xff59bfd9);c.box(x+1,y+3,key_width-2,13,0xff112d41);
-        c.text(x+2,y+7,p.key,0xffe1f5ff);
+    const auto &batch=prompt_frame_mode?shown_prompts:pending_prompts;
+    if(keyboard&&prompts_on)for(unsigned i=0;i<batch.count;i++) {
+        const auto &p=batch.items[i];
+        const int key_width=std::max(17,int(std::strlen(p.key.data()))*4+4);
+        // Right-align within the original icon's trailing edge, with a
+        // two-pixel gap. Wider ENTER/SPACE caps extend away from the label.
+        const int x=std::max(0,int(std::floor(p.rect.x+p.rect.w))-key_width-2);
+        const int y=int(p.rect.y)+std::max(0,(int(p.rect.h)-15)/2);
+        c.box(x,y,key_width,15,0xff59bfd9);c.box(x+1,y+1,key_width-2,13,0xff112d41);
+        c.text(x+2,y+5,p.key.data(),0xffe1f5ff);
     }
     if(!opened)return;
     c.box(92,60,456,374,0xff020e19);c.box(94,62,452,370,0xff102a3d);

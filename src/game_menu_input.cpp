@@ -245,6 +245,36 @@ void tick(uint32_t view) {
     if(std::getenv("BF_TRACE_UI"))std::fprintf(stderr,"[UI] pointer action=%d xy=%.1f,%.1f\n",pointer.action,pointer.x,pointer.y);
     std::vector<uint32_t> children;if(!vector(view,0x74,children))return;
     if(pointer.action==2){bf_ui_pad_press(1);return;} // Xbox B via normal input polling.
+    // Original 103DD0 draws 39E248's default images at +9C/+A4. The retail
+    // mission skin hides those and draws adjacent sibling arrow artwork.
+    // Resolve the actual objects/transforms before normal child hits.
+    // Original 1038E0 consumes Left/Right and owns selection/preview updates.
+    for(size_t i=0;i<children.size();i++) {
+        Node carousel;
+        if(!node(children[i],carousel)||carousel.at(0)!=0x0039E248||
+           (carousel.flags()&6)!=6||carousel.at(4)!=view)continue;
+        for(unsigned side=0;side<2;side++) {
+            auto arrow=carousel.at(side?0xA4:0x9C);Node image;BfUiRect hit,content;
+            bool found=node(arrow,image)&&image.at(0)==0x0039E290&&(image.flags()&6)==6&&
+                position(arrow,hit)&&bf_ui_contains(hit,pointer.x,pointer.y);
+            if(!found&&position(children[i],content))for(auto candidate:children) {
+                if(!node(candidate,image)||image.at(0)!=0x0039E290||(image.flags()&6)!=6||
+                   image.at(0x24)!=(side?0x10BA4815u:0x1FD9234Bu)||!position(candidate,hit))continue;
+                // Same row/height and immediately adjacent to this carousel;
+                // matching a tag elsewhere on the screen is insufficient.
+                const float edge=side?hit.x-content.x-content.w:hit.x+hit.w-content.x;
+                if(std::abs(edge)>0.5f||std::abs(hit.y-content.y)>0.5f||
+                   std::abs(hit.h-content.h)>0.5f||!bf_ui_contains(hit,pointer.x,pointer.y))continue;
+                arrow=candidate;found=true;break;
+            }
+            if(!found)continue;
+            if(!(carousel.flags()&1)&&!bf_guest_menu_focus(view,uint32_t(i)))return;
+            if(pointer.action==1)bf_ui_pad_press(side?11:10);
+            if(std::getenv("BF_TRACE_UI"))std::fprintf(stderr,"[UI] carousel %s %s view=%08X node=%08X arrow=%08X index=%u\n",
+                side?"right":"left",pointer.action==1?"click":"hover",view,children[i],arrow,carousel.at(0x94));
+            return;
+        }
+    }
     for(size_t i=0;i<children.size();++i) {
         Node item;BfUiRect rect;
         if(!node(children[i],item)||(item.flags()&6)!=6)continue;
@@ -290,14 +320,11 @@ void tick(uint32_t view) {
                 break;
             }
         } else if(item.at(0)==0x0039E020&&pointer.action==1) {
-            // The prompt's glyph uses the game's Xbox-controller font. A/B
-            // and X/Y encoding was verified against Select/Back/New Profile.
+            // Use the same authenticated atlas mapping as the visible keycap.
             uint16_t glyph{};
             if(read(children[i]+0xC4,&glyph,2)) {
-                if(glyph=='A')bf_ui_pad_press(0);
-                else if(glyph=='B')bf_ui_pad_press(1);
-                else if(glyph=='D')bf_ui_pad_press(2);
-                else if(glyph=='C')bf_ui_pad_press(3);
+                const int control=bf::input::glyph_control(glyph);
+                if(control>=0)bf_ui_pad_press(unsigned(control));
             }
         }
         if(std::getenv("BF_TRACE_UI"))std::fprintf(stderr,"[UI] %s view=%08X node=%08X xy=%.1f,%.1f flags=%02X\n",

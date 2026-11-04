@@ -5,6 +5,36 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Menu keycap spacing, lifetime and mission arrows - 4 November
+
+Wider keycaps now align against the original icon's right edge with a small
+gap, extending away from the following label. Glyph batches are published and
+selected under the same Windows/SDL frame locks as their source images. The
+old 250-ms glyph timer is removed: repeated images retain their own keys, and
+the next image without the menu receives no stale glyphs. Fixed-size batches
+avoid per-frame label allocations. A public source-frame regression now runs
+in CI as well as local Windows/Linux tests.
+
+The retail mission screen hides the carousel's default embedded arrows and
+uses adjacent skin images. Mouse hits now recognize both forms, requiring
+visible/enabled objects, the carousel's class and matching relative geometry
+for skin artwork. Clicks queue original Left/Right input; the original handler
+owns map selection, preview updates and bounds. A D3D12 run confirmed index
+0 -> 1 -> 0 from right/left clicks. Actual window captures show separated
+Enter/Select text and no leftover keycaps after returning to the main menu.
+
+Read-only inspection of the supported title's button-font atlas confirmed
+ABXY/LT/RT/Start/Back/White/Black encoding. Both HUD and generic menus now use
+that common map; the previously uncovered Start artwork displays ESC on the
+Windows desktop profile. Controller artwork and input reports are preserved.
+
+Full Windows/Linux player links and all 33 Windows / 22 Linux checks pass.
+The new player is installed in the launcher's canonical and previous-prototype
+paths; all 64 save/settings files checked retained identical hashes. The native
+content validator passes. The handoff records current hashes, captures, backup
+and remaining physical-input/transition coverage. No original game/DLC data or
+production service changed. Earlier evidence below describes prior checkpoints.
+
 ### HUD artwork, prompt labels and pause-menu coordinates - 4 November
 
 AA's font boundary was too late for native HUD images. An additional ordered

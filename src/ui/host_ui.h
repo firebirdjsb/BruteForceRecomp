@@ -23,6 +23,9 @@ int bf_ui_pointer(BfUiPointer *event);
 void bf_ui_pad_press(unsigned control);
 int bf_ui_pad(uint16_t *digital,uint8_t analog[8]);
 void bf_ui_prompt(BfUiRect rect,const char *key);
+/* Publish/select glyph metadata under the same lock as its source image. */
+void bf_ui_prompts_publish(uint64_t source_frame);
+void bf_ui_prompts_select(uint64_t source_frame);
 /* Called only for an authenticated, active managed guest view. Nodes use
  * dynamically resolved positions; no guest pointer is retained by the UI. */
 int bf_ui_tutorial_prepare(uint32_t root_tag,BfUiRect root,const BfUiTutorialNode *nodes,unsigned count);

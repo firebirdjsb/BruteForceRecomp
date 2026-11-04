@@ -14,6 +14,91 @@ to continue. Push source, tests and documentation only. Never commit retail XBE,
 ISO/assets/DLC payloads, generated/recovered game C, captures, logs, save data,
 private dumps or binaries. The launcher is a native application, never a website.
 
+## Latest continuation - menu polish and carousel clicks (4 November)
+
+This section supersedes earlier installed-binary and glyph-layout statements.
+Latest source adds menu keycap clearance, source-frame glyph lifetime, clickable
+mission/map arrows and the previously missed controller-font Start glyph.
+
+- host_ui.cpp right-aligns keycaps against their original icon rectangle with
+  a2-pixel gap. ENTER/SPACE grow leftward, away from Select/Accept text. It uses
+  the original rectangle's vertical center. Do not shift the original game text.
+- The250-ms prompt timer is gone. Pending glyphs are committed by
+  bf_ui_prompts_publish(source_frame) when a complete source image is published;
+  bf_ui_prompts_select selects the same frame under the image handoff lock.
+  Windows uses s_present_ids; SDL uses s_ready_seq. Four bounded history slots
+  and a selected copy keep skipped/repeated source images consistent. A frame
+  without glyphs publishes an empty batch, so closing menus cannot retain old
+  keycaps. Label storage is fixed-size (64 prompts,32 chars each), no frame-time
+  heap allocation. Focus loss clears metadata. Direct pre-flip/test painting
+  can use pending data until the first published frame. Keep lock ordering:
+  image handoff lock then UI guard; never acquire an image lock while holding
+  the UI guard. Runtime overlays apply only to their source image.
+- Tests ui_prompt_frames_test.cpp cover exact label clearance, first menu-free
+  frame, repeated/skipped/retired frames, moving prompts, pending future-frame
+  isolation and focus loss. Source CI now builds this public fixture directly
+  with host_ui/ui_draw/scene_aa_state; no private game code is required.
+- Actual mission screen: root tag16DDAA42; carousel class39E248, observed tag
+  E1E43AF2, local106/102/394/140. Original draw103DD0 owns default arrow images
+  at+9C/+A4, but those are HIDDEN on the retail skin (flags12). Visible sibling
+  art is class39E290, left tag1FD9234B at74/102/32/140 and right tag10BA4815 at
+  500/102/32/140. These coordinates describe evidence only, NOT player constants.
+  Mouse code resolves live objects/positions, supports visible owned arrows
+  or same-row/height adjacent sibling art with those IDs. It requires enabled/
+  visible carousel and matching navigation owner; root is still managed/active.
+  Do not regress to hit-testing only the hidden owned images or the content
+  rectangle. It focuses via original FFDC0 and queues Left/Right (10/11).
+  Original1038E0/103A70 retain bounds, selection, previews and notifications.
+- Read-only atlas verification confirmed A/B/C/D=ABXY, E/F=LT/RT, G/H=Start/
+  Back, I/J=White/Black. Earlier generic C/D mapping was wrong; it now shares
+  the HUD's corrected order. Hint clicks use the same glyph_control lookup.
+  G now resolves to physical Start's desktop key ESC, including both native
+  and generic standalone font spans. English literal Start rewriting remains.
+  Actual button reports/raw mouse and controller ownership are unchanged.
+  Private font evidence is work/menu-polish/controller-font-physical.bmp plus
+  font-metrics.bin; never push it. Read resource Data through its contiguous
+  alias (0x80000000 | Data), not unrelated low-heap bytes.
+
+Validation: full Windows/Linux player links;33/33 Windows and22/22 Linux tests;
+standalone Linux command used by the new public CI step passed. Previous9b79981
+CI result should be checked against its own commit. Current Python/source checks
+and new CI result should be verified against the final commit after push.
+
+Runtime evidence (all disposable profiles, original timing, D3D12 scene):
+- First arrow attempt reached the real selector but missed its hidden default
+  arrow objects. Read-only inspection showed the visible skin siblings. The
+  repaired attempt below passed; do not call the first attempt successful.
+- work/menu-polish/interval-original-9nxkqwaj/boot-p5puy9xj/boot.log:
+  right hover/click at516,172 observed index0, later hover index1; left click
+  at90,172 observed index1, later hover index0. No unresolved/invalid guest call.
+- work/menu-polish/interval-original-agkpqm2q/boot-eod6uk78/boot.log:
+  a visible window pass repeated the arrow changes, backed out twice, and
+  captured the actual window compositor. map-visible.bmp shows clean spacing
+  between ENTER and Select; main-after-close.bmp shows no lingering keycaps.
+  These two captures were visually inspected. Unlike older headless captures,
+  these are real rendered menus, not solid-color readback artifacts.
+- All bounded runs ended at their watchdog (exit3), not a new diagnosed crash
+  or completed mission. Native fixture events are scripted input; physical
+  mouse/controller acceptance and every menu transition are still pending.
+  Continue checking movie transitions, localization, confirmations and long
+  key labels; do not equate this menu pass with broad gameplay validation.
+
+Current build cache work/diagnostic-build now outputs to:
+work/menu-polish/player/Release/bruteforce_recomp.exe.
+Its SHA256 and both installed game paths match:
+5c6da703de67167815b75a19362e194e9d531b16fff21eeb124254cbd4c4c46c.
+Canonical selected path: work/diagnostic-build/Release/bruteforce_recomp.exe.
+Old prototype alias: work/aa-input-quality/player/Release/bruteforce_recomp.exe.
+Matching maps were copied. work/ui-scene-fix/player is now an OLD candidate;
+never assume it is the latest build or point the launcher back to it.
+Backup work/menu-polish/install-20261104-081518/install-manifest.json records
+previous files/maps/settings and64 protected save/settings hashes. All64 stayed
+identical; native --validate-only returned0. Launcher selection/preferences
+were not rewritten. Launcher remains2e225405... from the earlier AA installation.
+No original XBE/ISO/DLC or production service changed. Close apps before rollback,
+restore matching binary paths from this newest manifest and keep player-data.
+Own QA runs have ended. Check current processes before replacing any binary.
+
 ## Latest continuation - HUD and pause fixes (4 November)
 
 The screenshot report expanded to HUD AA, swapped R/MMB labels, Start/trigger
@@ -93,10 +178,9 @@ running at handoff preparation; check processes rather than assuming this lasts.
    prompts must stay sharp. Do not restore the old completed-frame AA path.
 2. Verify the installed pause-menu coordinate fix with real mouse hover/click,
    especially Aiming and confirmation dialogs; retain original action callbacks.
-3. Verify inline gameplay keycaps, e.g. `Hold Xbox X to swap` -> `Hold R to swap`
-   with the Windows raw desktop profile. Keep controller ownership/fallback.
-   Fit longer labels (SPACE/ENTER) within their allocated space; current host
-   keycaps can widen beyond the original glyph rectangle.
+3. Verify current keycap spacing/lifetime and all instruction contexts with a
+   real mouse/controller. Keep current atlas mapping and input bindings. Wide
+   keycaps now extend away from following labels; do not restore the old anchor.
 4. Replace squad-command controller artwork and D-pad wording for MKB. The
    inline controller-font replacement covers only known font glyphs; round
    action artwork and literal D-pad text are NOT replaced yet.

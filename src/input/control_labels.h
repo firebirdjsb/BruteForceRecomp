@@ -13,17 +13,12 @@ inline const char *control_label(unsigned control,bool menu,bool desktop) {
     if(menu&&control<4)return bf_menu_bindings[control].label;
     return desktop?bf_desktop_bindings[control].label:fallback[control];
 }
-// Verified controller-font letters: C is Xbox Y and D is Xbox X.
+// Both retail button-font atlas sizes show ABXY, LT/RT, START/BACK, WHITE/
+// BLACK in A..J order. Atlas/metrics were read from the authenticated title.
 inline int glyph_control(unsigned glyph) {
-    switch(glyph) {case 'A':return 0;case 'B':return 1;case 'D':return 2;case 'C':return 3;
+    switch(glyph) {case 'A':return 0;case 'B':return 1;case 'C':return 2;case 'D':return 3;
+    case 'E':return 6;case 'F':return 7;case 'G':return 12;
     case 'H':return 13;case 'I':return 5;case 'J':return 4;
     default:return -1;}
-}
-// The gameplay HUD's X/Y artwork uses C/D in ABXY order. Keep this separate
-// from the existing generic-menu adapter and from physical input reports.
-inline int hud_glyph_control(unsigned glyph) {
-    if(glyph=='C')return 2;
-    if(glyph=='D')return 3;
-    return glyph_control(glyph);
 }
 }

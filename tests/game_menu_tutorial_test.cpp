@@ -173,7 +173,7 @@ int main(int argc,char **argv) {
     uint16_t digital=0;std::array<uint8_t,8> analog{};
     CHECK(bf_ui_pad(&digital,analog.data())&&analog[0]==255&&unexpected_focus==0);
     bf_ui_focus_lost();bf_ui_mouse(190,395,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
-    CHECK(bf_ui_pad(&digital,analog.data())&&analog[3]==255&&unexpected_focus==0);
+    CHECK(bf_ui_pad(&digital,analog.data())&&analog[2]==255&&unexpected_focus==0);
     bf_ui_tutorial_clear();painted=unpainted;bf_ui_paint(painted.data(),640,480);CHECK(painted==unpainted);
     // Pause root is local 0,0 but original GetPosition centers it within the
     // current player safe area. Glyphs and pointer hits must use that origin.
@@ -200,6 +200,30 @@ int main(int argc,char **argv) {
     bf_ui_focus_lost();bf_ui_mouse(300,233,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
     CHECK(focused_index==1&&bf_ui_pad(&digital,analog.data())&&(digital&8)&&!analog[0]);
     CHECK(bf_game_prompt(prompt));painted=unpainted;bf_ui_paint(painted.data(),640,480);
-    CHECK(painted[315*640+218]==0xff59bfd9&&painted[177*640+34]==unpainted[177*640+34]);
+    CHECK(painted[315*640+216]==0xff59bfd9&&painted[177*640+34]==unpainted[177*640+34]);
+    // Mission arrows are outside the carousel's content rectangle and are
+    // reached through its owned image pointers, not global screen constants.
+    setup();bf_ui_tutorial_clear();for(unsigned i=0;i<std::size(fixtures);i++)word(object(i)+0x28,0);
+    const auto carousel=object(0),left=object(1),right=object(2);
+    word(carousel,0x39E248);word(carousel+4,view);word(carousel+0x28,6);
+    number(carousel+0xC,106);number(carousel+0x10,102);number(carousel+0x14,394);number(carousel+0x18,140);
+    word(carousel+0x9C,left);word(carousel+0xA4,right);
+    for(auto a:{left,right}){word(a,0x39E290);word(a+0x28,6);number(a+0x10,102);number(a+0x14,32);number(a+0x18,140);}
+    number(left+0xC,74);number(right+0xC,500);
+    bf_ui_focus_lost();bf_ui_menu_seen();bf_ui_mouse(85+90,60+172,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
+    CHECK(focused_index==0&&bf_ui_pad(&digital,analog.data())&&(digital&4)&&!analog[0]);
+    bf_ui_focus_lost();bf_ui_mouse(85+516,60+172,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
+    CHECK(bf_ui_pad(&digital,analog.data())&&(digital&8)&&!analog[0]);
+    bf_ui_focus_lost();word(right+0x28,2);bf_ui_mouse(85+516,60+172,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
+    CHECK(!bf_ui_pad(&digital,analog.data())); // Hidden arrow is not clickable.
+    // Real retail mission skin: hidden embedded defaults, visible adjacent
+    // arrow art in the view's child list. Tags alone do not permit a hit.
+    word(carousel+0x9C,0);word(carousel+0xA4,0);word(right+0x28,6);
+    word(left+0x24,0x1FD9234B);word(right+0x24,0x10BA4815);
+    bf_ui_focus_lost();bf_ui_mouse(85+516,60+172,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
+    CHECK(bf_ui_pad(&digital,analog.data())&&(digital&8));
+    number(right+0x10,260);bf_ui_focus_lost();bf_ui_mouse(85+516,60+270,640,480,1);bf_game_menu_tick(view);analog={};digital=0;
+    CHECK(!bf_ui_pad(&digital,analog.data())); // Unrelated same-tag art.
+    CHECK(bf::input::glyph_control('G')==12&&bf::input::glyph_control('C')==2&&bf::input::glyph_control('D')==3);
     std::puts("Tutorial preservation, viewport-aware pause hover/click/value input and prompt alignment passed.");
 }
