@@ -65,10 +65,11 @@ static std::vector<unsigned char> native_read(NativeCopy &copy,unsigned i) {
     D3D12_RANGE empty{0,0};copy.readback[i]->Unmap(0,&empty);return bytes;
 }
 int main(int argc,char **argv)try{
-    bool d12=false,probe=false;
-    for(int i=1;i<argc;i++){d12|=!std::strcmp(argv[i],"--d3d12");probe|=!std::strcmp(argv[i],"--probe");}
+    bool d12=false,probe=false,warp=false;
+    for(int i=1;i<argc;i++){d12|=!std::strcmp(argv[i],"--d3d12");probe|=!std::strcmp(argv[i],"--probe");warp|=!std::strcmp(argv[i],"--warp");}
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> context;D3D_FEATURE_LEVEL level;
-    HRESULT created=d12?bf_scene_d3d12_create(0,&device,&context,&level):D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&device,&level,&context);
+    std::fprintf(stderr,"[SNAPSHOT-TEST] device request: %s %s\n",d12?"D3D12/11On12":"D3D11",warp?"WARP":"hardware");
+    HRESULT created=d12?bf_scene_d3d12_create(warp,&device,&context,&level):D3D11CreateDevice(nullptr,warp?D3D_DRIVER_TYPE_WARP:D3D_DRIVER_TYPE_HARDWARE,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&device,&level,&context);
     if(FAILED(created)){std::printf("SKIP: %s scene device unavailable\n",d12?"D3D12/11On12":"D3D11");return 77;}
     D3D11_TEXTURE2D_DESC desc{};desc.Width=64;desc.Height=48;desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;desc.Format=DXGI_FORMAT_B8G8R8A8_UNORM;desc.BindFlags=D3D11_BIND_RENDER_TARGET;
     ComPtr<ID3D11Texture2D> color,depth,mismatch;check(device->CreateTexture2D(&desc,nullptr,&color),"color");

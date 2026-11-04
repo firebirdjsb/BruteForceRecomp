@@ -28,8 +28,17 @@ def check_pair(path, width=64, height=64, stage=None):
 
 
 def launch(arguments, env, case):
-    result = subprocess.run([str(p) for p in arguments], env=env,
-                            capture_output=True, text=True, timeout=60)
+    command = [str(p) for p in arguments]
+    try:
+        result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired as error:
+        # TimeoutExpired can retain bytes even when text=True. Preserve the
+        # child's adapter/probe output so CI reports the actual stalled path.
+        def decoded(value):
+            return value.decode('utf-8', errors='replace') if isinstance(value, bytes) else value or ''
+        output = decoded(error.stdout) + decoded(error.stderr)
+        (case / 'fixture.log').write_text(output + '\nFixture timed out after 60 seconds.\n')
+        raise AssertionError((command, 'fixture timed out after 60 seconds', output[-3000:])) from error
     (case / 'fixture.log').write_text(result.stdout + result.stderr)
     assert result.returncode == 0, (result.returncode, result.stderr[-3000:])
 
@@ -82,7 +91,9 @@ def main():
         env = dict(clean, BF_DEPTH_PROBE_DIR=str(case / 'probe'), BF_DEPTH_PROBE_MIN_DRAWS='1')
         if count:
             env['BF_DEPTH_PROBE_COUNT'] = count
-        arguments = [direct, '--probe'] + (['--d3d12'] if api == 'd3d12' else [])
+        # Match the backend variants and this public CI suite's WARP contract.
+        # The standalone test keeps hardware as its default for native checks.
+        arguments = [direct, '--probe', '--warp'] + (['--d3d12'] if api == 'd3d12' else [])
         launch(arguments, env, case)
         paths = list((case / 'probe').glob('probe-*.json'))
         assert len(paths) == (8 if count else 4), paths
