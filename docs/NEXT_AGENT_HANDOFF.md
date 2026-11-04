@@ -34,14 +34,27 @@ These checks do not prove a mission-FPS improvement or complete gameplay.
 No new source-frame timing, mouse/input, physics, launcher schema or game-data
 change was made. Native 16:9, temporal DLSS and a 30-FPS minimum remain unfinished.
 
-Candidate: work/menu-polish/player/Release/bruteforce_recomp.exe, SHA256
+Installed candidate: work/menu-polish/player/Release/bruteforce_recomp.exe, SHA256
 dbbed05203c537a9be3a49d0d95b7ab1c8b6fdc840ecf08696bc551e56dfb34a.
 The normal build cache still redirects its output to that folder. It does not
 automatically install the canonical work/diagnostic-build/Release executable.
-At candidate validation the user was still running e5f3846d. A normal-exit
-request is pending before replacement; verify current processes and installation
-state rather than assuming the built candidate is installed. The previous
-installation/rollback details below remain valid until a new manifest is recorded.
+After the user confirmed a normal exit, absence of the game was verified and
+the candidate plus matching maps were installed in both canonical
+work/diagnostic-build/Release and old work/aa-input-quality/player/Release paths.
+Backup: work/menu-polish/install-20261104-093926/install-manifest.json.
+All 64 TDATA/UDATA/settings hashes were identical before/after installation;
+native --validate-only passed. Atomic replacement keeps a locked/running file
+intact if Windows refuses installation. Close apps and restore the exact exe/map
+paths from this manifest for rollback; preserve current player-data.
+At installation the game was closed and profiled launcher PID 39188 remained
+open. Recheck current processes; never treat this observation as a future PID.
+No post-install mission-FPS comparison has yet been captured for this change.
+
+Code checkpoint e3666a1 is pushed to main. This final documentation checkpoint
+records installation; inspect the source CI against its exact commit before
+calling remote validation complete. Private hint-player-build.log,
+hint-player-check.log, hint-public-build.log and hint-scene-check.log are under
+work/render-milestone. No saves, original assets, captures or binaries were pushed.
 
 Next: use the same M02_a position to compare hint hits/searches and texture CPU
 time, then profile the remaining decoder/producer/consumer work. Previous live

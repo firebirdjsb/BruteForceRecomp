@@ -12,6 +12,9 @@ A fixed descriptor hint table now avoids repeated linear searches of the
 remain; collisions and stale LRU slots use the original search. Profiling logs
 include hint-hit/search counts. The Windows player links, 33/33 checks pass,
 and DX11/DX12 scene parity plus HUD/text AA preservation pass (3/3).
+The installed player is dbbed052..., with matching maps. Installation preserved
+all 64 save/settings hashes and passed native content validation; the latest
+backup and rollback paths are recorded in the handoff.
 
 This is a lookup optimization, not proof that mission 4 reaches 30 FPS. Exact
 scene comparisons and the remaining native-widescreen/DLSS work are still open.
