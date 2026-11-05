@@ -1,4 +1,9 @@
-> Current HUD/widescreen checkpoint, 4 November, 16:43: actual checkout is
+> Latest local update, 5 November: consolidated main and the Linux build fixes
+> are installed at `D:/Documents/ChatGPT/bfRecomp`. Read
+> [LOCAL_UPDATE_2026-11-05.md](LOCAL_UPDATE_2026-11-05.md) for exact hashes,
+> tests, saved-data preservation, rollback and outstanding temporal work.
+>
+> Historical HUD/widescreen checkpoint, 4 November, 16:43: actual checkout is
 > `C:/Users/kolby/Documents/ChatGPT/BFRecomp`, branch
 > `codex/texture-profile-followup`, base `8b5e187` plus unpublished changes.
 > Root `bruteforce_recomp.exe` is now the tested widescreen/HUD player, SHA256
