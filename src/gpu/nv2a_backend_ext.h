@@ -101,6 +101,10 @@ typedef struct {
     uint32_t nstreams;              /* > 0: vertices are the streams' spans */
     Nv2aXVsStream streams[NV2A_XVS_MAX_STREAMS];
     Nv2aXVsInput in[16];
+    /* Original NV2A vertex index for each dense/raw-span vertex. Synchronous
+     * executor storage; no VB-address/hash or draw-order identity inference. */
+    const uint32_t *vertex_ids;
+    uint32_t command_va;            /* exact original BEGIN parameter VA */
 } Nv2aXVsBatch;
 
 /* What the back end's vertex shader produced for one vertex, in the
@@ -150,6 +154,9 @@ typedef struct {
     void (*poll)(void);
     uint32_t capabilities;
     void (*before_ui)(const Nv2aSurface *surface);
+    /* Optional completed-source hook before framebuffer publication. The
+     * CPU executor does not acquire a dependency on a particular renderer. */
+    void (*prepare_present)(uint32_t color_va);
 } Nv2aBackendExt;
 
 enum { NV2A_BACKEND_CAP_WINDOW_CLIP = 1u };

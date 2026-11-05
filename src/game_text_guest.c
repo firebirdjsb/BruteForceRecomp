@@ -7,6 +7,8 @@
 #include "ui/scene_boundary.h"
 #include "ui/hud_anchor.h"
 #include "graphics/native_aspect_state.h"
+#include "gpu/temporal_trace.h"
+#include <fenv.h>
 int bf_ui_menu_active(void);
 void bf_ui_prompt_anchor(unsigned);
 static unsigned s_guest_ui_anchor=BF_HUD_CENTER;
@@ -182,6 +184,82 @@ static int bf_guest_marker(uint32_t marker) {
 }
 int bf_guest_aspect_marker(int active) {
     return bf_guest_marker(active?BF_SCENE_WIDE_BEGIN:BF_SCENE_WIDE_END);
+}
+static int bf_guest_motion_emit(const BFMotionRecord *record) {
+    int result=bf_ui_try_motion_record(MEM32(0x0037DD88u),record),before=result;
+    uint32_t bytes=0,minimum=0,preferred=0,stack=g_esp;
+    if(result==2) {
+        bytes=MEM32(0x0037EC88u);
+        // The injected call block is 12 bytes: return PC, minimum BYTE window,
+        // preferred BYTE window. Original 00371E10 owns its own deeper stack
+        // frame and RET 8. Its watermark subtracts the exact 0x204-byte guard.
+        if(bf_motion_reservation_plan(bytes,&minimum,&preferred)&&stack>=0x1000Cu&&bf_game_ui_scratch_writable(stack-12,12)) {
+            PUSH32(g_esp,preferred);PUSH32(g_esp,minimum);
+            PUSH32(g_esp,0x0036CD71u);sub_00371E10();
+            result=g_esp==stack?bf_ui_try_motion_record(MEM32(0x0037DD88u),record):0;
+        } else result=0;
+    }
+    if(before==2||result!=1)bf_motion_reservation_log(MEM32(0x0037DD88u),stack,bytes,minimum,preferred,before,result);
+    if(result!=1)bf_motion_trace_failure("guest_pushbuffer_reservation");
+    return result==1;
+}
+void bf_guest_motion_lifetime(uint32_t object,int create) {
+    BfGuestRegisters state;fenv_t env;save_registers(&state);fegetenv(&env);
+    bf_motion_lifetime(object,create);restore_registers(&state);fesetenv(&env);
+}
+void bf_guest_motion_scene_lifetime(uint32_t object,int create) {
+    BfGuestRegisters state;fenv_t env;save_registers(&state);fegetenv(&env);
+    bf_motion_scene_lifetime(object,create);restore_registers(&state);fesetenv(&env);
+}
+int bf_guest_motion_view_begin(void) {
+    if(!bf_motion_observer_enabled())return 0;
+    BfGuestRegisters state;BFMotionRecord record;int result=0;fenv_t env;
+    save_registers(&state);fegetenv(&env);
+    if(bf_motion_record_view(g_esp,&record))result=bf_guest_motion_emit(&record);
+    restore_registers(&state);fesetenv(&env);return result;
+}
+void bf_guest_motion_end(unsigned kind) {
+    if(!bf_motion_observer_enabled())return;
+    BfGuestRegisters state;BFMotionRecord record;fenv_t env;
+    save_registers(&state);fegetenv(&env);
+    if(bf_motion_record_end(kind,&record))bf_guest_motion_emit(&record);
+    restore_registers(&state);fesetenv(&env);
+}
+void bf_guest_motion_part_begin(uint32_t packet,uint32_t descriptor,uint32_t subdraw) {
+    if(!bf_motion_observer_enabled())return;
+    BfGuestRegisters state;BFMotionRecord record;fenv_t env;
+    save_registers(&state);fegetenv(&env);
+    if(bf_motion_record_part(packet,descriptor,subdraw,&record))bf_guest_motion_emit(&record);
+    restore_registers(&state);fesetenv(&env);
+}
+unsigned bf_guest_motion_object_begin(uint32_t object,uint32_t target,uint32_t callsite) {
+    if(!bf_motion_observer_enabled())return 0;
+    BfGuestRegisters state;BFMotionRecord record;int active=0;fenv_t env;
+    save_registers(&state);fegetenv(&env);
+    if(bf_motion_record_object(object,target,callsite,&record))active=bf_guest_motion_emit(&record);
+    restore_registers(&state);fesetenv(&env);return active;
+}
+void bf_original_motion_model_draw(void);
+void bf_original_motion_scene_draw(void);
+void sub_001F5600(void) {
+    BfGuestRegisters state;BFMotionRecord record;int active=0;fenv_t env;
+    if(bf_motion_observer_enabled()) {
+        save_registers(&state);fegetenv(&env);
+        if(bf_motion_record_scene(g_esp,&record))active=bf_guest_motion_emit(&record);
+        restore_registers(&state);fesetenv(&env);
+    }
+    bf_original_motion_scene_draw();
+    if(active)bf_guest_motion_end(BF_MOTION_MODEL_END);
+}
+void sub_00157B70(void) {
+    BfGuestRegisters state;BFMotionRecord record;int active=0;fenv_t env;
+    if(bf_motion_observer_enabled()) {
+        save_registers(&state);fegetenv(&env);
+        if(bf_motion_record_model(g_ecx,&record))active=bf_guest_motion_emit(&record);
+        restore_registers(&state);fesetenv(&env);
+    }
+    bf_original_motion_model_draw();
+    if(active)bf_guest_motion_end(BF_MOTION_MODEL_END);
 }
 void sub_0010D560(void) {
     const uint32_t keyboard=g_ecx;

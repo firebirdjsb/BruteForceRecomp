@@ -66,7 +66,12 @@ extern unsigned bf_ui_texture_scale(void);
 #include "xbox_memory_layout.h"
 #include "scene_device.h"
 #include "scene_snapshot.h"
+#include "graphics/temporal_handoff.h"
 #include "graphics/native_aspect_state.h"
+#include "temporal_trace_backend.h"
+#include "graphics/ui_composition.h"
+#include "graphics/temporal_control.h"
+#include "motion_renderer.h"
 
 extern ptrdiff_t xbox_GetMemoryOffset(void);
 
@@ -79,6 +84,11 @@ static int s_warp;
 static int s_d3d12;
 static int s_depth_texture;
 static volatile LONG s_device_thread;
+static BfMotionRenderer *s_motion_renderer;
+static ID3D11Buffer *s_motion_zero_cb;
+static BfMotionDrawBinding s_motion_binding;
+static uint32_t s_motion_draw_color,s_motion_jitter_frame;
+static int s_motion_next_jitter,s_motion_latched_jitter;
 
 /* ---- statistics ---------------------------------------------------------- */
 
@@ -238,9 +248,11 @@ static const char s_base_hlsl[] =
 GPU_WINDOW_CLIP_HLSL
 GPU_SHADOW_HLSL
 GPU_UI_ANCHOR_HLSL
+GPU_UI_CAPTURE_HLSL
+GPU_MOTION_VERTEX_BODY
 "cbuffer B : register(b0) { float4 surf; float4 texinfo; float4 alpha; float4 depth; };\n"
-"struct VSIn { float4 p : POSITION; float4 c : COLOR; float2 uv : TEXCOORD; };\n"
-"struct PSIn { float4 p : SV_Position; float4 c : COLOR; float2 uv : TEXCOORD; };\n"
+"struct VSIn { float4 p : POSITION; float4 c : COLOR; float2 uv : TEXCOORD;uint vid:SV_VertexID; };\n"
+"struct PSIn { float4 p : SV_Position; float4 c : COLOR; float2 uv : TEXCOORD;\n" GPU_MOTION_VARYINGS "};\n"
 "PSIn vs_main(VSIn i) {\n"
 "  PSIn o;\n"
 "  float w = (i.p.w > 0.0) ? 1.0 / i.p.w : 1.0;\n"
@@ -249,13 +261,14 @@ GPU_UI_ANCHOR_HLSL
 "  float y = 1.0 - i.p.y * surf.w * 2.0;\n"
 "  float z = (i.p.z - depth.x) * depth.y;\n"
 "  o.p = float4(x * w, y * w, z * w, w);\n"
+"  o.bf_capture_clip=o.p;o.p=bf_motion_vertex(o.p,i.vid,o.bf_previous_clip,o.bf_history_valid,o.bf_original_id);\n"
 "  o.c = i.c;\n"
 "  o.uv = i.uv * texinfo.xy;\n"
 "  return o;\n"
 "}\n"
 "Texture2D t0 : register(t0);\n"
 "SamplerState s0 : register(s0);\n"
-"float4 ps_main(PSIn i) : SV_Target {\n"
+"UiPixelOutput ps_main(PSIn i) {\n"
 "  if (!window_allows(i.p.xy)) discard;\n"
 "  float4 c = i.c;\n"
 "  if (texinfo.z > 0.5) {\n"
@@ -267,7 +280,7 @@ GPU_UI_ANCHOR_HLSL
 "    bool ok = (f == 7) || (f == 1 && v < r) || (f == 2 && v == r) || (f == 3 && v <= r)\n"
 "      || (f == 4 && v > r) || (f == 5 && v != r) || (f == 6 && v >= r);\n"
 "    if (!ok) discard; }\n"
-"  return c;\n"
+"  return ui_pixel_output(c,i.p,i.bf_previous_clip,i.bf_history_valid);\n"
 "}\n";
 
 typedef struct {
@@ -280,13 +293,14 @@ typedef struct {
 static const char s_xvs_hlsl[] =
 GPU_UI_ANCHOR_HLSL
 GPU_RC_CBUFFER
+GPU_MOTION_VERTEX_HLSL
 "struct VSIn { float4 p : POSITION; float4 d0 : COLOR0; float4 d1 : COLOR1;\n"
 "  float4 fog : TEXCOORD4; float4 tc0 : TEXCOORD0; float4 tc1 : TEXCOORD1;\n"
-"  float4 tc2 : TEXCOORD2; float4 tc3 : TEXCOORD3; };\n"
+"  float4 tc2 : TEXCOORD2; float4 tc3 : TEXCOORD3;uint vid:SV_VertexID; };\n"
 "struct VSOut { float4 p : SV_Position; noperspective float4 d0 : COLOR0;\n"
 "  noperspective float4 d1 : COLOR1; noperspective float fog : FOG;\n"
 "  float4 tc0 : TEXCOORD0; float4 tc1 : TEXCOORD1;\n"
-"  float4 tc2 : TEXCOORD2; float4 tc3 : TEXCOORD3; float fogp : FOG1; };\n"
+"  float4 tc2 : TEXCOORD2; float4 tc3 : TEXCOORD3; float fogp : FOG1;\n" GPU_MOTION_VARYINGS "};\n"
 "VSOut vs_main(VSIn i) {\n"
 "  VSOut o;\n"
 "  float w = (i.p.w > 0.0) ? 1.0 / i.p.w : 1.0;\n"
@@ -296,6 +310,7 @@ GPU_RC_CBUFFER
 "  float zr = (i.p.z - depth.x) * depth.y;\n"
 "  float z = depth.z > 0.5 ? saturate(zr) : zr;\n"
 "  o.p = float4(x * w, y * w, z * w, w);\n"
+"  o.bf_capture_clip=o.p;o.p=bf_motion_vertex(o.p,i.vid,o.bf_previous_clip,o.bf_history_valid,o.bf_original_id);\n"
 "  o.d0 = i.d0; o.d1 = i.d1; o.fog = i.fog.x; o.fogp = i.fog.x;\n"
 "  o.tc0 = i.tc0; o.tc1 = i.tc1; o.tc2 = i.tc2; o.tc3 = i.tc3;\n"
 "  return o;\n"
@@ -371,6 +386,10 @@ static int ensure_device(void)
         return 0;
     if (s_dev)
         return 1;
+    {
+        const char *capture=getenv("BF_TEMPORAL_UI_CAPTURE");
+        if(capture&&!strcmp(capture,"1"))bf_ui_composition_request(1);
+    }
     s_failed = 1;               /* until everything below has worked */
     hr = s_d3d12 ? bf_scene_d3d12_create(s_warp,&s_dev,&s_ctx,&got) : D3D11CreateDevice(NULL, s_warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE,
                            NULL, D3D11_CREATE_DEVICE_SINGLETHREADED, &fl, 1,
@@ -411,6 +430,11 @@ static int ensure_device(void)
     ID3D11Device_CreateBuffer(s_dev, &bd, NULL, &s_xcb);
     bd.ByteWidth = 9 * 16;
     ID3D11Device_CreateBuffer(s_dev, &bd, NULL, &s_window_cb);
+    {
+        const BfMotionDrawConstants zero={0};D3D11_SUBRESOURCE_DATA data={0};
+        bd.ByteWidth=sizeof zero;bd.Usage=D3D11_USAGE_IMMUTABLE;bd.CPUAccessFlags=0;data.pSysMem=&zero;
+        if(FAILED(ID3D11Device_CreateBuffer(s_dev,&bd,&data,&s_motion_zero_cb)))return 0;
+    }
 
     memset(&rd, 0, sizeof rd);
     rd.FillMode = D3D11_FILL_SOLID;
@@ -448,7 +472,12 @@ typedef struct {
     uint32_t va, pitch, bpp, w, h;
     uint32_t aa_generation;
     uint32_t scene_depth_va, scene_generation, scene_depth_draws, scene_tainted;
-    uint32_t wide_generation, ui_generation;
+    uint32_t wide_generation, ui_generation,ui_published_generation;
+    BfUiComposition *ui_overlay;
+    BfSceneDepthHold *temporal_depth;
+    BfSceneDepthHoldInfo temporal_identity;
+    uint64_t temporal_geometry_serial;
+    uint32_t temporal_frozen;
     ID3D11Texture2D *tex, *snapshot;
     ID3D11RenderTargetView *rtv;
     ID3D11ShaderResourceView *srv, *snapshot_srv;
@@ -475,6 +504,29 @@ static Depth *s_cur_depth;
 static uint32_t s_gen = 1;          /* completed-flip generation */
 static unsigned s_wide_scope;
 static unsigned s_ui_anchor=1;
+static BfUiBlendMode s_ui_capture_mode;
+static ID3D11Buffer *s_ui_capture_cb;
+
+static int ui_capture_trace_diagnostics(void)
+{
+    const char *enabled=getenv("BF_TEMPORAL_UI_TRACE");
+    return enabled&&!strcmp(enabled,"1")&&bf_motion_trace_configured();
+}
+
+static const char *ui_source_change_name(BfUiSourceChangeReason reason)
+{
+    switch(reason) {
+    case BF_UI_SOURCE_CHANGE_CPU_SYNC:return "CPU_SYNC";
+    case BF_UI_SOURCE_CHANGE_TEXTURE_FEEDBACK:return "TEXTURE_FEEDBACK";
+    case BF_UI_SOURCE_CHANGE_WORLD_SCOPE:return "WORLD_SCOPE";
+    default:return "NONE";
+    }
+}
+static void bind_output_views(Surf *,Depth *);
+static ID3D11RenderTargetView *ui_capture_target(Surf *s)
+{
+    return s&&s->ui_generation==s_gen?bf_ui_composition_target(s->ui_overlay,s_gen):NULL;
+}
 static int trace_aspect_queue(void)
 {
     static int enabled=-1;
@@ -495,6 +547,11 @@ static DXGI_FORMAT surf_format(uint32_t bpp)
 
 static void release_surf(Surf *s)
 {
+    bf_motion_renderer_surface_reset(s_motion_renderer,s->va);
+    bf_scene_depth_hold_destroy(s->temporal_depth);s->temporal_depth=NULL;
+    memset(&s->temporal_identity,0,sizeof s->temporal_identity);
+    s->temporal_geometry_serial=0;s->temporal_frozen=0;
+    bf_ui_composition_destroy(s->ui_overlay);s->ui_overlay=NULL;
     if (s->snapshot_srv) ID3D11ShaderResourceView_Release(s->snapshot_srv);
     if (s->snapshot) ID3D11Texture2D_Release(s->snapshot);
     s->snapshot_srv = NULL; s->snapshot = NULL;
@@ -506,7 +563,7 @@ static void release_surf(Surf *s)
     s->guest_check_gen=0;s->gpu_dirty=0;
     s->scene_depth_va=0;s->scene_generation=0;s->scene_depth_draws=0;
     s->scene_tainted=1;
-    s->wide_generation=s->ui_generation=0;
+    s->wide_generation=s->ui_generation=s->ui_published_generation=0;
 }
 
 /* Executor-thread-only, after preceding queued geometry has been flushed. */
@@ -516,7 +573,11 @@ void bruteforce_d3d11_wide_scope(int begin_scope)
     if(begin_scope) {
         ++s_wide_scope;
         s_ui_anchor=1;
-        for(i=0;i<s_nsurf;i++)s_surf[i].ui_generation=0;
+        for(i=0;i<s_nsurf;i++) {
+            if(s_surf[i].ui_generation==s_gen)
+                bf_ui_composition_source_changed(s_surf[i].ui_overlay,BF_UI_SOURCE_CHANGE_WORLD_SCOPE);
+            s_surf[i].ui_generation=0;
+        }
     } else if(s_wide_scope)--s_wide_scope;
     if(trace_aspect_queue()) {
         static unsigned lines;
@@ -554,9 +615,16 @@ static void invalidate_scene_depth(uint32_t va,const Surf *owner)
     }
 }
 
+static int temporal_depth_enabled(void)
+{
+    static int enabled=-1;
+    if(enabled<0) {const char *p=getenv("BF_TEMPORAL_DEPTH_HOLD");enabled=p&&!strcmp(p,"1");}
+    return enabled;
+}
+
 static int scene_tracking_enabled(void)
 {
-    return bf_scene_snapshot_enabled()||bf_depth_probe_enabled();
+    return bf_scene_snapshot_enabled()||bf_depth_probe_enabled()||temporal_depth_enabled();
 }
 
 /* Diagnostic copies precede destructive depth commands. They use a separate
@@ -564,14 +632,20 @@ static int scene_tracking_enabled(void)
 static void probe_scene_depth(Depth *depth,const Surf *owner,BfDepthProbeStage stage)
 {
     int i;
-    if(!bf_depth_probe_enabled()||!depth||!depth->tex||!depth->initialized||
+    if((!bf_depth_probe_enabled()&&!temporal_depth_enabled())||!depth||!depth->tex||!depth->initialized||
        depth->format!=2||depth->surface_type!=1)return;
     for(i=0;i<s_nsurf;i++) {
         Surf *sf=&s_surf[i];
         if(sf!=owner&&sf->tex&&sf->bpp==4&&!sf->scene_tainted&&sf->scene_generation==s_gen&&
            sf->scene_depth_draws&&sf->scene_depth_va==depth->va&&sf->w==depth->w&&sf->h==depth->h) {
             BfSceneSnapshotInfo info={(uint64_t)s_gen,sf->va,depth->va,sf->scene_depth_draws,sf->w,sf->h};
-            bf_depth_probe_publish(s_dev,s_ctx,sf->tex,depth->tex,&info,stage);
+            if(bf_depth_probe_enabled())bf_depth_probe_publish(s_dev,s_ctx,sf->tex,depth->tex,&info,stage);
+            if(temporal_depth_enabled()&&sf->temporal_identity.view&&sf->temporal_identity.context) {
+                sf->temporal_identity.source=info;
+                sf->temporal_identity.geometry_serial=sf->temporal_geometry_serial;
+                sf->temporal_frozen=bf_scene_depth_hold_freeze(&sf->temporal_depth,s_dev,s_ctx,
+                    sf->tex,depth->tex,&sf->temporal_identity);
+            }
         }
     }
 }
@@ -588,16 +662,20 @@ static void release_asset_cache(void);
 static void release_color_snapshots(void)
 {
     int i;
+    bf_motion_renderer_destroy(s_motion_renderer);s_motion_renderer=NULL;
+    if(s_motion_zero_cb)ID3D11Buffer_Release(s_motion_zero_cb);s_motion_zero_cb=NULL;
     bf_scene_snapshot_shutdown();
     bf_depth_probe_shutdown();
     release_asset_cache();
     for(i=0;i<s_nsurf;i++) {
+        bf_ui_composition_destroy(s_surf[i].ui_overlay);s_surf[i].ui_overlay=NULL;
         if(s_surf[i].snapshot_srv)ID3D11ShaderResourceView_Release(s_surf[i].snapshot_srv);
         if(s_surf[i].snapshot)ID3D11Texture2D_Release(s_surf[i].snapshot);
         s_surf[i].snapshot_srv=NULL;s_surf[i].snapshot=NULL;
     }
     if(s_depth_color_staging)ID3D11Texture2D_Release(s_depth_color_staging);
     s_depth_color_staging=NULL;
+    if(s_ui_capture_cb)ID3D11Buffer_Release(s_ui_capture_cb);s_ui_capture_cb=NULL;
 }
 
 /* CPU movie decoding writes color surfaces directly. Compare those bytes
@@ -635,6 +713,7 @@ static int sync_guest_surface(Surf *s,int force)
         if(!warned++)fprintf(stderr,"[GPU-D3D11] CPU writes overlap pending GPU color work at %08X; preserving GPU work\n",s->va);
         return 1;
     }
+    if(s->ui_generation==s_gen)bf_ui_composition_source_changed(s->ui_overlay,BF_UI_SOURCE_CHANGE_CPU_SYNC);
     ID3D11DeviceContext_UpdateSubresource(s_ctx,(ID3D11Resource *)s->tex,0,NULL,GUEST(s->va),s->pitch,0);
     return snapshot_guest_surface(s);
 }
@@ -956,10 +1035,10 @@ static ID3D11ShaderResourceView *get_depth_texture(const Nv2aTexture *t, int cub
         if (FAILED(hr))
             goto failed;
     }
-    ID3D11DeviceContext_OMSetRenderTargets(s_ctx, 1, &s_cur->rtv, NULL);
+    bind_output_views(s_cur,NULL);
     ID3D11DeviceContext_CopyResource(s_ctx, (ID3D11Resource *)d->snapshot,
                                      (ID3D11Resource *)d->tex);
-    ID3D11DeviceContext_OMSetRenderTargets(s_ctx, 1, &s_cur->rtv, d->dsv);
+    bind_output_views(s_cur,d);
     s_st.depth_snapshots++;
     return d->snapshot_srv;
 
@@ -988,6 +1067,97 @@ static void reject_depth_mode(uint32_t mode, int cube, int base)
     }
 }
 
+static void motion_disable_draw(void)
+{
+    memset(&s_motion_binding,0,sizeof s_motion_binding);s_motion_draw_color=0;
+    ID3D11DeviceContext_VSSetConstantBuffers(s_ctx,2,1,&s_motion_zero_cb);
+    ID3D11DeviceContext_PSSetConstantBuffers(s_ctx,2,1,&s_motion_zero_cb);
+}
+static int motion_source(Surf *surface,const Nv2aRenderState *rs,BfMotionSource *source)
+{
+    BFMotionRecord record;float near_z,far_z;
+    if(!bf_motion_observer_enabled()||!surface||surface->w!=640||surface->h!=480||surface->bpp!=4||surface->ui_generation==s_gen)return 0;
+    if(!s_motion_renderer)s_motion_renderer=bf_motion_renderer_create(s_dev,s_ctx);
+    if(!s_motion_renderer)return 0;
+    memset(source,0,sizeof *source);source->frame=s_gen;source->color_va=surface->va;source->depth_va=rs?rs->zeta_va:0;
+    source->width=surface->w;source->height=surface->h;
+    /* Missing scopes remain observed unknown work; silently skipping such a
+     * draw could incorrectly bless an otherwise tracked subset of the frame. */
+    if(!bf_motion_current_record(&record)||!record.words[BF_MO_VIEW_VALID])return 1;
+    memcpy(&near_z,record.words+BF_MO_PROJECTION_WORDS+2,4);memcpy(&far_z,record.words+BF_MO_PROJECTION_WORDS+3,4);
+    source->view=record.words[BF_MO_VIEW];source->context=record.words[BF_MO_CONTEXT];
+    source->near_plane=near_z;source->far_plane=far_z;
+    if(s_motion_jitter_frame!=s_gen){s_motion_jitter_frame=s_gen;s_motion_latched_jitter=s_motion_next_jitter;}
+    if(s_motion_latched_jitter) {
+        BfTemporalView view;
+        if(bf_temporal_prepare_view(s_dev,s_ctx,s_gen,surface->va,surface->w,surface->h,&record,&view)) {
+            source->jitter_x=view.jitter_x;source->jitter_y=view.jitter_y;source->apply_jitter=1;
+        }
+    }
+    return 1;
+}
+static void motion_prepare_draw(Surf *surface,const Nv2aRenderState *rs,const Nv2aXVsBatch *batch)
+{
+    BfMotionSource source;BFMotionRecord identity;ID3D11ShaderResourceView *views[2];
+    motion_disable_draw();
+    if(!motion_source(surface,rs,&source))return;
+    memset(&identity,0,sizeof identity);
+    if(batch)bf_motion_draw_record(batch->command_va,&identity);
+    if(!bf_motion_renderer_prepare(s_motion_renderer,&source,rs,batch,&identity,&s_motion_binding))return;
+    s_motion_draw_color=surface->va;
+    ID3D11DeviceContext_VSSetConstantBuffers(s_ctx,2,1,&s_motion_binding.constants);
+    ID3D11DeviceContext_PSSetConstantBuffers(s_ctx,2,1,&s_motion_binding.constants);
+    views[0]=s_motion_binding.original_ids;views[1]=s_motion_binding.previous;
+    ID3D11DeviceContext_VSSetShaderResources(s_ctx,1,2,views);
+}
+void bruteforce_d3d11_temporal_jitter(int enabled){s_motion_next_jitter=enabled!=0;}
+int bruteforce_d3d11_motion_snapshot(uint32_t color,uint64_t frame,BfMotionSnapshot *snapshot)
+{
+    return frame<=UINT32_MAX&&bf_motion_renderer_snapshot(s_motion_renderer,color,(uint32_t)frame,snapshot);
+}
+
+/* Slot 0 remains the game's original target. Slots 1/2 are reserved for
+ * motion/reactivity, and slot 3 contains only post-boundary UI coverage. */
+static void bind_output_views(Surf *s,Depth *d)
+{
+    ID3D11RenderTargetView *targets[6]={s->rtv,NULL,NULL,NULL,NULL,NULL};
+    targets[3]=ui_capture_target(s);
+    if(s_motion_draw_color==s->va&&s_motion_binding.outputs) {
+        bf_motion_renderer_targets(s_motion_renderer,s->va,s_gen,&targets[1],&targets[2],&targets[4],&targets[5]);
+        if(!(s_motion_binding.outputs&BF_MOTION_BIND_VECTOR))targets[1]=NULL;
+        if(!(s_motion_binding.outputs&BF_MOTION_BIND_MASKS))targets[2]=targets[5]=NULL;
+        if(!(s_motion_binding.outputs&BF_MOTION_BIND_DEPTH))targets[4]=NULL;
+    }
+    ID3D11DeviceContext_OMSetRenderTargets(s_ctx,targets[1]||targets[2]||targets[4]||targets[5]?6:targets[3]?4:1,targets,d?d->dsv:NULL);
+}
+
+static void ui_capture_prepare(Surf *s,const Nv2aRenderState *rs)
+{
+    D3D11_BUFFER_DESC desc;
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    uint32_t values[4]={0,0,0,0};
+    s_ui_capture_mode=BF_UI_BLEND_NO_RGB;
+    if(!ui_capture_target(s))return;
+    if(!rs) {bf_ui_composition_invalidate(s->ui_overlay,BF_UI_CAPTURE_UNSUPPORTED_BLEND);return;}
+    s_ui_capture_mode=bf_ui_blend_mode(rs->blend_enable,rs->blend_src,rs->blend_dst,rs->blend_eq,rs->color_mask);
+    if(s_ui_capture_mode==BF_UI_BLEND_UNSUPPORTED) {
+        bf_ui_composition_invalidate(s->ui_overlay,BF_UI_CAPTURE_UNSUPPORTED_BLEND);return;
+    }
+    if(!s_ui_capture_cb) {
+        memset(&desc,0,sizeof desc);desc.ByteWidth=sizeof values;desc.Usage=D3D11_USAGE_DYNAMIC;
+        desc.BindFlags=D3D11_BIND_CONSTANT_BUFFER;desc.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
+        if(FAILED(ID3D11Device_CreateBuffer(s_dev,&desc,NULL,&s_ui_capture_cb))) {
+            bf_ui_composition_invalidate(s->ui_overlay,BF_UI_CAPTURE_UNSUPPORTED_TARGET);return;
+        }
+    }
+    if(FAILED(ID3D11DeviceContext_Map(s_ctx,(ID3D11Resource *)s_ui_capture_cb,0,D3D11_MAP_WRITE_DISCARD,0,&mapped))) {
+        bf_ui_composition_invalidate(s->ui_overlay,BF_UI_CAPTURE_UNSUPPORTED_TARGET);return;
+    }
+    values[0]=(uint32_t)s_ui_capture_mode;memcpy(mapped.pData,values,sizeof values);
+    ID3D11DeviceContext_Unmap(s_ctx,(ID3D11Resource *)s_ui_capture_cb,0);
+    ID3D11DeviceContext_PSSetConstantBuffers(s_ctx,3,1,&s_ui_capture_cb);
+}
+
 static void bind_targets(Surf *s, Depth *d)
 {
     D3D11_VIEWPORT vp;
@@ -995,7 +1165,7 @@ static void bind_targets(Surf *s, Depth *d)
 
     /* A surface about to be drawn into must not stay bound as a texture. */
     ID3D11DeviceContext_PSSetShaderResources(s_ctx, 0, 4, none);
-    ID3D11DeviceContext_OMSetRenderTargets(s_ctx, 1, &s->rtv, d ? d->dsv : NULL);
+    bind_output_views(s,d);
     vp.TopLeftX = 0; vp.TopLeftY = 0;
     vp.Width = (float)s->w; vp.Height = (float)s->h;
     vp.MinDepth = 0.0f; vp.MaxDepth = 1.0f;
@@ -1010,6 +1180,7 @@ static void bind_targets(Surf *s, Depth *d)
  * orders the copy on D3D11On12; it needs no CPU wait or visibility-query reset. */
 static ID3D11ShaderResourceView *color_snapshot(Surf *s)
 {
+    if(s->ui_generation==s_gen)bf_ui_composition_source_changed(s->ui_overlay,BF_UI_SOURCE_CHANGE_TEXTURE_FEEDBACK);
     D3D11_TEXTURE2D_DESC td;
     ID3D11ShaderResourceView *none[4]={NULL,NULL,NULL,NULL};
     HRESULT hr;
@@ -1024,7 +1195,7 @@ static ID3D11ShaderResourceView *color_snapshot(Surf *s)
     ID3D11DeviceContext_PSSetShaderResources(s_ctx,0,4,none);
     ID3D11DeviceContext_OMSetRenderTargets(s_ctx,0,NULL,NULL);
     ID3D11DeviceContext_CopyResource(s_ctx,(ID3D11Resource *)s->snapshot,(ID3D11Resource *)s->tex);
-    ID3D11DeviceContext_OMSetRenderTargets(s_ctx,1,&s_cur->rtv,s_cur_depth?s_cur_depth->dsv:NULL);
+    bind_output_views(s_cur,s_cur_depth);
     return s->snapshot_srv;
 failed:
     fprintf(stderr,"[GPU-D3D11] colour feedback snapshot creation failed 0x%08lX\n",(unsigned long)hr);
@@ -1048,6 +1219,7 @@ static int begin(const Nv2aSurface *s, const Nv2aRenderState *rs)
 {
     Surf *surf;
     Depth *d;
+    int motion_was_bound;
 
     if (!ensure_device() || !s || !s->color_va)
         return 0;
@@ -1055,8 +1227,12 @@ static int begin(const Nv2aSurface *s, const Nv2aRenderState *rs)
     if (!surf)
         return 0;
     if(!sync_guest_surface(surf,0))return 0;
+    motion_was_bound=s_motion_binding.outputs!=0;
+    motion_disable_draw();
+    if(surf->w==640&&surf->h==480&&surf->bpp==4)bf_temporal_probe_device(s_dev,s_ctx,surf->w,surf->h);
     d = rs ? get_depth(rs->zeta_va, surf->w, surf->h) : NULL;
-    if (surf != s_cur || d != s_cur_depth)
+    if(bf_ui_composition_enabled())ui_capture_prepare(surf,rs);
+    if (surf != s_cur || d != s_cur_depth || motion_was_bound || bf_ui_composition_enabled() || bf_motion_observer_enabled())
         bind_targets(surf, d);
     apply_scissor(s);
     return 1;
@@ -1064,6 +1240,21 @@ static int begin(const Nv2aSurface *s, const Nv2aRenderState *rs)
 
 static void mark_depth_written(const Nv2aRenderState *rs)
 {
+    if(temporal_depth_enabled()&&s_cur&&rs&&rs->depth_test_enable&&
+       (rs->depth_write||(rs->color_mask&0x00010101u))&&s_cur->ui_generation!=s_gen) {
+        BFMotionRecord record;
+        if(bf_motion_current_record(&record)&&record.words[BF_MO_VIEW_VALID]) {
+            /* Serial changes on every real world submission, including
+             * depth-read-only geometry. A frozen depth may only be joined
+             * to later color if no such submission intervened. */
+            if(s_cur->temporal_geometry_serial!=UINT64_MAX)++s_cur->temporal_geometry_serial;
+            s_cur->temporal_identity.view=record.words[BF_MO_VIEW];
+            s_cur->temporal_identity.context=record.words[BF_MO_CONTEXT];
+        } else {
+            s_cur->temporal_frozen=0;
+            s_cur->temporal_identity.view=s_cur->temporal_identity.context=0;
+        }
+    }
     if(s_wide_scope&&s_cur&&s_cur->w==640&&s_cur->h==480)
         s_cur->wide_generation=s_gen;
     if(s_cur_depth&&rs&&(rs->depth_write||rs->stencil_enable))s_cur_depth->gpu_dirty=1;
@@ -1591,7 +1782,7 @@ static D3D11_STENCIL_OP map_sop(uint32_t o)
 }
 
 #define MAX_STATE 256
-typedef struct { uint32_t key[5]; ID3D11BlendState *bs; } BlendEntry;
+typedef struct { uint32_t key[7]; ID3D11BlendState *bs; } BlendEntry;
 typedef struct { uint32_t key[10]; ID3D11DepthStencilState *ds; } DsEntry;
 typedef struct { uint32_t key[4]; ID3D11SamplerState *ss; } SampEntry;
 static BlendEntry s_blend[MAX_STATE];
@@ -1603,8 +1794,10 @@ static int s_nsamp;
 
 static ID3D11BlendState *get_blend(const Nv2aRenderState *rs)
 {
-    uint32_t key[5] = { rs->blend_enable, rs->blend_src, rs->blend_dst, rs->blend_eq,
-                        rs->color_mask };
+    const int ui_active=ui_capture_target(s_cur)!=NULL;
+    const uint32_t motion=s_cur&&s_motion_draw_color==s_cur->va?s_motion_binding.outputs:0;
+    uint32_t key[7] = { rs->blend_enable, rs->blend_src, rs->blend_dst, rs->blend_eq,
+                        rs->color_mask, ui_active?(uint32_t)s_ui_capture_mode+1:0,motion };
     D3D11_BLEND_DESC bd;
     D3D11_RENDER_TARGET_BLEND_DESC *t = &bd.RenderTarget[0];
     UINT8 mask = 0;
@@ -1628,8 +1821,31 @@ static ID3D11BlendState *get_blend(const Nv2aRenderState *rs)
     if (rs->color_mask & 0x00000001u) mask |= D3D11_COLOR_WRITE_ENABLE_BLUE;
     if (rs->color_mask & 0x01000000u) mask |= D3D11_COLOR_WRITE_ENABLE_ALPHA;
     t->RenderTargetWriteMask = mask;
+    if(ui_active||motion) {
+        /* Preserve the complete original RT0 descriptor and factor mapping.
+         * Only RT3 uses scene-independent premultiplied source-over. */
+        D3D11_RENDER_TARGET_BLEND_DESC *overlay=&bd.RenderTarget[3];
+        for(i=1;i<8;i++) {bd.RenderTarget[i]=*t;bd.RenderTarget[i].RenderTargetWriteMask=0;}
+        bd.IndependentBlendEnable=TRUE;overlay->BlendEnable=TRUE;
+        overlay->SrcBlend=overlay->SrcBlendAlpha=D3D11_BLEND_ONE;
+        overlay->DestBlend=overlay->DestBlendAlpha=D3D11_BLEND_INV_SRC_ALPHA;
+        overlay->BlendOp=overlay->BlendOpAlpha=D3D11_BLEND_OP_ADD;
+        overlay->RenderTargetWriteMask=ui_active&&s_ui_capture_mode!=BF_UI_BLEND_NO_RGB?D3D11_COLOR_WRITE_ENABLE_ALL:0;
+        for(i=1;i<=5;i++)if(i!=3) {
+            D3D11_RENDER_TARGET_BLEND_DESC *aux=&bd.RenderTarget[i];
+            aux->BlendEnable=FALSE;aux->SrcBlend=aux->SrcBlendAlpha=D3D11_BLEND_ONE;
+            aux->DestBlend=aux->DestBlendAlpha=D3D11_BLEND_ZERO;aux->BlendOp=aux->BlendOpAlpha=D3D11_BLEND_OP_ADD;
+            aux->RenderTargetWriteMask=i==1?(motion&BF_MOTION_BIND_VECTOR?3:0):i==4?(motion&BF_MOTION_BIND_DEPTH?1:0):(motion&BF_MOTION_BIND_MASKS?1:0);
+            if(i==2||i==5){aux->BlendEnable=TRUE;aux->DestBlend=aux->DestBlendAlpha=D3D11_BLEND_ONE;aux->BlendOp=aux->BlendOpAlpha=D3D11_BLEND_OP_MAX;}
+        }
+    }
     memcpy(s_blend[s_nblend].key, key, sizeof key);
-    ID3D11Device_CreateBlendState(s_dev, &bd, &s_blend[s_nblend].bs);
+    if(FAILED(ID3D11Device_CreateBlendState(s_dev, &bd, &s_blend[s_nblend].bs))&&(ui_active||motion)) {
+        bf_motion_renderer_resource_failure(s_motion_renderer,s_cur->va,s_gen);motion_disable_draw();
+        bf_ui_composition_invalidate(s_cur->ui_overlay,BF_UI_CAPTURE_UNSUPPORTED_TARGET);
+        bind_output_views(s_cur,s_cur_depth);
+        return get_blend(rs); /* Retain original blending if auxiliary state fails. */
+    }
     return s_blend[s_nblend++].bs;
 }
 
@@ -1961,6 +2177,10 @@ static void d3d_clear(const Nv2aSurface *s, const Nv2aRenderState *rs, uint32_t 
 
     if (!begin(s, rs))
         return;
+    if(s_cur->ui_generation==s_gen&&s_cur->ui_overlay) {
+        bf_ui_composition_invalidate(s_cur->ui_overlay,BF_UI_CAPTURE_CLEAR_AFTER_BOUNDARY);
+        bind_output_views(s_cur,s_cur_depth);
+    }
     if (nv2a_backend_clear_rect(bounds)) {
         uint32_t sx = s->aa_sx > 1 ? 2 : 1, sy = s->aa_sy > 1 ? 2 : 1;
         uint32_t x0 = bounds[0] * sx, y0 = bounds[1] * sy;
@@ -1982,12 +2202,19 @@ static void d3d_clear(const Nv2aSurface *s, const Nv2aRenderState *rs, uint32_t 
     full_depth = s_cur_depth && rect.left == 0 && rect.top == 0 &&
                  (uint32_t)rect.right == s_cur_depth->w &&
                  (uint32_t)rect.bottom == s_cur_depth->h;
+    if(flags&1) {
+        BfMotionSource source;
+        if(motion_source(s_cur,rs,&source))bf_motion_renderer_clear(s_motion_renderer,&source,full_depth&&(zstencil>>8)==0xFFFFFFu);
+    }
     if(scene_tracking_enabled()) {
         if(s_cur_depth&&(flags&1)) {
             probe_scene_depth(s_cur_depth,NULL,BF_DEPTH_PROBE_BEFORE_CLEAR);
             invalidate_scene_depth(s_cur_depth->va,NULL);
         }
         if(color_flags==0xF0u&&full_color) {
+            s_cur->temporal_frozen=0;
+            if(s_cur->temporal_geometry_serial!=UINT64_MAX)++s_cur->temporal_geometry_serial;
+            s_cur->temporal_identity.view=s_cur->temporal_identity.context=0;
             s_cur->scene_generation=s_gen;s_cur->scene_depth_draws=0;
             s_cur->scene_depth_va=s_cur_depth?s_cur_depth->va:0;
             // A color-only clear, separate resets or opaque-looking draws
@@ -2139,11 +2366,14 @@ static void d3d_draw(const Nv2aSurface *s, const Nv2aBatch *b)
     ID3D11DeviceContext_PSSetShaderResources(s_ctx, 0, 1, &srv);
     ID3D11DeviceContext_PSSetSamplers(s_ctx, 0, 1, &ss);
     ID3D11DeviceContext_RSSetState(s_ctx, s_rs);
+    motion_prepare_draw(s_cur,rs,NULL);bind_output_views(s_cur,s_cur_depth);
     ID3D11DeviceContext_OMSetBlendState(s_ctx, get_blend(rs), bf, 0xFFFFFFFFu);
     ID3D11DeviceContext_OMSetDepthStencilState(s_ctx, get_ds(rs, s_cur_depth != NULL),
                                                rs->stencil_ref & 0xFF);
     probe_depth_write(rs);
     ID3D11DeviceContext_Draw(s_ctx, b->count, 0);
+    bf_ui_composition_draw(s_cur->ui_overlay,s_gen);
+    bf_motion_trace_draw(s,rs,0,NULL,s_gen,s_cur&&s_cur->ui_generation==s_gen);
     s_cur->gpu_dirty=1;
     mark_depth_written(rs);
     s_st.draws++;
@@ -2297,8 +2527,14 @@ static void d3d_xdraw(const Nv2aSurface *s, const Nv2aXBatch *b)
     ID3D11DeviceContext_VSSetShader(s_ctx, s_xvs, NULL, 0);
     ID3D11DeviceContext_VSSetConstantBuffers(s_ctx, 0, 1, &s_xcb);
     ID3D11DeviceContext_GSSetShader(s_ctx, NULL, NULL, 0);
+    {
+        float bf[4];motion_prepare_draw(s_cur,b->state,NULL);bind_output_views(s_cur,s_cur_depth);
+        blend_factor(b->state,bf);ID3D11DeviceContext_OMSetBlendState(s_ctx,get_blend(b->state),bf,0xFFFFFFFFu);
+    }
     probe_depth_write(b->state);
     ID3D11DeviceContext_Draw(s_ctx, b->count, 0);
+    bf_ui_composition_draw(s_cur->ui_overlay,s_gen);
+    bf_motion_trace_draw(s,b->state,1,NULL,s_gen,s_cur&&s_cur->ui_generation==s_gen);
     s_cur->gpu_dirty=1;
     mark_depth_written(b->state);
     s_st.draws++;
@@ -2810,8 +3046,15 @@ static int d3d_xdraw_vsh(const Nv2aSurface *s, const Nv2aXVsBatch *b)
     ID3D11DeviceContext_VSSetShader(s_ctx, v->vs, NULL, 0);
     ID3D11DeviceContext_VSSetConstantBuffers(s_ctx, 0, 2, cbs);
     ID3D11DeviceContext_GSSetShader(s_ctx, vsh_filter_gs(), NULL, 0);
+    {
+        float bf[4];motion_prepare_draw(s_cur,b->xb.state,b);bind_output_views(s_cur,s_cur_depth);
+        blend_factor(b->xb.state,bf);ID3D11DeviceContext_OMSetBlendState(s_ctx,get_blend(b->xb.state),bf,0xFFFFFFFFu);
+    }
     probe_depth_write(b->xb.state);
     ID3D11DeviceContext_DrawIndexed(s_ctx, b->nindices, ioff / 4u, 0);
+    if(s_motion_binding.tracked)bf_motion_renderer_capture(s_motion_renderer,v->code,v->code_size,b->nverts);
+    bf_ui_composition_draw(s_cur->ui_overlay,s_gen);
+    bf_motion_trace_draw(s,b->xb.state,2,b,s_gen,s_cur&&s_cur->ui_generation==s_gen);
     s_cur->gpu_dirty=1;
     mark_depth_written(b->xb.state);
     ID3D11DeviceContext_GSSetShader(s_ctx, NULL, NULL, 0);
@@ -2833,7 +3076,7 @@ static int d3d_vsh_readback(Nv2aXVsOut *out, uint32_t n)
     static ID3D11Buffer *sob, *stg;
     static UINT so_cap;
     static const D3D11_SO_DECLARATION_ENTRY decl[] = {
-        { 0, "SV_POSITION", 0, 0, 4, 0 },
+        { 0, "TEXCOORD", 7, 0, 4, 0 }, /* actual unjittered emitted clip, before pixel sampling offset */
         { 0, "COLOR", 0, 0, 4, 0 },
         { 0, "COLOR", 1, 0, 4, 0 },
         { 0, "FOG", 0, 0, 1, 0 },
@@ -3260,7 +3503,7 @@ static int resolve_depth_color_alias(const Nv2aTexture *t,int cube)
     ID3D11DeviceContext_PSSetShaderResources(s_ctx,0,4,none);
     ID3D11DeviceContext_OMSetRenderTargets(s_ctx,0,NULL,NULL);
     ID3D11DeviceContext_CopyResource(s_ctx,(ID3D11Resource *)s_depth_color_staging,(ID3D11Resource *)d->tex);
-    if(s_cur)ID3D11DeviceContext_OMSetRenderTargets(s_ctx,1,&s_cur->rtv,s_cur_depth?s_cur_depth->dsv:NULL);
+    if(s_cur)bind_output_views(s_cur,s_cur_depth);
     hr=ID3D11DeviceContext_Map(s_ctx,(ID3D11Resource *)s_depth_color_staging,0,D3D11_MAP_READ,0,&mapped);
     if(FAILED(hr))goto failed;
     for(y=0;y<d->h;y++)for(x=0;x<d->w;x++) {
@@ -3326,14 +3569,44 @@ static int d3d_readback(uint32_t color_va)
 
 static void d3d_before_ui(const Nv2aSurface *surface)
 {
+    bf_motion_trace_ui(s_gen);
     Surf *sf;
     if(!s_dev||!surface||(sf=get_surf(surface))==NULL||sf->aa_generation==s_gen)return;
     /* Mark even when disabled, so enabling AA midway through interface draws
      * cannot filter text that has already been painted into this surface. */
     sf->aa_generation=s_gen;
+    motion_disable_draw();if(s_cur)bind_output_views(s_cur,s_cur_depth);
+    if(s_q_active) {
+        sf->ui_generation=s_gen;
+        if(bf_ui_composition_enabled()) {
+            HRESULT capture=bf_ui_composition_begin(&sf->ui_overlay,s_dev,s_ctx,s_gen,sf->va,sf->w,sf->h);
+            if(FAILED(capture)) {
+                bf_ui_composition_invalidate(sf->ui_overlay,BF_UI_CAPTURE_UNSUPPORTED_TARGET);
+                fprintf(stderr,"[GPU-UI] capture unavailable %08lX; original image retained\n",(unsigned long)capture);
+            }
+            bf_ui_composition_invalidate(sf->ui_overlay,BF_UI_CAPTURE_UNSUPPORTED_TARGET);
+        }
+        return;
+    }
+    if((bf_scene_aa_enabled()||bf_scene_snapshot_enabled()||temporal_depth_enabled()||
+        bf_ui_composition_enabled())&&!sync_guest_surface(sf,1))return;
+    if(temporal_depth_enabled()&&sf->temporal_frozen) {
+        BfSceneDepthHoldInfo held=sf->temporal_identity;
+        held.source.frame=s_gen;held.geometry_serial=sf->temporal_geometry_serial;
+        if(bf_scene_depth_hold_finish(sf->temporal_depth,s_ctx,sf->tex,&held)) {
+            static unsigned lines;
+            if(lines++<8)fprintf(stderr,"[TEMPORAL-DEPTH] retained frame=%u color=%08X depth=%08X view=%08X context=%08X geometry=%llu draws=%u; projection_unverified\n",
+                s_gen,sf->va,held.source.depth_va,held.view,held.context,(unsigned long long)held.geometry_serial,held.source.depth_draws);
+        }
+    }
     sf->ui_generation=s_gen;
-    if(s_q_active)return;
-    if((bf_scene_aa_enabled()||bf_scene_snapshot_enabled())&&!sync_guest_surface(sf,1))return;
+    if(bf_ui_composition_enabled()) {
+        HRESULT capture=bf_ui_composition_begin(&sf->ui_overlay,s_dev,s_ctx,s_gen,sf->va,sf->w,sf->h);
+        if(FAILED(capture)) {
+            bf_ui_composition_invalidate(sf->ui_overlay,BF_UI_CAPTURE_UNSUPPORTED_TARGET);
+            fprintf(stderr,"[GPU-UI] capture unavailable %08lX; original image retained\n",(unsigned long)capture);
+        }
+    }
     if(bf_scene_snapshot_enabled()&&!sf->scene_tainted&&sf->scene_depth_draws&&sf->scene_generation==s_gen) {
         int i;
         for(i=0;i<s_ndepth;i++) {
@@ -3353,8 +3626,57 @@ static void d3d_before_ui(const Nv2aSurface *surface)
     }
 }
 
+static void publish_ui_surface(Surf *sf)
+{
+    if(sf->ui_published_generation==s_gen)return;
+    bf_ui_composition_publish(sf->ui_overlay,s_ctx,s_gen);
+    sf->ui_published_generation=s_gen;
+}
+
+/* Called after all source draws/readback, before the completed framebuffer
+ * is published. Its executor generation must travel with that CPU fallback;
+ * the independent window-thread source counter is not a GPU scene identity. */
+void bruteforce_d3d11_prepare_present(uint32_t color_va)
+{
+    int i;
+    bf_temporal_handoff_source(s_gen,color_va);
+    if(bf_motion_trace_active()) {
+        BfMotionSnapshot motion;
+        if(bf_motion_renderer_snapshot(s_motion_renderer,color_va,s_gen,&motion))
+            fprintf(stderr,"[TEMPORAL-SOURCE] frame=%u color=%08X draws=%u tracked=%u previous=%u new=%u transparent=%u unknown_opaque=%u unsupported_projection=%u resource_failures=%u clear=%u jitter=%u complete=%u\n",
+                s_gen,color_va,motion.draws,motion.tracked_draws,motion.previous_draws,motion.new_history_draws,
+                motion.transparent_draws,motion.untracked_opaque,motion.unsupported_projection,motion.resource_failures,
+                motion.clear_observed,motion.jitter_applied,motion.complete);
+    }
+    if(!s_ctx||!bf_ui_composition_enabled())return;
+    ID3D11DeviceContext_OMSetRenderTargets(s_ctx,0,NULL,NULL);
+    for(i=0;i<s_nsurf;i++)if(s_surf[i].va==color_va)publish_ui_surface(&s_surf[i]);
+    if(s_cur)bind_output_views(s_cur,s_cur_depth);
+}
+
 static void d3d_flip(void)
 {
+    if(bf_ui_composition_enabled()&&s_ctx) {
+        int i;
+        /* Native consumers may unwrap the separate HUD texture. It must not
+         * remain an OM output while ownership passes to another API/queue. */
+        ID3D11DeviceContext_OMSetRenderTargets(s_ctx,0,NULL,NULL);
+        for(i=0;i<s_nsurf;i++) {
+            BfUiCompositionSnapshot captured;
+            publish_ui_surface(&s_surf[i]);
+            if(temporal_depth_enabled()&&ui_capture_trace_diagnostics()&&
+               bf_ui_composition_snapshot(s_surf[i].ui_overlay,s_gen,&captured)) {
+                static unsigned lines;
+                if(lines++<16)fprintf(stderr,"[TEMPORAL-UI] frame=%u color=%08X size=%ux%u draws=%u status=%u source_reason=%s\n",
+                    s_gen,s_surf[i].va,captured.info.width,captured.info.height,
+                    captured.info.draws,(unsigned)captured.info.status,
+                    ui_source_change_name(captured.info.source_change_reason));
+            }
+        }
+        if(s_cur)bind_output_views(s_cur,s_cur_depth);
+    }
+    bf_motion_renderer_complete(s_motion_renderer,s_gen);
+    bf_motion_trace_flip(s_gen);
     s_wide_scope=0;s_ui_anchor=1;
     s_gen++;
     stats_flip();
@@ -3364,7 +3686,7 @@ static const Nv2aBackend s_backend = { d3d_clear, d3d_draw, d3d_flip };
 static const Nv2aBackendExt s_backend_ext = { d3d_xdraw, d3d_xdraw_vsh, d3d_vsh_readback,
                                               d3d_vsh_raw_ok, d3d_readback, d3d_zpass,
                                               d3d_zpass_count, d3d_zpass_report, d3d_poll,
-                                              NV2A_BACKEND_CAP_WINDOW_CLIP, d3d_before_ui };
+                                              NV2A_BACKEND_CAP_WINDOW_CLIP, d3d_before_ui, bruteforce_d3d11_prepare_present };
 
 int bruteforce_d3d11_install(void)
 {

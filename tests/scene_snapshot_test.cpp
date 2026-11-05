@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 namespace {
@@ -104,6 +105,10 @@ float4 ps():SV_Target{return float4(1,0,0,1);}
     require(!bf_scene_snapshot_publish(device.Get(),context.Get(),color.Get(),mismatch.Get(),&info),"Mismatched frame attachments accepted");
     require(bf_scene_snapshot_publish(device.Get(),context.Get(),color.Get(),depth.Get(),&info)==1,"Real scene snapshot rejected");
     require(received.count==1&&received.info.frame==91&&received.info.width==64&&received.info.height==48&&received.info.depth_va==info.depth_va,"Scene metadata lost source identity");
+    BfSceneDepthHold *held_raw=nullptr;
+    BfSceneDepthHoldInfo held_info{received.info,0x123400,0x234500,214};
+    require(bf_scene_depth_hold_freeze(&held_raw,device.Get(),context.Get(),color.Get(),depth.Get(),&held_info),"Freeze real world depth before reuse");
+    std::unique_ptr<BfSceneDepthHold,decltype(&bf_scene_depth_hold_destroy)> held(held_raw,bf_scene_depth_hold_destroy);
     if(probe) {
         require(bf_depth_probe_enabled(),"Requested depth probe was not enabled");
         const char *count=std::getenv("BF_DEPTH_PROBE_COUNT");
@@ -132,6 +137,15 @@ float4 ps():SV_Target{return float4(1,0,0,1);}
     float left_z,right_z;std::memcpy(&left_z,z.data()+left*4,4);std::memcpy(&right_z,z.data()+right*4,4);
     require(std::abs(left_z-.75f)<.000001f&&std::abs(right_z-.25f)<.000001f,"Actual D24 device depth was not normalized correctly");
     phase("final UI color: read begin");const auto final=read(device.Get(),context.Get(),color.Get());phase("final UI color: read done");require(final[left*4+1]==255&&final[right*4+1]==255,"Snapshot modified subsequent scene/UI rendering");
+    const auto *finished=bf_scene_depth_hold_finish(held.get(),context.Get(),color.Get(),&held_info);
+    require(finished&&read(device.Get(),context.Get(),finished->device_depth)==z&&
+        read(device.Get(),context.Get(),finished->color)==final,"Held original world depth must survive effect reuse while color advances");
+    auto changed=held_info;++changed.geometry_serial;
+    require(!bf_scene_depth_hold_finish(held.get(),context.Get(),color.Get(),&changed),"New world geometry must invalidate held depth");
+    require(!bf_scene_depth_hold_finish(held.get(),context.Get(),color.Get(),&held_info),"Invalidated hold must stay invalid until a fresh capture");
+    require(bf_scene_depth_hold_freeze(&held_raw,device.Get(),context.Get(),color.Get(),depth.Get(),&held_info),"Fresh capture restores held depth");
+    changed=held_info;++changed.source.frame;
+    require(!bf_scene_depth_hold_finish(held.get(),context.Get(),color.Get(),&changed),"Cross-generation depth must be rejected");
     if(d12) {
         NativeCopy copy;ID3D11Resource *inputs[]={received.color.Get(),received.depth.Get()};
         phase("native access: begin");check(bf_scene_d3d12_access(context.Get(),inputs,2,native_copy,&copy),"fenced native scene access");phase("native access: done");

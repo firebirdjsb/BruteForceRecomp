@@ -48,6 +48,13 @@ foreach(branch IN ITEMS "edx|0006FCE5" "ecx|0006FE8B")
 endforeach()
 string(REPLACE "#include <math.h>\n" "#include <math.h>\nstatic void bf_native_aspect_dispatch(void);\n"
     BF_ASPECT_PATCHED "${BF_ASPECT_PATCHED}")
+set(base_view "PUSH32(esp, 0x0006C64Bu); RECOMP_ABI_CALL(0x000D9F00u, sub_000D9F00);")
+string(FIND "${BF_ASPECT_PATCHED}" "${base_view}" base_view_found)
+if(base_view_found LESS 0)
+    message(FATAL_ERROR "Missing original ordinary-view temporal envelope.")
+endif()
+string(REPLACE "${base_view}" "PUSH32(esp, 0x0006C64Bu); RECOMP_ABI_CALL(0x000D9F00u, bf_native_aspect_dispatch);"
+    BF_ASPECT_PATCHED "${BF_ASPECT_PATCHED}")
 file(READ "${BF_ASPECT_ROOT}/src/native_aspect_guest.inc" BF_ASPECT_WRAPPER)
 string(REPLACE "\r\n" "\n" BF_ASPECT_WRAPPER "${BF_ASPECT_WRAPPER}")
 string(APPEND BF_ASPECT_PATCHED "\n${BF_ASPECT_WRAPPER}")
@@ -75,6 +82,7 @@ file(WRITE "${BF_ASPECT_COPY}.in" "${BF_ASPECT_PATCHED}")
 configure_file("${BF_ASPECT_COPY}.in" "${BF_ASPECT_COPY}" COPYONLY)
 list(APPEND BF_ASPECT_SOURCES "${BF_ASPECT_ROOT}/src/graphics/native_aspect.cpp")
 set(BF_GENERATED "${BF_ASPECT_SOURCES}")
+include("${BF_ASPECT_ROOT}/cmake/temporal_motion.cmake")
 # Source-local include paths preserve compilation flags for every other chunk.
 set_source_files_properties("${BF_ASPECT_COPY}" PROPERTIES INCLUDE_DIRECTORIES "${BF_ASPECT_ROOT}/src")
 set_source_files_properties("${BF_ASPECT_ROOT}/src/graphics/native_aspect.cpp" PROPERTIES

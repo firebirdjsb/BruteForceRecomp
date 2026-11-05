@@ -97,7 +97,7 @@ unsigned setting(const char *name,unsigned fallback,unsigned maximum){const char
 const CaptureOptions &options(){static CaptureOptions value=[](){CaptureOptions o;const auto *dir=std::getenv("BF_SCENE_CAPTURE_DIR");if(dir&&*dir){o.directory=std::filesystem::path(dir);const auto *trigger=std::getenv("BF_SCENE_CAPTURE_TRIGGER");if(trigger&&*trigger)o.trigger=std::filesystem::path(trigger);o.limit=setting("BF_SCENE_CAPTURE_COUNT",4,8);o.start=setting("BF_SCENE_CAPTURE_START_FRAME",0,10000000);o.min_draws=setting("BF_SCENE_CAPTURE_MIN_DEPTH_DRAWS",64,100000);}return o;}();return value;}
 unsigned written{};
 void dump_pair(State &saved,ID3D11DeviceContext *context,const BfSceneSnapshot &snapshot,
-               const std::filesystem::path &base,bool before_ui,const char *stage){
+               const std::filesystem::path &base,bool before_ui,const char *stage,const BfSceneDepthHoldInfo *held=nullptr){
     auto color=saved.read(context,snapshot.color,saved.color_read),depth=saved.read(context,snapshot.device_depth,saved.depth_read);
     const auto &info=snapshot.info;float low=1,high=0;uint64_t occupied=0;
     for(size_t i=0;i<depth.size();i+=4){float z;std::memcpy(&z,depth.data()+i,4);require(std::isfinite(z)&&z>=0&&z<=1,"non-normalized scene device depth");low=std::min(low,z);high=std::max(high,z);occupied+=z<1;}
@@ -107,6 +107,7 @@ void dump_pair(State &saved,ID3D11DeviceContext *context,const BfSceneSnapshot &
     {std::ofstream file(std::filesystem::path(base.wstring()+L".depth.f32"),std::ios::binary);file.write((const char*)depth.data(),depth.size());require(bool(file),"scene depth file write failed");}
     {std::ofstream file(std::filesystem::path(base.wstring()+L".json"));file<<"{\n  \"frame\": "<<info.frame<<",\n  \"width\": "<<info.width<<", \"height\": "<<info.height<<",\n  \"color_va\": "<<info.color_va<<", \"depth_va\": "<<info.depth_va<<",\n  \"depth_draws\": "<<info.depth_draws<<",\n  \"depth_min\": "<<low<<", \"depth_max\": "<<high<<",\n  \"depth_pixels_below_one\": "<<occupied<<",\n  \"before_native_ui\": "<<(before_ui?"true":"false")<<",\n";
         if(stage)file<<"  \"capture_stage\": \""<<stage<<"\",\n";
+        if(held)file<<"  \"view\": "<<held->view<<", \"context\": "<<held->context<<", \"geometry_serial\": "<<held->geometry_serial<<",\n";
         file<<"  \"depth_space\": \"device_0_to_1_projection_unverified\",\n  \"motion_available\": false, \"jitter_available\": false,\n  \"temporal_sdk_ready\": false\n}\n";require(bool(file),"scene metadata file write failed");}
 }
 void dump(ID3D11DeviceContext *context,const BfSceneSnapshot &snapshot){
@@ -139,6 +140,62 @@ extern "C" int bf_scene_snapshot_publish(ID3D11Device *device,ID3D11DeviceContex
     if(consumer)consumer(&snapshot,consumer_user);dump(context,snapshot);return 1;
 }catch(const std::exception &e){static bool warned=false;if(!warned){std::fprintf(stderr,"[SCENE] snapshot rejected; original scene retained: %s\n",e.what());warned=true;}return 0;}
 extern "C" void bf_scene_snapshot_shutdown(void){consumer=nullptr;consumer_user=nullptr;state.reset();}
+struct BfSceneDepthHold {
+    State saved;
+    BfSceneDepthHoldInfo identity{};
+    BfSceneSnapshot result{};
+    bool valid=false;
+};
+extern "C" int bf_scene_depth_hold_freeze(BfSceneDepthHold **hold,ID3D11Device *device,
+    ID3D11DeviceContext *context,ID3D11Texture2D *color,ID3D11Texture2D *depth,
+    const BfSceneDepthHoldInfo *info) try {
+    if(hold&&*hold)(*hold)->valid=false;
+    require(hold&&device&&context&&color&&depth&&color!=depth&&info&&info->source.frame&&
+        info->source.color_va&&info->source.depth_va&&info->source.depth_draws&&info->view&&info->context&&
+        info->geometry_serial,"invalid held scene identity");
+    if(!*hold)*hold=new BfSceneDepthHold;
+    auto &h=**hold;h.saved.capture(device,context,color,depth);
+    require(info->source.width==h.saved.previous_color.Width&&info->source.height==h.saved.previous_color.Height,
+        "held scene dimensions differ from identity");
+    h.identity=*info;
+    h.result={info->source,h.saved.color.Get(),h.saved.depth.Get(),h.saved.color_view.Get(),h.saved.depth_view.Get()};
+    h.valid=true;return 1;
+} catch(const std::exception &e) {
+    static unsigned warnings;if(warnings++<4)std::fprintf(stderr,"[TEMPORAL] depth hold rejected: %s\n",e.what());return 0;
+}
+extern "C" const BfSceneSnapshot *bf_scene_depth_hold_finish(BfSceneDepthHold *h,ID3D11DeviceContext *context,
+    ID3D11Texture2D *color,const BfSceneDepthHoldInfo *info) try {
+    if(!h||!h->valid||!context||!color||!info)return nullptr;
+    const auto &a=h->identity;const auto &b=*info;
+    require(a.source.frame==b.source.frame&&a.source.color_va==b.source.color_va&&
+        a.source.depth_va==b.source.depth_va&&a.source.depth_draws==b.source.depth_draws&&
+        a.source.width==b.source.width&&a.source.height==b.source.height&&a.view==b.view&&a.context==b.context&&
+        a.geometry_serial==b.geometry_serial,"held depth no longer matches scene geometry");
+    D3D11_TEXTURE2D_DESC desc{};color->GetDesc(&desc);
+    const auto &expected=h->saved.previous_color;
+    require(desc.Width==expected.Width&&desc.Height==expected.Height&&desc.Format==expected.Format&&
+        desc.MipLevels==1&&desc.ArraySize==1&&desc.SampleDesc.Count==1,"held scene color changed shape");
+    ComPtr<ID3D11Device> owner,context_owner;color->GetDevice(&owner);context->GetDevice(&context_owner);
+    require(owner.Get()==h->saved.device.Get()&&context_owner.Get()==owner.Get()&&
+        context->GetType()==D3D11_DEVICE_CONTEXT_IMMEDIATE,"held scene requires original immediate context");
+    // The frozen R32 device depth is intentionally untouched here. Later
+    // bloom/depth-alias writes cannot replace it with a mostly-clear mask.
+    context->CopyResource(h->saved.color.Get(),color);
+    static const CaptureOptions capture=[] {
+        CaptureOptions o;if(const auto *path=std::getenv("BF_TEMPORAL_DEPTH_CAPTURE_DIR");path&&*path) {
+            o.directory=std::filesystem::u8path(path);o.limit=setting("BF_TEMPORAL_DEPTH_CAPTURE_COUNT",4,8);
+            if(const auto *trigger=std::getenv("BF_TEMPORAL_DEPTH_CAPTURE_TRIGGER");trigger&&*trigger)o.trigger=std::filesystem::u8path(trigger);
+        }return o;
+    }();
+    static unsigned written=0;
+    if(written<capture.limit&&(capture.trigger.empty()||std::filesystem::exists(capture.trigger))) {
+        std::filesystem::create_directories(capture.directory);
+        const auto base=capture.directory/("held-"+std::to_string(b.source.frame)+"-"+std::to_string(b.source.color_va));
+        dump_pair(h->saved,context,h->result,base,true,"held_world_depth_pre_ui_color",&b);++written;
+    }
+    return &h->result;
+} catch(const std::exception &) {if(h)h->valid=false;return nullptr;}
+extern "C" void bf_scene_depth_hold_destroy(BfSceneDepthHold *hold){delete hold;}
 extern "C" int bf_depth_probe_enabled(void){return probe_written<probe_options().limit;}
 extern "C" int bf_depth_probe_publish(ID3D11Device *device,ID3D11DeviceContext *context,ID3D11Texture2D *color,ID3D11Texture2D *depth,const BfSceneSnapshotInfo *info,BfDepthProbeStage stage)try{
     static const char *stages[]={"before_depth_clear","shared_depth_write","depth_recreate"};

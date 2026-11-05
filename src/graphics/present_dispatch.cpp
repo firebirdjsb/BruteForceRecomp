@@ -9,6 +9,8 @@
 #include <string>
 #include <stdexcept>
 #include "../ui/host_ui.h"
+#include "temporal_handoff.h"
+#include "../ui/upscaler_state.h"
 
 extern "C" {
 int bf_d3d11_enabled(void);
@@ -22,6 +24,9 @@ enum class Backend { none, dx12, dx11 };
 Backend backend{};
 HWND host_window{};uint32_t host_width{},host_height{};bool live_fsr{};
 uint64_t source_sequence{},source_time{};
+uint64_t temporal_sequence{};
+std::string temporal_provider;
+bool temporal_hud{};
 double display_rate{},generated_rate{};uint64_t rate_time{};bf::graphics::PresentationStats previous_stats;
 const char *choice() {
     const auto *value = std::getenv("BF_RENDER_BACKEND");
@@ -93,7 +98,10 @@ void capture_present(uint64_t present_time) noexcept {
             <<",\n  \"source_time_ns\": "<<source_time<<",\n  \"present_time_ns\": "<<present_time
             <<",\n  \"width\": "<<width<<",\n  \"height\": "<<height
             <<",\n  \"wide\": "<<(bf_aspect_frame_wide()?"true":"false")
-            <<",\n  \"fsr1\": "<<(live_fsr?"true":"false")<<"\n}\n";
+            <<",\n  \"fsr1\": "<<(live_fsr&&temporal_sequence==0?"true":"false")
+            <<",\n  \"temporal_sequence\": "<<temporal_sequence
+            <<",\n  \"temporal_provider\": \""<<temporal_provider<<"\""
+            <<",\n  \"native_hud_composed\": "<<(temporal_hud?"true":"false")<<"\n}\n";
         metadata.close();if(!metadata)throw std::runtime_error("Cannot write GPU capture metadata");
         capture.sources[capture.count++]=source_sequence;
         std::fprintf(stderr,"[PRESENT CAPTURE] GPU output %ux%u source=%llu wide=%d saved (%u/%u)\n",width,height,
@@ -120,9 +128,12 @@ extern "C" int gpu_present_init(HWND window, uint32_t width, uint32_t height) {
         requested = "auto";
     }
     const auto *upscaler = std::getenv("BF_UPSCALER");
-    const bool fsr = upscaler && !std::strcmp(upscaler, "fsr1");
-    live_fsr=fsr;bf_ui_fsr_initial(fsr);bf_ui_fsr_supported(0);bf_aspect_presenter_supported(0);
-    if (upscaler && *upscaler && std::strcmp(upscaler, "off") && !fsr)
+    // Settings have already initialized this request. Presenter creation must
+    // read it; applying an absent environment override would erase persistence.
+    const auto mode=bf_upscaler_mode();
+    const bool fsr=mode==BF_UPSCALER_FSR1;
+    live_fsr=fsr;bf_ui_fsr_supported(0);bf_aspect_presenter_supported(0);
+    if (upscaler && *upscaler && std::strcmp(upscaler, "off") && !fsr&&mode!=3&&mode!=4)
         std::fprintf(stderr, "[GRAPHICS] Upscaler '%s' is unavailable in this renderer; using bilinear\n", upscaler);
     if (!std::strcmp(requested, "gdi")) return 0;
     if (std::strcmp(requested, "dx11") && bf::graphics::dx12_init(window, width, height, fsr)) {
@@ -157,10 +168,34 @@ extern "C" int gpu_present_frame(const uint32_t *pixels) {
         if(!bf::graphics::dx12_scale(bf_ui_scale())){bf_aspect_presenter_supported(0);return 0;}
         const auto rate=bf_ui_interpolation_allowed()?bf_ui_interpolation():0;
         const auto now=gpu_present_clock_ns();
-        const int paced=bf::graphics::dx12_frame_timed(pixels,{source_sequence,source_time,now,rate});
+        const auto before=bf::graphics::dx12_stats();
+        int paced=0;
+        temporal_sequence=0;temporal_provider.clear();temporal_hud=false;
+        const auto temporal=bf::graphics::selected_temporal_frame();
+        if(temporal) {
+            auto frame=temporal->presentation();
+            frame.stamp.source_ns=source_time;frame.stamp.now_ns=now;
+            static std::vector<uint32_t> host_overlay;
+            host_overlay.resize(size_t(host_width)*host_height);
+            bf_ui_paint_overlay(host_overlay.data(),host_width,host_height);
+            frame.host_overlay=host_overlay.data();
+            paced=bf::graphics::dx12_frame_texture(frame);
+            if(paced) {
+                temporal_sequence=temporal->sequence;temporal_provider=temporal->provider;temporal_hud=temporal->hud!=nullptr;
+                const unsigned actual=temporal_provider.size()>1&&temporal_provider[1]=='.'&&
+                    (temporal_provider[0]=='3'||temporal_provider[0]=='4')?unsigned(temporal_provider[0]-'0'):0;
+                bf_upscaler_status(actual,temporal_provider.c_str(),"");
+            }
+        }
+        if(!paced) paced=bf::graphics::dx12_frame_timed(pixels,{source_sequence,source_time,now,rate});
         capture_present(now);
         if(!bf::graphics::dx12_active())bf_aspect_presenter_supported(0);
         const auto stats=bf::graphics::dx12_stats();
+        if(stats.presents>before.presents&&!temporal_sequence&&bf_upscaler_mode()<=1) {
+            const bool spatial=stats.spatial_frames>before.spatial_frames;
+            bf_upscaler_status(spatial?1:0,spatial?"EASU + RCAS":"",
+                !spatial&&bf_upscaler_mode()==1?"FSR 1 unavailable at this output size":"");
+        }
         if(!rate_time||stats.presents<previous_stats.presents){rate_time=now;previous_stats=stats;}
         if(now-rate_time>=1000000000ull) {
             const double seconds=double(now-rate_time)/1e9;

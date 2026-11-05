@@ -12,6 +12,7 @@
  * fixed-function pipeline; "gpu-vsh" runs it on the GPU (draw_vsh) with
  * every batch verified against the interpreter.
  */
+#define COBJMACROS
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -26,8 +27,12 @@
 #include "gpu/scene_device.h"
 #include "gpu/texture_decode.h"
 #include "graphics/native_aspect_state.h"
+#include "graphics/ui_composition.h"
 #include "ui/scene_boundary.h"
 extern void bruteforce_d3d11_wait(void);
+static const char *s_ui_capture_path;
+static int s_ui_capture_failed,s_ui_capture_count;
+static void ui_capture_result(ID3D11DeviceContext *,const BfUiCompositionSnapshot *,void *);
 
 
 typedef void (*recomp_func_t)(void);
@@ -411,6 +416,30 @@ static int scene_clear_rect(const char *out_path, int program, int vertical_firs
 
     REQUIRE(fclose(f) == 0, "close rectangular clear frames");
     puts("rectangular clear frames 16");
+    return 1;
+}
+
+/* Shared VS/PS b2 is also used by rectangular clear. A non-integral clear
+ * colour has low float bits resembling the motion/jitter flags; every draw
+ * path must explicitly replace that buffer before its next ordinary draw. */
+static int scene_motion_off(const char *out_path,const char *mode)
+{
+    static const Pos p[4]={{0,0,1000,1},{64,0,1000,1},{64,64,1000,1},{0,64,1000,1}};
+    static const uint32_t green[4]={0xFF00FF00u,0xFF00FF00u,0xFF00FF00u,0xFF00FF00u};
+    static const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
+    uint32_t color=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t vb=xbox_ContiguousAlloc(0x1000,4096);
+    FILE *f=fopen(out_path,"wb");
+    REQUIRE(color&&vb&&f,"initialize motion-disabled clear/normal-draw fixture");
+    identity_matrix();if(strstr(mode,"vsh"))load_program();
+    surface(color,B_SIZE,0);combiners(0);
+    method(0x02C0,bounds(0,3));method(0x02E0,bounds(0,3));
+    clear_rect(0,0,63,63);clear(0xF0,0xFF102030u,0);
+    clear_rect(10,10,19,19);clear(0xF0,0xFF2674A1u,0);
+    if(strstr(mode,"base"))screen_quad(0xFF00FF00u);
+    else draw(8,p,green,uv,4,vb);
+    REQUIRE(save_frame(f,color),"read actual pixels after partial clear and normal draw");
+    REQUIRE(fclose(f)==0,"close motion-disabled pixels");
     return 1;
 }
 
@@ -1336,6 +1365,7 @@ static int scene_aspect_fixture(const char *out_path,const char *mode)
     const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
     FILE *file;
     REQUIRE(color&&depth&&vb,"allocate non-square aspect fixture");
+    if(strstr(mode,"capture")) {s_ui_capture_path=out_path;bf_ui_composition_consumer(ui_capture_result,NULL);}
     bf_aspect_request(wide);bf_aspect_scene_supported(1);bf_aspect_presenter_supported(1);
     identity_matrix();if(strstr(mode,"vsh"))load_program();
     method(0x0200,640u<<16);method(0x0204,480u<<16);method(0x0208,0x128);
@@ -1359,6 +1389,10 @@ static int scene_aspect_fixture(const char *out_path,const char *mode)
     // This is the real executor/backend callback, not a fabricated frame flag.
     REQUIRE(bf_aspect_surface_wide(color)==wide,"ordered wide scope must mark only its completed source");
     flip();
+    if(strstr(mode,"capture")) {
+        bf_ui_composition_consumer(NULL,NULL);
+        REQUIRE(!s_ui_capture_failed&&s_ui_capture_count==1,"All anchored native HUD groups share one captured generation");
+    }
     REQUIRE(!bf_aspect_surface_wide(color),"wide source flag must not leak into the next generation");
     for(y=0;y<480;y++)for(x=0;x<640;x++) {
         uint32_t expected=!wide?0xFF00FF00u:x<80?0xFF0000FFu:x<560?0xFF00FF00u:0xFFFF0000u;
@@ -1444,6 +1478,91 @@ static int scene_snapshot_fixture(const char *out_path,const char *mode)
     return 1;
 }
 
+static void ui_capture_result(ID3D11DeviceContext *context,const BfUiCompositionSnapshot *snapshot,void *user)
+{
+    ID3D11Device *device=NULL;
+    ID3D11Texture2D *staging=NULL;
+    D3D11_TEXTURE2D_DESC desc;
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    char path[4096];FILE *file=NULL;uint32_t y;
+    HRESULT hr=S_OK;
+    (void)user;
+    if(s_ui_capture_count++) {s_ui_capture_failed=1;return;}
+    snprintf(path,sizeof path,"%s.overlay",s_ui_capture_path);
+    file=fopen(path,"wb");if(!file){s_ui_capture_failed=1;return;}
+    if(fwrite(&snapshot->info.generation,8,1,file)!=1 ||
+       fwrite(&snapshot->info.color_va,4,1,file)!=1 || fwrite(&snapshot->info.width,4,1,file)!=1 ||
+       fwrite(&snapshot->info.height,4,1,file)!=1 || fwrite(&snapshot->info.draws,4,1,file)!=1 ||
+       fwrite(&snapshot->info.status,4,1,file)!=1)goto failed;
+    if(snapshot->info.status!=BF_UI_CAPTURE_VALID)goto cleanup;
+    ID3D11DeviceContext_GetDevice(context,&device);
+    ID3D11Texture2D_GetDesc(snapshot->texture,&desc);
+    desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;desc.MiscFlags=0;
+    hr=ID3D11Device_CreateTexture2D(device,&desc,NULL,&staging);if(FAILED(hr))goto failed;
+    ID3D11DeviceContext_CopyResource(context,(ID3D11Resource *)staging,(ID3D11Resource *)snapshot->texture);
+    hr=ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,0,D3D11_MAP_READ,0,&mapped);if(FAILED(hr))goto failed;
+    for(y=0;y<desc.Height;y++)if(fwrite((const uint8_t *)mapped.pData+(size_t)y*mapped.RowPitch,8,desc.Width,file)!=desc.Width) {
+        ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);goto failed;
+    }
+    ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);goto cleanup;
+failed:
+    fprintf(stderr,"FAIL UI composition capture/readback %08lX\n",(unsigned long)hr);s_ui_capture_failed=1;
+cleanup:
+    if(staging)ID3D11Texture2D_Release(staging);
+    if(device)ID3D11Device_Release(device);
+    if(fclose(file)!=0)s_ui_capture_failed=1;
+}
+static void ui_fixture_rect(int base,uint32_t vb,float left,float top,float right,float bottom,float depth,uint32_t color)
+{
+    const Pos points[4]={{left,top,depth,1},{right,top,depth,1},{right,bottom,depth,1},{left,bottom,depth,1}};
+    const uint32_t colors[4]={color,color,color,color};
+    const float uv[4][2]={{0,0},{0,0},{0,0},{0,0}};
+    if(base) {
+        unsigned i;const uint32_t rgba=(color&0xFF00FF00u)|((color>>16)&0xFFu)|((color&0xFFu)<<16);
+        method(0x17FC,8);method(0x194C,rgba);
+        for(i=0;i<4;i++){method_float(0x1500,points[i].x);method_float(0x1504,points[i].y);method_float(0x1508,depth);}
+        method(0x17FC,0);
+    } else draw(8,points,colors,uv,4,vb);
+}
+static int scene_ui_composition(const char *out_path,const char *mode)
+{
+    const int base=strstr(mode,"base")!=NULL,enabled=strstr(mode,"off")==NULL;
+    uint32_t color=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096),depth=xbox_ContiguousAlloc(B_SIZE*B_SIZE*4,4096);
+    uint32_t vb=xbox_ContiguousAlloc(4096,4096);FILE *file;
+    REQUIRE(color&&depth&&vb,"allocate actual native UI composition fixture");
+    if(enabled) {s_ui_capture_path=out_path;bf_ui_composition_consumer(ui_capture_result,NULL);}
+    identity_matrix();if(strstr(mode,"vsh"))load_program();
+    surface(color,B_SIZE,depth);combiners(0);method(0x0314,0);method(0x030C,0);method(0x035C,0);
+    clear_rect(0,0,63,63);clear(0xF3,0xFF183858u,0x80000044u);
+    clear_rect(32,0,63,63);clear(2,0,0x80000099u);clear_rect(0,0,63,63);
+    if(!strstr(mode,"missing"))method(0x0100,BF_UI_SCENE_BOUNDARY);
+    /* Cutout fails before either original colour or overlay writes. */
+    method(0x0300,1);method(0x033C,0x204);method(0x0340,128);
+    ui_fixture_rect(base,vb,-8,-8,72,72,1000,0x4080E020u);method(0x0300,0);
+    /* Opaque RGB must force coverage one even though source alpha is .25. */
+    ui_fixture_rect(base,vb,4,4,24,28,1000,0x40E04020u);
+    method(0x0304,1);method(0x0344,0x302);method(0x0348,0x303);method(0x0350,0x8006);
+    method(0x030C,1);method(0x0354,0x201);method(0x032C,1);
+    method(0x0360,0);method(0x0364,0x202);method(0x0368,0x44);method(0x036C,0xFF);
+    ui_fixture_rect(base,vb,-8,-8,72,72,1000,0x8090C030u);
+    /* Stencil excludes the right half; depth excludes this second rectangle. */
+    method(0x032C,0);ui_fixture_rect(base,vb,32,0,64,64,15728640,0xC02030F0u);
+    method(0x030C,0);method(0x0304,0);method(0x0358,0x01000000u);
+    ui_fixture_rect(base,vb,0,0,64,64,1000,0x33102030u); // original alpha only.
+    method(0x0358,0x01010101u);
+    if(strstr(mode,"unsupported")) {
+        method(0x0358,0x00010000u);ui_fixture_rect(base,vb,0,0,64,64,1000,0xFFEE0000u);method(0x0358,0x01010101u);
+    }
+    if(strstr(mode,"clear"))clear(0xF0,0xFF305070u,0);
+    if(strstr(mode,"reenter")) {method(0x0100,BF_SCENE_WIDE_BEGIN);method(0x0100,BF_SCENE_WIDE_END);}
+    flip();bf_ui_composition_consumer(NULL,NULL);
+    REQUIRE(!s_ui_capture_failed,"GPU overlay diagnostic callback");
+    REQUIRE(s_ui_capture_count==(enabled&&!strstr(mode,"missing")?1:0),"Only complete source boundary publishes same-generation overlay");
+    file=fopen(out_path,"wb");REQUIRE(file,"open UI composition original pixels");
+    REQUIRE(fwrite(guest(color),4,B_SIZE*B_SIZE,file)==B_SIZE*B_SIZE&&fclose(file)==0,"write unchanged RT0 pixels");
+    puts("Actual original UI draw path and separate overlay completed.");return 1;
+}
+
 int main(int argc, char **argv)
 {
     SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
@@ -1455,7 +1574,7 @@ int main(int argc, char **argv)
         return 1;
     if (strncmp(argv[2], "textures-", 9) == 0)
         return bruteforce_test_textures(strstr(argv[2], "hardware") != NULL) ? 0 : 1;
-    if ((strstr(argv[2], "clip") || strstr(argv[2], "clear")) &&
+    if ((strstr(argv[2], "clip") || strstr(argv[2], "clear") || strstr(argv[2],"motion-off")) &&
         _putenv_s("RECOMP_WINDOW_CLIP", "1") != 0)
         return 1;
     if(strstr(argv[2],"hud")&&_putenv_s("RECOMP_PROGRAM_NEAR_ZERO","1")!=0)return 1;
@@ -1475,7 +1594,9 @@ int main(int argc, char **argv)
     } else if (strncmp(argv[2], "cpu", 3) != 0) {
         return 2;
     }
-    if (strstr(argv[2], "aspect") ? !scene_aspect_fixture(argv[3],argv[2]) :
+    if (strstr(argv[2],"motion-off") ? !scene_motion_off(argv[3],argv[2]) :
+        strstr(argv[2], "uicompose") ? !scene_ui_composition(argv[3],argv[2]) :
+        strstr(argv[2], "aspect") ? !scene_aspect_fixture(argv[3],argv[2]) :
         strstr(argv[2], "snapshot") ? !scene_snapshot_fixture(argv[3],argv[2]) :
         strstr(argv[2], "texprofile") ? !scene_texture_profile(argv[3],strstr(argv[2],"short")!=NULL) :
         strstr(argv[2], "ui-aa") ? !scene_ui_aa(argv[3],strstr(argv[2],"off")==NULL) :

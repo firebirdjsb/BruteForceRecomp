@@ -155,7 +155,9 @@ static void put_src(Buf *b, const char *var, const uint32_t *ins, int which,
     "  noperspective float4 d1 : COLOR1; noperspective float fog : FOG;\n" \
     "  float4 tc0 : TEXCOORD0; float4 tc1 : TEXCOORD1;\n" \
     "  float4 tc2 : TEXCOORD2; float4 tc3 : TEXCOORD3; float fogp : FOG1;\n" \
-    "  float2 clip : SV_ClipDistance0; };\n"
+    "  float2 clip : SV_ClipDistance0;\n" \
+    GPU_MOTION_VARYINGS \
+    "};\n"
 
 const char gpu_vsh_gs_hlsl[] =
     GPU_VSH_OUT
@@ -163,12 +165,14 @@ const char gpu_vsh_gs_hlsl[] =
     "void gs_main(triangle VSOut v[3], inout TriangleStream<VSOut> s) {\n"
     "  [unroll] for (int i = 0; i < 3; i++)\n"
     "    if (any(!isfinite(v[i].p)) || any(!isfinite(v[i].clip))) return;\n"
+    GPU_MOTION_TRIANGLE_VALIDITY
     "  s.Append(v[0]); s.Append(v[1]); s.Append(v[2]);\n"
     "}\n";
 
 static const char s_head[] =
     GPU_RC_CBUFFER
     "cbuffer V : register(b1) { float4 K[192]; float4 vsinfo; float4 foginfo; };\n"
+    GPU_MOTION_VERTEX_HLSL
     GPU_VSH_OUT
     "uint kix(int i) { return (i < 0 || i >= 192) ? 0u : (uint)i; }\n"
     /* run_mac's comparisons, per component, NaN behaving as in C */
@@ -367,6 +371,7 @@ size_t gpu_vsh_hlsl(const uint32_t (*prog)[4], uint32_t n, uint32_t input_mask,
         "  float zr = (P.z - depth.x) * depth.y;\n"
         "  float z = depth.z > 0.5 ? saturate(zr) : zr;\n"
         "  o.p = float4(x * w, y * w, z * w, w);\n"
+        "  o.bf_capture_clip=o.p; o.p=bf_motion_vertex(o.p,I.vid,o.bf_previous_clip,o.bf_history_valid,o.bf_original_id);\n"
         "  o.clip.x = w - 1e-3;\n"
         "  o.clip.y = vsinfo.z > 0.5 ? (P.z - vsinfo.w) * w : 1.0;\n"
         "  o.d0 = saturate(O3); o.d1 = saturate(O4);\n"

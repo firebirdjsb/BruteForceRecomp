@@ -68,7 +68,7 @@ size_t gpu_rc_hlsl(const GpuRcKey *k, char *out, size_t cap)
 
     if (n > 8)
         n = 8;
-    put(&b, GPU_RC_CBUFFER GPU_WINDOW_CLIP_HLSL GPU_SHADOW_HLSL);
+    put(&b, GPU_RC_CBUFFER GPU_WINDOW_CLIP_HLSL GPU_SHADOW_HLSL GPU_UI_CAPTURE_HLSL);
     /* A stage bound to a six-face cube map is a TextureCube. */
     for (st = 0; st < 4; st++)
         put(&b, "%s t%d : register(t%d);\n", k->tex_cube[st] ? "TextureCube" : "Texture2D", st, st);
@@ -78,7 +78,7 @@ size_t gpu_rc_hlsl(const GpuRcKey *k, char *out, size_t cap)
     put(&b, "struct PSIn { float4 p : SV_Position; noperspective float4 d0 : COLOR0;\n"
             "  noperspective float4 d1 : COLOR1; noperspective float fog : FOG;\n"
             "  float4 tc0 : TEXCOORD0; float4 tc1 : TEXCOORD1;\n"
-            "  float4 tc2 : TEXCOORD2; float4 tc3 : TEXCOORD3; float fogp : FOG1; };\n");
+            "  float4 tc2 : TEXCOORD2; float4 tc3 : TEXCOORD3; float fogp : FOG1;\n" GPU_MOTION_VARYINGS "};\n");
     put(&b,
         /* map_in */
         "float mi(float x, int m) { float p = max(x, 0.0);\n"
@@ -95,7 +95,7 @@ size_t gpu_rc_hlsl(const GpuRcKey *k, char *out, size_t cap)
         "  if (m == 0x18) return (x - 0.5) * 2.0; if (m == 0x20) return x * 4.0;\n"
         "  if (m == 0x30) return x * 0.5; return x; }\n");
     put(&b,
-        "float4 ps_main(PSIn i) : SV_Target {\n"
+        "UiPixelOutput ps_main(PSIn i) {\n"
         "  if (!window_allows(i.p.xy)) discard;\n"
         "  float4 R[16];\n"
         "  float4 tc[4] = { i.tc0, i.tc1, i.tc2, i.tc3 };\n"
@@ -236,7 +236,7 @@ size_t gpu_rc_hlsl(const GpuRcKey *k, char *out, size_t cap)
         "    bool ok = (f == 7) || (f == 1 && v < r) || (f == 2 && v == r) || (f == 3 && v <= r)\n"
         "      || (f == 4 && v > r) || (f == 5 && v != r) || (f == 6 && v >= r);\n"
         "    if (!ok) discard; }\n"
-        "  return o; }\n"
+        "  return ui_pixel_output(o,i.p,i.bf_previous_clip,i.bf_history_valid); }\n"
         "}\n");
     if (b.overflow)
         return 0;

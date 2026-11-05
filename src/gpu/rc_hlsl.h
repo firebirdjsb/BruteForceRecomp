@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "motion_hlsl.h"
 
 /* Everything that changes the shader's code. Constants (c0/c1, the final
  * combiner's constants, fog colour, texture sizes, alpha test) live in the
@@ -42,6 +43,20 @@ typedef struct {
 #define GPU_UI_ANCHOR_HLSL \
     "float ui_x(float x,float mode) {\n" \
     "  return mode>=2.0 && mode<=4.0 ? x*.75+(mode-3.0)*.25 : x*(mode>0.0?mode:1.0);\n" \
+    "}\n"
+
+/* A separate MRT preserves the original RT0 value and the same fragment
+ * coverage/alpha test/depth/stencil/scissor result. PS b3 is independent of
+ * original base/combiner constants and programmable VS constants. */
+#define GPU_UI_CAPTURE_HLSL \
+GPU_MOTION_PIXEL_HLSL \
+    "cbuffer UiCapture : register(b3) { uint4 ui_capture; };\n" \
+    "struct UiPixelOutput { float4 original:SV_Target0;float2 motion:SV_Target1;float reactive:SV_Target2;float4 overlay:SV_Target3;float canonical:SV_Target4;float composition:SV_Target5; };\n" \
+    "UiPixelOutput ui_pixel_output(float4 c,float4 position,float4 previous,float valid) {\n" \
+    "  UiPixelOutput o; o.original=c; float4 v=saturate(c);\n" \
+    "  BFMotionPixel m=bf_motion_pixel(position,previous,valid,v.a);o.motion=m.motion;o.reactive=m.reactive;o.canonical=m.canonical;o.composition=m.composition;\n" \
+    "  o.overlay=ui_capture.x==1 ? float4(v.rgb,1) :\n" \
+    "    ui_capture.x==2 ? float4(v.rgb*v.a,v.a) : float4(0,0,0,0); return o;\n" \
     "}\n"
 
 /* The constant buffer both shaders read (register b0):

@@ -31,9 +31,12 @@ static const char *removed[] = {"RECOMP_WATCHDOG_SECS", "RECOMP_PAD_SCRIPT", "RE
 static std::map<std::string,std::string> game_environment(const std::filesystem::path &saves,bool keyboard,
         const GraphicsOptions &graphics,const std::filesystem::path &settings) {
     if(!valid_graphics(graphics))throw std::runtime_error("Invalid game graphics settings");
+    const unsigned requested=graphics.temporal_fsr?graphics.temporal_fsr:
+        graphics.fsr1?1u:0u;
+    const char *upscaler=requested==1?"fsr1":requested==3?"fsr3":requested==4?"fsr4":"off";
     std::map<std::string,std::string> result{
         {"RECOMP_SAVE_DIR",path_text(saves)},{"BF_RENDER_BACKEND",graphics.backend},
-        {"BF_UPSCALER",graphics.fsr1?"fsr1":"off"},{"RECOMP_GPU",graphics.scene},
+        {"BF_UPSCALER",upscaler},{"RECOMP_GPU",graphics.scene},
         {"BF_NATIVE_WIDESCREEN",graphics.native_widescreen?"1":"0"},
         {"RECOMP_GPU_VSH",graphics.gpu_programs?"1":"0"},
         {"RECOMP_FLIP_PACING",graphics.scene!="cpu"?"edge":"0"},

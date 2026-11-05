@@ -4,6 +4,10 @@
 #include <cmath>
 namespace bf::ui {
 void Canvas::box(int x,int y,int w,int h,uint32_t color) {
+    // The legacy canvas replaces RGB regardless of the color's alpha. A
+    // transparent overlay therefore treats every ink color as opaque and
+    // stores its fractional pixel coverage in alpha (and premultiplied RGB).
+    if(opaque_ink)color|=0xff000000u;
     if(xscale!=1.0f) {
         if(w<=0||h<=0||!std::isfinite(xscale)||xscale<=0)return;
         // Keep the centered 4:3 safe area without rounding away a thin font

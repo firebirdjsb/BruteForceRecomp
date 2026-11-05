@@ -28,7 +28,10 @@ static uint32_t pb_walk_segment(uint32_t va,uint32_t end_va,int in_call,
         if(packet->left) {
             const uint32_t method=packet->method+(packet->nonincrementing?0:packet->index*4);
             note(packet->subchannel,method);
-            if(s_exec_enabled)nv2a_pb_exec_method(packet->subchannel,method,*(const uint32_t *)(mem+va));
+            if(s_exec_enabled) {
+                bf_motion_parameter_va=va;
+                nv2a_pb_exec_method(packet->subchannel,method,*(const uint32_t *)(mem+va));
+            }
             va+=4;++words;++packet->index;--packet->left;packet->next=va;
             continue;
         }

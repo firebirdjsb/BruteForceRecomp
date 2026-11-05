@@ -1,6 +1,7 @@
 #include "ui/host_ui.h"
 #include "ui/pad_pulses.h"
 #include "ui/graphics_options.h"
+#include "ui/upscaler_state.h"
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -15,15 +16,15 @@ int main(int argc,char **argv) {
         auto legacy=settings;legacy+=".legacy";
         {std::ofstream file(legacy);file<<"BF_GRAPHICS 1\nauto d3d12 1 1 4 1080 1 1 0 70\n";}
         auto loaded=bf::load_graphics(legacy);
-        if(loaded.scene!="d3d12"||loaded.volume!=70||loaded.scale!=4||loaded.mouse_sensitivity!=1.0f||loaded.frame_limit!=30)return 32;
+        if(loaded.scene!="d3d12"||loaded.volume!=70||loaded.scale!=4||!loaded.fsr1||loaded.temporal_fsr!=0||loaded.mouse_sensitivity!=1.0f||loaded.frame_limit!=30)return 32;
         {std::ofstream file(legacy,std::ios::app);file<<"99\n";}
         if(bf::load_graphics(legacy).scene!="cpu")return 33;
         std::filesystem::remove(legacy);
     }
 #ifdef _WIN32
-    _putenv_s("BF_UI_SETTINGS",settings.string().c_str());_putenv_s("RECOMP_GPU","cpu");
+    _putenv_s("BF_UI_SETTINGS",settings.string().c_str());_putenv_s("RECOMP_GPU","cpu");_putenv_s("BF_UPSCALER","");
 #else
-    setenv("BF_UI_SETTINGS",settings.string().c_str(),1);setenv("RECOMP_GPU","cpu",1);
+    setenv("BF_UI_SETTINGS",settings.string().c_str(),1);setenv("RECOMP_GPU","cpu",1);unsetenv("BF_UPSCALER");
 #endif
     bf_ui_settings_initial(1);
     bf::ui::PadPulses pulses;unsigned control{};
@@ -57,6 +58,8 @@ int main(int argc,char **argv) {
     bf_ui_mouse(200,132+5*28+8,640,480,1);
     if(bf_ui_audio_gain()!=1)return 13;
     bf_ui_fsr_supported(1);
+    bf_ui_mouse(200,132+2*28+8,640,480,1);
+    if(!bf_ui_fsr()||bf_upscaler_mode()!=BF_UPSCALER_FSR1)return 64;
     bf_ui_mouse(200,132+3*28+8,640,480,1);
     if(bf_ui_scale()!=2||!bf_ui_fsr())return 18;
     bf_ui_mouse(200,132+3*28+8,640,480,1);
@@ -85,6 +88,11 @@ int main(int argc,char **argv) {
     bf_ui_mouse(512,170,640,480,0);
     if(std::abs(bf_ui_mouse_sensitivity()-1.0f)>0.0001f)return 35;
     if(argc==3&&std::strcmp(argv[2],"renderer")==0){bf_ui_key(33,0);}
+    if(argc==3&&std::strcmp(argv[2],"main")==0) {
+        bf_upscaler_initial(BF_UPSCALER_FSR3);
+        bf_upscaler_status(BF_UPSCALER_OFF,"","Scene unsupported; native fallback");
+        bf_ui_mouse(140,115,640,480,1);
+    }
     std::vector<uint32_t> image(640*480,0xff000000);bf_ui_paint(image.data(),640,480);
     if(image[62*640+94]!=0xff55c5e8)return 14;
     if(argc>=2) {
@@ -98,7 +106,8 @@ int main(int argc,char **argv) {
         std::fclose(file);
     }
     bf_ui_key(27,0);if(bf_ui_open())return 15;
-    for(unsigned key:{113u,114u,115u,120u})if(bf_ui_key(key,0)||bf_ui_open())return 36;
+    const unsigned before_hotkeys=bf_upscaler_mode();
+    for(unsigned key:{113u,114u,115u,120u})if(bf_ui_key(key,0)||bf_ui_open()||bf_upscaler_mode()!=before_hotkeys)return 36;
     if(!bf_ui_menu_key(13,0))return 16;
     buttons=0;analog={};if(!bf_ui_pad(&buttons,analog.data())||analog[0]!=255)return 17;
     // Visual-rate preferences never opt into the retired game-rate override.
@@ -110,7 +119,16 @@ int main(int argc,char **argv) {
 #else
     setenv("RECOMP_GPU","d3d11",1);
 #endif
-    bf_ui_settings_initial(1);bf_ui_key(112,0);bf_ui_mouse(320,115,640,480,1);
+    bf_ui_settings_initial(1);bf_ui_key(112,0);bf_ui_mouse(140,115,640,480,1);bf_upscaler_capabilities(-1,1,1);
+    bf_ui_mouse(200,132+2*28+8,640,480,1);
+    if(bf_upscaler_mode()!=BF_UPSCALER_FSR3||bf_ui_fsr())return 65;
+    const unsigned old_scale=bf_ui_scale();bf_ui_mouse(200,132+3*28+8,640,480,1);
+    if(bf_ui_scale()!=old_scale)return 66;
+    bf_ui_mouse(200,132+2*28+8,640,480,1);
+    if(bf_upscaler_mode()!=BF_UPSCALER_FSR4)return 67;
+    bf_ui_mouse(200,132+2*28+8,640,480,1);
+    if(bf_upscaler_mode()!=BF_UPSCALER_OFF)return 68;
+    bf_ui_mouse(320,115,640,480,1);
     bf_ui_fsr_supported(1);
     if(bf_ui_interpolation()!=0||bf_ui_interpolation_allowed())return 37;
     bf_ui_mouse(200,132+3*28+8,640,480,1);

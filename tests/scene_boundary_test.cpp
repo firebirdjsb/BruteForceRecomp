@@ -33,7 +33,9 @@ int main() {
     bounds(commands+1,commands+32);saved=memory;
     CHECK(bf_ui_try_scene_marker(device)==0&&memory==saved);
     bounds(commands,commands-4);saved=memory;
-    CHECK(bf_ui_try_scene_marker(device)==0&&memory==saved);
+    CHECK(bf_ui_try_scene_marker(device)==2&&memory==saved);
+    bounds(commands,commands);saved=memory;
+    CHECK(bf_ui_try_scene_marker(device)==2&&memory==saved);
     bounds(0x70000000,0x70000008);saved=memory;
     CHECK(bf_ui_try_scene_marker(device)==0&&memory==saved);
     CHECK(bf_ui_try_scene_marker(0)==0&&bf_ui_try_scene_marker(device+1)==0);

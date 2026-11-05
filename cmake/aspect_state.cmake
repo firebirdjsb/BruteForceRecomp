@@ -1,3 +1,4 @@
+include("${CMAKE_CURRENT_LIST_DIR}/upscaler_state.cmake")
 function(bf_add_aspect_state)
     if(TARGET bf_aspect_state)
         return()
@@ -8,9 +9,10 @@ endfunction()
 
 function(bf_add_aspect_presentation_tests)
     bf_add_aspect_state()
+    bf_add_upscaler_state()
     add_executable(bf_aspect_ui_test "${PROJECT_SOURCE_DIR}/tests/aspect_ui_test.cpp"
         "${PROJECT_SOURCE_DIR}/src/ui/host_ui.cpp" "${PROJECT_SOURCE_DIR}/src/ui/ui_draw.cpp")
-    target_link_libraries(bf_aspect_ui_test PRIVATE bf_aspect_state)
+    target_link_libraries(bf_aspect_ui_test PRIVATE bf_aspect_state bf_upscaler_state)
     add_test(NAME native_aspect_ui COMMAND bf_aspect_ui_test)
     if(TARGET bf_dx12)
         add_executable(bf_aspect_graphics_test "${PROJECT_SOURCE_DIR}/tests/aspect_graphics_test.cpp")

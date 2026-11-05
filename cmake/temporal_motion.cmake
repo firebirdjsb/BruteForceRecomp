@@ -1,0 +1,107 @@
+# No original game bytes are checked in. Authenticate the complete canonical
+# translated chunks before inserting observation-only lifetime/submission calls.
+set(motion_matches 0)
+foreach(file IN LISTS BF_GENERATED)
+    file(READ "${file}" text)
+    string(REPLACE "\r\n" "\n" text "${text}")
+    string(FIND "${text}" "loc_00155340: ;" constructor)
+    string(FIND "${text}" "loc_0023C1D0: ;" part)
+    string(FIND "${text}" "loc_000E7D40: ;" objects)
+    string(FIND "${text}" "loc_001F45A0: ;" scene_constructor)
+    string(FIND "${text}" "loc_000D7897: ;" scene_destroy)
+    if(NOT constructor EQUAL -1)
+        string(SHA256 digest "${text}")
+        if(NOT digest STREQUAL "4dda53ffa232c6564dcb2c57dfc6933fd60777c054575f8967e5f3b41de5ed10")
+            message(FATAL_ERROR "Unaudited temporal render-object lifetime/model chunk.")
+        endif()
+        string(PREPEND text "extern void bf_guest_motion_lifetime(unsigned,int);\n")
+        # The original live-slot store (+22) and initialization have completed.
+        string(REPLACE "    MEM8(esi + 0x26) = 0x20;\n    eax = esi;"
+            "    MEM8(esi + 0x26) = 0x20;\n    bf_guest_motion_lifetime(esi,1);\n    eax = esi;" text "${text}")
+        # Observe the original slot before 1553F0 clears its bitmap bit.
+        string(REPLACE "loc_001553F0: ;" "loc_001553F0: ;\n    bf_guest_motion_lifetime(ecx,0);" text "${text}")
+        string(REPLACE "void sub_00157B70(void)\n{" "void bf_original_motion_model_draw(void)\n{" text "${text}")
+        set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/temporal/model-lifetime.c")
+        math(EXPR motion_matches "${motion_matches}+1")
+    elseif(NOT part EQUAL -1)
+        string(SHA256 digest "${text}")
+        if(NOT digest STREQUAL "20003fc2287b5353a14321e3895d30215aa081600ea2173dca77f541b7ecbacb")
+            message(FATAL_ERROR "Unaudited temporal original mesh-part submission chunk.")
+        endif()
+        string(PREPEND text "extern void bf_guest_motion_part_begin(unsigned,unsigned,unsigned);\nextern void bf_guest_motion_end(unsigned);\n")
+        # ESP is entry-0xB8 here; +C0 is original argument 2 (render packet).
+        # EDI is the complete original descriptor; ESI is a 48-byte subdraw.
+        string(REPLACE "loc_0023C3C4: ;" "loc_0023C3C4: ;\n    bf_guest_motion_part_begin(MEM32(esp+0xC0),edi,esi);" text "${text}")
+        string(REPLACE "loc_0023C3E3: ;" "loc_0023C3E3: ;\n    bf_guest_motion_end(6); /* BF_MOTION_PART_END */" text "${text}")
+        set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/temporal/model-parts.c")
+        math(EXPR motion_matches "${motion_matches}+1")
+    elseif(NOT objects EQUAL -1)
+        string(SHA256 digest "${text}")
+        if(NOT digest STREQUAL "55a92d1f2e17359c7e63e36323767568201dd81d7996ca1ec6ccc5c7714e25fb")
+            message(FATAL_ERROR "Unaudited original render-object dispatch chunk.")
+        endif()
+        string(PREPEND text "extern unsigned bf_guest_motion_object_begin(unsigned,unsigned,unsigned);\nextern void bf_guest_motion_end(unsigned);\n")
+        # Exact original object draw virtual +64 calls in E7D40 and E81E0.
+        # ECX is the original receiver; the target and guest call PC remain
+        # unchanged. The observation brackets all children/raw geometry.
+        foreach(site IN ITEMS
+            "eax|000E7D82|000E7D7F" "eax|000E7D9A|000E7D97" "eax|000E7DE0|000E7DDD"
+            "edx|000E7E48|000E7E45" "edx|000E7E62|000E7E5F" "eax|000E7EDF|000E7EDC"
+            "eax|000E7F20|000E7F1D" "edx|000E7FBE|000E7FBB" "eax|000E8061|000E805E"
+            "edx|000E80DF|000E80DC" "eax|000E813A|000E8137" "edx|000E82A9|000E82A6"
+            "eax|000E852B|000E8528" "eax|000E8553|000E8550" "edx|000E87F5|000E87F2"
+            "edx|000E8809|000E8806" "eax|000E887F|000E887C" "edx|000E88CA|000E88C7"
+            "eax|000E8952|000E894F" "eax|000E8966|000E8963" "edx|000E89CB|000E89C8"
+            "eax|000E8A1A|000E8A17" "edx|000E8A94|000E8A91" "edx|000E8AA8|000E8AA5")
+            string(REPLACE "|" ";" fields "${site}")
+            list(GET fields 0 table_register)
+            list(GET fields 1 return_pc)
+            list(GET fields 2 call_pc)
+            set(call "{ uint32_t _icall_target = MEM32(${table_register} + 0x64); PUSH32(esp, 0x${return_pc}u); RECOMP_ICALL_SAFE_AT(_icall_target, _icall_esp, 0x${call_pc}u); } /* indirect call */")
+            string(FIND "${text}" "${call}" found)
+            if(found LESS 0)
+                message(FATAL_ERROR "Missing original object dispatch at ${call_pc}.")
+            endif()
+            set(replacement "{ uint32_t _icall_target = MEM32(${table_register} + 0x64); unsigned _bf_motion_scope=bf_guest_motion_object_begin(ecx,_icall_target,0x${call_pc}u); PUSH32(esp, 0x${return_pc}u); RECOMP_ICALL_SAFE_AT(_icall_target, _icall_esp, 0x${call_pc}u); if(_bf_motion_scope)bf_guest_motion_end(4); } /* original indirect call */")
+            string(REPLACE "${call}" "${replacement}" text "${text}")
+        endforeach()
+        set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/temporal/object-dispatch.c")
+        math(EXPR motion_matches "${motion_matches}+1")
+    elseif(NOT scene_constructor EQUAL -1)
+        string(SHA256 digest "${text}")
+        if(NOT digest STREQUAL "8126887f51e22b1ae03f07a0d690bf98533315a074a07e0b5e90d1d8992bb2f1")
+            message(FATAL_ERROR "Unaudited static-scene constructor/submission chunk.")
+        endif()
+        string(PREPEND text "extern void bf_guest_motion_scene_lifetime(unsigned,int);\n")
+        set(anchor "    MEM32(esi + 0x6C) = edi;\n    POP32(esp, edi);\n    POP32(esp, ebp);\n    eax = esi;")
+        string(FIND "${text}" "${anchor}" found)
+        if(found LESS 0)
+            message(FATAL_ERROR "Missing exact completed static-scene constructor.")
+        endif()
+        string(REPLACE "${anchor}" "    MEM32(esi + 0x6C) = edi;\n    bf_guest_motion_scene_lifetime(esi,1);\n    POP32(esp, edi);\n    POP32(esp, ebp);\n    eax = esi;" text "${text}")
+        string(REPLACE "void sub_001F5600(void)\n{" "void bf_original_motion_scene_draw(void)\n{" text "${text}")
+        set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/temporal/static-scene.c")
+        math(EXPR motion_matches "${motion_matches}+1")
+    elseif(NOT scene_destroy EQUAL -1)
+        string(SHA256 digest "${text}")
+        if(NOT digest STREQUAL "b86ee84777139b2e9510d82ee053532bfdc87894bbbb14df6a21345c0cde8503")
+            message(FATAL_ERROR "Unaudited original static-scene cleanup chunk.")
+        endif()
+        string(PREPEND text "extern void bf_guest_motion_scene_lifetime(unsigned,int);\n")
+        # D78A5 is reached with EDX=context+A40's real scene, before freeing
+        # its cells/PB and final 0x78 allocation at D78FC..D7902.
+        string(REPLACE "loc_000D78A5: ;" "loc_000D78A5: ;\n    bf_guest_motion_scene_lifetime(edx,0);" text "${text}")
+        set(copy "${CMAKE_BINARY_DIR}/runtime-fixes/temporal/static-scene-cleanup.c")
+        math(EXPR motion_matches "${motion_matches}+1")
+    else()
+        continue()
+    endif()
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/runtime-fixes/temporal")
+    file(WRITE "${copy}.in" "${text}")
+    configure_file("${copy}.in" "${copy}" COPYONLY)
+    list(REMOVE_ITEM BF_GENERATED "${file}")
+    list(APPEND BF_GENERATED "${copy}")
+endforeach()
+if(NOT motion_matches EQUAL 5)
+    message(FATAL_ERROR "Expected exactly five canonical temporal ownership chunks; got ${motion_matches}.")
+endif()

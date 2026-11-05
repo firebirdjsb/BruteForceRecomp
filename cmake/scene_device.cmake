@@ -1,0 +1,16 @@
+include("${CMAKE_CURRENT_LIST_DIR}/dx12_device.cmake")
+function(bf_add_scene_device)
+    if(TARGET bf_scene_device)
+        return()
+    endif()
+    bf_add_dx12_device()
+    # One bridge implementation supplies the backend, temporal processor and
+    # standalone tests. Consumers must not compile a second SceneDevice owner.
+    add_library(bf_scene_device STATIC "${PROJECT_SOURCE_DIR}/src/gpu/scene_device.cpp")
+    target_include_directories(bf_scene_device PUBLIC "${PROJECT_SOURCE_DIR}/src")
+    target_compile_definitions(bf_scene_device PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(bf_scene_device PUBLIC bf_dx12_device d3d11)
+    if(MSVC)
+        target_compile_options(bf_scene_device PRIVATE /W4)
+    endif()
+endfunction()

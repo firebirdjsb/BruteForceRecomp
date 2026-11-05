@@ -35,7 +35,7 @@ int main(int argc,char **argv) try {
     options.gpu_programs=false;options.scale=4;options.height=1440;options.volume=70;options.interpolation=120;options.texture_scale=4;
     const auto settings=root/"graphics.settings";
     bf::save_graphics(settings,options);const auto loaded=bf::load_graphics(settings);
-    if(loaded.scene!="d3d11"||loaded.gpu_programs||loaded.scale!=4||loaded.height!=1440||loaded.volume!=70||loaded.frame_limit!=30||loaded.interpolation!=120||loaded.texture_scale!=4)return 1;
+    if(loaded.scene!="d3d11"||loaded.gpu_programs||loaded.scale!=4||loaded.height!=1440||loaded.volume!=70||loaded.frame_limit!=30||loaded.interpolation!=120||loaded.texture_scale!=4||!loaded.fsr1||loaded.temporal_fsr!=0)return 1;
     {std::ofstream invalid(settings);invalid<<"BF_GRAPHICS 1\ninvalid data\n";}
     if(bf::load_graphics(settings).scene!="cpu")return 2;
     bf::save_graphics(settings,options);
@@ -55,10 +55,14 @@ int main(int argc,char **argv) try {
     if(preflight.game_session_active())return 11;
     preflight.phase="importing";if(preflight.game_session_active())return 12;
     const auto exe=std::filesystem::absolute(bf::text_path(argv[0]));
-    for(const int exit_code:{0,7}) {
-        options.scene=exit_code==0?"d3d11":"d3d12";
+    for(const unsigned requested:{1u,3u,4u}) {
+        const int exit_code=requested==1?0:requested==3?7:8;
+        options.scene=requested==1?"d3d11":"d3d12";
+        options.fsr1=requested==1;
+        options.temporal_fsr=requested==1?0:requested;
         bf::save_graphics(settings,options);
-        if(bf::load_graphics(settings).scene!=options.scene)return 7;
+        const auto roundtrip=bf::load_graphics(settings);
+        if(roundtrip.scene!=options.scene||roundtrip.fsr1!=(requested==1)||roundtrip.temporal_fsr!=(requested==1?0:requested))return 7;
         SDL_ShowWindow(window);bool hidden=false,saw_hidden=false;
         std::atomic_bool running=false,finished=false;bf::ProcessResult result{};std::exception_ptr failure;
         std::thread child([&] {
@@ -74,7 +78,8 @@ int main(int argc,char **argv) try {
         child.join();bf::sync_game_window(window,false,hidden);
         if(failure)std::rethrow_exception(failure);
         if(result.code!=exit_code||!saw_hidden||hidden||!window_visible(window))return 3;
-        for(const std::string &text:std::vector<std::string>{"RECOMP_GPU="+options.scene,"RECOMP_GPU_VSH=0","RECOMP_FLIP_PACING=edge","BF_RENDER_BACKEND=dx12","BF_UPSCALER=fsr1","BF_UI_SETTINGS="+bf::path_text(settings),"RECOMP_KEYBOARD=1","RECOMP_MKB=1","RECOMP_ASYNC_IO=1"})
+        const std::string upscaler=requested==1?"fsr1":requested==3?"fsr3":"fsr4";
+        for(const std::string &text:std::vector<std::string>{"RECOMP_GPU="+options.scene,"RECOMP_GPU_VSH=0","RECOMP_FLIP_PACING=edge","BF_RENDER_BACKEND=dx12","BF_UPSCALER="+upscaler,"BF_UI_SETTINGS="+bf::path_text(settings),"RECOMP_KEYBOARD=1","RECOMP_MKB=1","RECOMP_ASYNC_IO=1"})
             if(result.detail.find(text)==std::string::npos)return 4;
     }
     bool started=false;

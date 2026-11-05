@@ -3,8 +3,12 @@
 #include <windows.h>
 #include <fenv.h>
 #include "graphics/native_aspect.h"
+#include "graphics/native_aspect_state.h"
 #ifndef BF_NATIVE_ASPECT_HELPER_FIXTURE
 extern int bf_guest_aspect_marker(int active);
+extern int bf_guest_motion_view_begin(void);
+extern void bf_guest_motion_end(unsigned);
+extern int bf_motion_observer_enabled(void);
 #endif
 
 typedef struct BFAspectGuestState {
@@ -89,10 +93,13 @@ static int bf_aspect_call_original_helpers(const BFAspectTransaction *transactio
 #ifndef BF_NATIVE_ASPECT_HELPER_FIXTURE
 static void bf_native_aspect_dispatch(void)
 {
+    /* The ordinary view also uses this envelope for temporal diagnostics.
+     * With both features off, preserve its direct original dispatch path. */
+    if(!bf_aspect_ready()&&!bf_motion_observer_enabled()) {sub_000D9F00();return;}
     BFAspectGuestState incoming, restored, actual_return, final_return;
     BFAspectTransaction transaction;
     fenv_t incoming_host_environment, return_host_environment;
-    int helpers_ok, armed;
+    int helpers_ok, armed, motion_scope=0;
     memset(&transaction,0,sizeof(transaction));
     bf_aspect_save_state(&incoming);
     fegetenv(&incoming_host_environment);
@@ -133,10 +140,14 @@ static void bf_native_aspect_dispatch(void)
     }
 #endif
     fesetenv(&incoming_host_environment);
+    /* Independent of the wide request: sample the real projection/frustum
+     * AFTER original aspect helpers, including ordinary authored 4:3 views. */
+    motion_scope=bf_guest_motion_view_begin();
     /* This is the actual unchanged translated renderer; no render stub. */
     sub_000D9F00();
     bf_aspect_save_state(&actual_return);
     fegetenv(&return_host_environment);
+    if(motion_scope)bf_guest_motion_end(2); /* BF_MOTION_VIEW_END */
     if((uint64_t)g_esp != (uint64_t)incoming.integer[3]+12u)
         bf_native_aspect_state_failure("original_dispatch_ret8_stack");
 #ifndef BF_NATIVE_ASPECT_HELPER_FIXTURE

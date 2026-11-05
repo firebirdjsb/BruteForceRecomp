@@ -1,6 +1,8 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "dx12_presenter.h"
+#include "temporal_control.h"
+#include "dx12_device.h"
 #include "shaders.h"
 #include "frame_interpolation.h"
 #include <d3d12.h>
@@ -65,7 +67,12 @@ struct Presenter {
     bool fsr{}, vsync{true}, valid{}, has_frame{}, capture{}, wide{};
     UINT64 serial{};
     HANDLE event{};
+    std::shared_ptr<Dx12DeviceContext> context;
     ComPtr<ID3D12Device> device;
+    ComPtr<ID3D12Resource> pending_texture;
+    ComPtr<ID3D12Resource> pending_overlay;
+    D3D12_RESOURCE_STATES overlay_restore_state{D3D12_RESOURCE_STATE_COMMON};
+    ComPtr<ID3D12Fence> pending_ready;
     ComPtr<ID3D12InfoQueue1> debug_messages;
     DWORD debug_cookie{};
     ComPtr<ID3D12CommandQueue> queue;
@@ -75,8 +82,12 @@ struct Presenter {
     ComPtr<ID3D12Fence> fence;
     ComPtr<ID3D12DescriptorHeap> descriptors, rtvs;
     ComPtr<ID3D12RootSignature> root;
-    ComPtr<ID3D12PipelineState> draw, easu, rcas;
+    ComPtr<ID3D12PipelineState> draw, draw_overlay, easu, rcas;
     ComPtr<ID3D12Resource> input, upload, intermediate, scaled, readback_buffer;
+    ComPtr<ID3D12Resource> host_overlay_image, host_overlay_upload;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT host_overlay_layout{};
+    D3D12_RESOURCE_STATES host_overlay_state{D3D12_RESOURCE_STATE_COPY_DEST};
+    bool pending_host_overlay{};
     std::array<ComPtr<ID3D12Resource>, 2> back;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT upload_layout{};
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT readback_layout{};
@@ -114,6 +125,8 @@ struct Presenter {
     }
     void begin() {
         wait();
+        pending_texture.Reset(); pending_overlay.Reset(); pending_ready.Reset();
+        pending_host_overlay=false;
         check(allocator->Reset(), "Reset allocator");
         check(commands->Reset(allocator.Get(), nullptr), "Reset command list");
     }
@@ -199,6 +212,15 @@ struct Presenter {
         pipeline.NumRenderTargets = 1; pipeline.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         pipeline.SampleDesc.Count = 1;
         check(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&draw)), "Create draw pipeline");
+        auto overlay_pixel = compile("pixelOverlay", "ps_5_1");
+        pipeline.PS = {overlay_pixel->GetBufferPointer(), overlay_pixel->GetBufferSize()};
+        // The separate HUD texture is premultiplied and records source-over
+        // coverage. Drawing it after reconstruction preserves original anchors
+        // and never sends text/cutout edges through the temporal history.
+        pipeline.BlendState.RenderTarget[0].BlendEnable = TRUE;
+        pipeline.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        pipeline.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+        check(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&draw_overlay)), "Create overlay pipeline");
         if (fsr) {
             auto make = [&](const char *define, ComPtr<ID3D12PipelineState> &target) {
                 auto shader = compile("computeMain", "cs_5_1", define);
@@ -233,6 +255,7 @@ struct Presenter {
         output_height = std::max(1u, UINT(std::lround(fit_height)));
         compute_width=scale_factor?UINT(std::lround(height*scale_factor*aspect)):output_width;
         compute_height=scale_factor?height*scale_factor:output_height;
+        bf_temporal_output_size(output_width,output_height);
         if(compute_width>16384||compute_height>16384)throw std::runtime_error("Upscale target exceeds the device texture limit");
         if (fsr && output_width >= width && output_height >= height) {
             const auto flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -252,37 +275,18 @@ struct Presenter {
         if (!IsWindow(hwnd) || !w || !h || w > 8192 || h > 8192) throw std::runtime_error("Invalid framebuffer/window");
         window = hwnd; width = w; height = h; fsr = use_fsr;
         capture = std::getenv("BF_GRAPHICS_READBACK") != nullptr;
-        if (std::getenv("BF_DX12_DEBUG")) {
-            ComPtr<ID3D12Debug> debug;
-            if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
-                debug->EnableDebugLayer(); std::fprintf(stderr, "[DX12] debug validation enabled\n");
-            } else std::fprintf(stderr, "[DX12] optional debug layer unavailable\n");
-        }
         if (const char *v = std::getenv("RECOMP_PRESENT_VSYNC")) vsync = *v != '0';
+        context = acquire_dx12_device();
+        device = context->device; queue = context->queue;
         ComPtr<IDXGIFactory4> factory;
         check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "Create DXGI factory");
-        ComPtr<IDXGIAdapter1> selected;
-        for (UINT i = 0; ; ++i) {
-            ComPtr<IDXGIAdapter1> adapter;
-            if (factory->EnumAdapters1(i, &adapter) == DXGI_ERROR_NOT_FOUND) break;
-            if (!adapter) break;
-            DXGI_ADAPTER_DESC1 desc{}; adapter->GetDesc1(&desc);
-            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
-            if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)))) {
-                selected = adapter;
-                std::fprintf(stderr, "[DX12] hardware: %ls\n", desc.Description); break;
-            }
-        }
-        if (!device) throw std::runtime_error("No compatible hardware DX12 adapter");
-        if (std::getenv("BF_DX12_DEBUG") && SUCCEEDED(device.As(&debug_messages))) {
+        if (context->debug_enabled && SUCCEEDED(device.As(&debug_messages))) {
             check(debug_messages->RegisterMessageCallback([](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity,
                 D3D12_MESSAGE_ID id, LPCSTR description, void *) {
                 if (severity <= D3D12_MESSAGE_SEVERITY_WARNING)
                     std::fprintf(stderr, "[DX12] debug %u: %s\n", unsigned(id), description);
             }, D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &debug_cookie), "Register debug messages");
         }
-        D3D12_COMMAND_QUEUE_DESC queue_desc{};
-        check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)), "Create command queue");
         check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)), "Create allocator");
         check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&commands)), "Create command list");
         check(commands->Close(), "Close initial command list");
@@ -297,7 +301,7 @@ struct Presenter {
         check(factory->CreateSwapChainForHwnd(queue.Get(), hwnd, &swap_desc, nullptr, nullptr, &initial), "Create swap chain");
         check(initial.As(&swap), "Query swap chain");
         check(factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER), "Window association");
-        D3D12_DESCRIPTOR_HEAP_DESC heap{}; heap.NumDescriptors = 5;
+        D3D12_DESCRIPTOR_HEAP_DESC heap{}; heap.NumDescriptors = 7;
         heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV; heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         check(device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&descriptors)), "Create SRV/UAV heap");
         descriptor_size = device->GetDescriptorHandleIncrementSize(heap.Type);
@@ -371,6 +375,11 @@ struct Presenter {
             transition(scaled.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             scaled_valid=true;scaled_source=sampled;scaled_sequence=stamp.sequence;++stats.spatial_passes;
         }
+        return finish_frame(stamp, generated, scaled ? 4 : 0) && vsync;
+    }
+    bool finish_frame(FrameStamp stamp, bool generated, UINT sample_slot,
+                      ID3D12Resource *restore = nullptr,
+                      D3D12_RESOURCE_STATES restore_state = D3D12_RESOURCE_STATE_COMMON) {
         last_back = swap->GetCurrentBackBufferIndex();
         transition(back[last_back].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
         auto rtv = rtvs->GetCPUDescriptorHandleForHeapStart(); rtv.ptr += SIZE_T(last_back) * rtv_size;
@@ -381,8 +390,18 @@ struct Presenter {
         D3D12_RECT scissor{0, 0, LONG(back_width), LONG(back_height)};
         commands->RSSetViewports(1, &viewport); commands->RSSetScissorRects(1, &scissor);
         commands->SetGraphicsRootSignature(root.Get()); commands->SetPipelineState(draw.Get());
-        commands->SetGraphicsRootDescriptorTable(0, gpu(scaled ? 4 : 0));
+        commands->SetGraphicsRootDescriptorTable(0, gpu(sample_slot));
         commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); commands->DrawInstanced(3, 1, 0, 0);
+        if (pending_overlay) {
+            commands->SetPipelineState(draw_overlay.Get());
+            commands->SetGraphicsRootDescriptorTable(0, gpu(5));
+            commands->DrawInstanced(3, 1, 0, 0);
+        }
+        if (pending_host_overlay) {
+            commands->SetPipelineState(draw_overlay.Get());
+            commands->SetGraphicsRootDescriptorTable(0, gpu(6));
+            commands->DrawInstanced(3, 1, 0, 0);
+        }
         if (readback_buffer) {
             // Copy before Present: FLIP_DISCARD does not preserve a presented back buffer.
             transition(back[last_back].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -392,6 +411,8 @@ struct Presenter {
             commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
             transition(back[last_back].Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
         } else transition(back[last_back].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        if (restore) transition(restore, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, restore_state);
+        if (pending_overlay) transition(pending_overlay.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, overlay_restore_state);
         submit();
         const auto result = swap->Present(vsync ? 1 : 0, 0);
         // Present can enqueue additional uses of the swap-chain resources.
@@ -400,9 +421,105 @@ struct Presenter {
         check(result, "Present"); has_frame = result != DXGI_STATUS_OCCLUDED;
         if(has_frame) {
             stats.presents++;stats.generated+=generated;
+            stats.spatial_frames+=sample_slot==4&&pending_texture==nullptr;
             if(stamp.sequence&&stamp.sequence!=last_source){stats.source_frames++;last_source=stamp.sequence;}
         }
-        return has_frame && vsync;
+        return has_frame;
+    }
+    bool same_device(ID3D12DeviceChild *child) const {
+        ComPtr<ID3D12Device> owner;
+        if (FAILED(child->GetDevice(IID_PPV_ARGS(&owner)))) return false;
+        ComPtr<IUnknown> identity, expected;
+        return SUCCEEDED(owner.As(&identity)) && SUCCEEDED(device.As(&expected)) && identity.Get() == expected.Get();
+    }
+    bool texture_state(D3D12_RESOURCE_STATES state, D3D12_RESOURCE_FLAGS flags) const {
+        switch (state) {
+        case D3D12_RESOURCE_STATE_COMMON:
+        case D3D12_RESOURCE_STATE_COPY_SOURCE:
+        case D3D12_RESOURCE_STATE_COPY_DEST:
+        case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
+        case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
+        case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
+            return true;
+        case D3D12_RESOURCE_STATE_RENDER_TARGET:
+            return (flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0;
+        case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
+            return (flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0;
+        default: return false;
+        }
+    }
+    bool validate_texture(const Dx12TextureFrame &frame) const {
+        if (!frame.texture || !same_device(frame.texture)) return false;
+        const auto desc = frame.texture->GetDesc();
+        if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || !desc.Width || !desc.Height ||
+            desc.Width > 16384 || desc.Height > 16384 || desc.DepthOrArraySize != 1 || desc.MipLevels != 1 ||
+            desc.SampleDesc.Count != 1 || desc.SampleDesc.Quality != 0 || (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)) return false;
+        if (desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM && desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM &&
+            desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT && desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB &&
+            desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) return false;
+        if (!texture_state(frame.state, desc.Flags) || !texture_state(frame.restore_state, desc.Flags)) return false;
+        if ((frame.ready_fence == nullptr) != (frame.ready_value == 0)) return false;
+        if (frame.ready_fence && (!same_device(frame.ready_fence) || frame.ready_value == UINT64_MAX ||
+            frame.ready_fence->GetCompletedValue() == UINT64_MAX)) return false;
+        if (frame.overlay.texture) {
+            if (frame.overlay.texture == frame.texture || !same_device(frame.overlay.texture) || !frame.stamp.sequence ||
+                frame.overlay.sequence != frame.stamp.sequence || !frame.source_color_va || frame.overlay.color_va != frame.source_color_va) return false;
+            const auto overlay = frame.overlay.texture->GetDesc();
+            if (overlay.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || overlay.Width != width || overlay.Height != height ||
+                overlay.Format != DXGI_FORMAT_R16G16B16A16_FLOAT || overlay.DepthOrArraySize != 1 || overlay.MipLevels != 1 ||
+                overlay.SampleDesc.Count != 1 || overlay.SampleDesc.Quality != 0 || (overlay.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) ||
+                !texture_state(frame.overlay.state, overlay.Flags) || !texture_state(frame.overlay.restore_state, overlay.Flags)) return false;
+        }
+        return true;
+    }
+    bool texture_frame(const Dx12TextureFrame &frame) {
+        // Reject incompatible resources before touching descriptors, queue state,
+        // interpolation history or the ordinary CPU presentation path.
+        if (!valid || !validate_texture(frame)) return false;
+        RECT rect{}; if (!GetClientRect(window, &rect)) throw std::runtime_error("Cannot read client size");
+        if (rect.right <= 0 || rect.bottom <= 0 || IsIconic(window)) return false;
+        if (UINT(rect.right) != back_width || UINT(rect.bottom) != back_height) resize(rect.right, rect.bottom);
+        begin();
+        pending_texture = frame.texture; pending_ready = frame.ready_fence;
+        pending_overlay = frame.overlay.texture; overlay_restore_state = frame.overlay.restore_state;
+        if (pending_ready) check(queue->Wait(pending_ready.Get(), frame.ready_value), "Wait for producer image");
+        if (interpolation) interpolation->reset();
+        // The producer has already reconstructed this image. A GPU frame never
+        // enters the legacy optical-flow or FSR1 spatial passes.
+        scaled_valid = false; scaled_source = nullptr;
+        srv(pending_texture.Get(), 0);
+        transition(pending_texture.Get(), frame.state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        if (pending_overlay) {
+            srv(pending_overlay.Get(), 5);
+            transition(pending_overlay.Get(), frame.overlay.state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        }
+        if(frame.host_overlay) {
+            if(!host_overlay_image) {
+                const auto desc=texture_desc(width,height,DXGI_FORMAT_B8G8R8A8_UNORM);
+                host_overlay_image=resource(desc,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_COPY_DEST);
+                UINT64 bytes{};
+                device->GetCopyableFootprints(&desc,0,1,0,&host_overlay_layout,nullptr,nullptr,&bytes);
+                host_overlay_upload=buffer(bytes,D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);
+                srv(host_overlay_image.Get(),6);
+            }
+            uint8_t *mapped{};const D3D12_RANGE no_read{};
+            check(host_overlay_upload->Map(0,&no_read,reinterpret_cast<void **>(&mapped)),"Map host overlay");
+            for(UINT y=0;y<height;++y)
+                std::memcpy(mapped+host_overlay_layout.Offset+SIZE_T(y)*host_overlay_layout.Footprint.RowPitch,
+                    frame.host_overlay+SIZE_T(y)*width,SIZE_T(width)*sizeof(uint32_t));
+            host_overlay_upload->Unmap(0,nullptr);
+            transition(host_overlay_image.Get(),host_overlay_state,D3D12_RESOURCE_STATE_COPY_DEST);
+            D3D12_TEXTURE_COPY_LOCATION from{},to{};
+            from.pResource=host_overlay_upload.Get();from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=host_overlay_layout;
+            to.pResource=host_overlay_image.Get();to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            commands->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+            transition(host_overlay_image.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            host_overlay_state=D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;pending_host_overlay=true;
+        }
+        ID3D12DescriptorHeap *heaps[] = {descriptors.Get()}; commands->SetDescriptorHeaps(1, heaps);
+        const bool presented = finish_frame(frame.stamp, false, 0, pending_texture.Get(), frame.restore_state);
+        if (presented) ++stats.texture_frames;
+        return presented;
     }
     void readback(std::vector<uint32_t> &rgba, uint32_t &w, uint32_t &h) {
         if (!has_frame || !readback_buffer) throw std::runtime_error("Readback requires BF_GRAPHICS_READBACK and a rendered frame");
@@ -472,6 +589,13 @@ bool dx12_frame_timed(const uint32_t *bgra,FrameStamp stamp) {
     if(!dx12_active())return false;
     try{return presenter->frame(bgra,stamp);}
     catch(const std::exception &error){std::fprintf(stderr,"[DX12] interpolation: %s\n",error.what());presenter.reset();return false;}
+}
+bool dx12_frame_texture(const Dx12TextureFrame &frame) {
+    if (!dx12_active()) return false;
+    try { return presenter->texture_frame(frame); }
+    catch (const std::exception &error) {
+        std::fprintf(stderr, "[DX12] texture presentation: %s; disabling presenter\n", error.what()); presenter.reset(); return false;
+    }
 }
 void dx12_shutdown() { presenter.reset(); }
 bool dx12_readback(std::vector<uint32_t> &rgba, uint32_t &width, uint32_t &height) {

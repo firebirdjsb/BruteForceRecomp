@@ -3,6 +3,7 @@
 #include "pad_pulses.h"
 #include "graphics_options.h"
 #include "scene_boundary.h"
+#include "upscaler_state.h"
 #include "../graphics/native_aspect_state.h"
 #include "../input/desktop_bindings.h"
 #include <algorithm>
@@ -20,7 +21,7 @@
 namespace {
 using Clock=std::chrono::steady_clock;
 std::mutex guard;
-bool opened{},keyboard=true,mouse_menus=true,prompts_on=true,fsr{},fsr_supported{},muted{};
+bool opened{},keyboard=true,mouse_menus=true,prompts_on=true,muted{};
 int volume=100,selected{};
 int page{};
 bool gpu_available{};
@@ -92,11 +93,36 @@ void paint_tutorial(bf::ui::Canvas &c) {
 bool menu(){return mouse_menus&&Clock::now()-menu_seen<std::chrono::milliseconds(500);}
 int row_count(){return page==2?1:page==1?7:rows;}
 void persist() {
-    preferences.fsr1=fsr;preferences.scale=scales[scale_index];preferences.height=heights[resolution_index];
+    const unsigned mode=bf_upscaler_mode();
+    preferences.fsr1=mode==BF_UPSCALER_FSR1;
+    preferences.temporal_fsr=mode==BF_UPSCALER_FSR3||mode==BF_UPSCALER_FSR4?mode:0;
+    preferences.scale=scales[scale_index];preferences.height=heights[resolution_index];
     preferences.mouse_menus=mouse_menus;preferences.prompts=prompts_on;preferences.muted=muted;preferences.volume=volume;
     if(settings_path.empty())return;
     try {bf::save_graphics(settings_path,preferences);settings_error.clear();}
     catch(const std::exception &e){settings_error="SETTINGS SAVE FAILED";std::fprintf(stderr,"[UI] %s\n",e.what());}
+}
+const char *upscaler_name(unsigned mode) {
+    switch(mode) {
+    case BF_UPSCALER_FSR1:return "FSR 1";
+    case BF_UPSCALER_FSR3:return "FSR 3";
+    case BF_UPSCALER_FSR4:return "FSR 4";
+    default:return "OFF";
+    }
+}
+bool upscaler_available(unsigned mode) {
+    return (bf_upscaler_capabilities_mask()&(1u<<mode))!=0;
+}
+bool cycle_upscaler(int direction) {
+    constexpr unsigned modes[]={BF_UPSCALER_OFF,BF_UPSCALER_FSR1,BF_UPSCALER_FSR3,BF_UPSCALER_FSR4};
+    const unsigned current=bf_upscaler_mode();
+    int index=0;
+    for(int i=0;i<4;i++)if(modes[i]==current)index=i;
+    for(int step=1;step<=4;step++) {
+        const int candidate=(index+direction*step+8)%4;
+        if(bf_upscaler_select(modes[candidate]))return true;
+    }
+    return false;
 }
 void adjust(int row,int direction=1) {
     if(page==2) {
@@ -111,7 +137,7 @@ void adjust(int row,int direction=1) {
             preferences.scene=scenes[(index+3+direction)%3];
         }
         if(row==1&&gpu_available)preferences.gpu_programs=!preferences.gpu_programs;
-        if(row==3&&fsr_supported) {
+        if(row==3&&upscaler_available(BF_UPSCALER_FSR1)) {
             preferences.interpolation=preferences.interpolation==0?60:preferences.interpolation==60?120:0;
             interpolation_rate.store(preferences.interpolation,std::memory_order_relaxed);
         }
@@ -140,8 +166,9 @@ void adjust(int row,int direction=1) {
     switch(row) {
     case 0:mouse_menus=!mouse_menus;break;
     case 1:prompts_on=!prompts_on;break;
-    case 2:if(fsr_supported)fsr=!fsr;break;
-    case 3:if(fsr_supported){scale_index=(scale_index+4+direction)%4;fsr=true;}break;
+    case 2:cycle_upscaler(direction);break;
+    case 3:if(bf_upscaler_mode()==BF_UPSCALER_FSR1&&upscaler_available(BF_UPSCALER_FSR1))
+               scale_index=(scale_index+4+direction)%4;break;
     case 4:resolution_index=(resolution_index+5+direction)%5;resize_pending=true;break;
     case 5:muted=!muted;break;
     case 6:volume=std::clamp(volume+direction*10,0,100);break;
@@ -302,9 +329,9 @@ extern "C" int bf_ui_tutorial_hide(uint32_t tag,uint32_t vtable) {
     std::lock_guard lock(guard);return tutorial_active()&&tutorial_node(tag,vtable);
 }
 extern "C" void bf_ui_tutorial_clear(){std::lock_guard lock(guard);tutorial.verified=false;}
-extern "C" int bf_ui_fsr(){std::lock_guard lock(guard);return fsr;}
-extern "C" void bf_ui_fsr_initial(int value){std::lock_guard lock(guard);fsr=value!=0;}
-extern "C" void bf_ui_fsr_supported(int value){std::lock_guard lock(guard);fsr_supported=value!=0;}
+extern "C" int bf_ui_fsr(){return bf_upscaler_mode()==BF_UPSCALER_FSR1;}
+extern "C" void bf_ui_fsr_initial(int value){bf_upscaler_initial(value?BF_UPSCALER_FSR1:BF_UPSCALER_OFF);}
+extern "C" void bf_ui_fsr_supported(int value){bf_upscaler_spatial_supported(value);}
 extern "C" void bf_ui_settings_initial(int available) {
     std::lock_guard lock(guard);gpu_available=available!=0;
     if(const auto *path=std::getenv("BF_UI_SETTINGS");path&&*path)settings_path=std::filesystem::u8path(path);
@@ -324,7 +351,10 @@ extern "C" void bf_ui_settings_initial(int available) {
     if(const auto *backend=std::getenv("BF_RENDER_BACKEND")) {
         auto candidate=preferences;candidate.backend=backend;if(bf::valid_graphics(candidate))preferences.backend=backend;
     }
-    fsr=preferences.fsr1;mouse_menus=preferences.mouse_menus;prompts_on=preferences.prompts;
+    const unsigned initial_mode=preferences.temporal_fsr?preferences.temporal_fsr:
+        preferences.fsr1?BF_UPSCALER_FSR1:BF_UPSCALER_OFF;
+    bf_upscaler_initial(initial_mode);
+    mouse_menus=preferences.mouse_menus;prompts_on=preferences.prompts;
     muted=preferences.muted;volume=preferences.volume;
     mouse_sensitivity.store(preferences.mouse_sensitivity,std::memory_order_relaxed);
     audio_gain.store(muted?0.0f:float(volume)/100.0f,std::memory_order_relaxed);
@@ -344,9 +374,11 @@ extern "C" unsigned bf_ui_interpolation(){return interpolation_rate.load(std::me
 extern "C" unsigned bf_ui_texture_scale(){return texture_scale.load(std::memory_order_relaxed);}
 extern "C" int bf_ui_antialiasing(){return antialiasing.load(std::memory_order_relaxed);}
 extern "C" int bf_ui_interpolation_allowed(){std::lock_guard lock(guard);return !opened&&!tutorial_active()&&Clock::now()-menu_seen>std::chrono::milliseconds(500);}
-extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try {
+namespace {
+void paint_ui(uint32_t *pixels,unsigned width,unsigned height,bool overlay) {
     if(!pixels||width!=640||height!=480)return;
-    std::lock_guard lock(guard);bf::ui::Canvas c{pixels,width,height,bf_aspect_frame_wide()?0.75f:1.0f};
+    if(overlay)std::fill(pixels,pixels+size_t(width)*height,0u);
+    std::lock_guard lock(guard);bf::ui::Canvas c{pixels,width,height,bf_aspect_frame_wide()?0.75f:1.0f,0.0f,overlay};
     if(tutorial_active())paint_tutorial(c);
     const auto &batch=prompt_frame_mode?shown_prompts:pending_prompts;
     if(keyboard&&prompts_on)for(unsigned i=0;i<batch.count;i++) {
@@ -366,7 +398,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
     c.box(94,62,452,4,0xff55c5e8);c.text(112,82,"BRUTE FORCE",0xffe1f5ff,3);
     const char *tabs[]={"LIVE SETTINGS","RENDERER","CONTROLS"};
     for(int tab=0;tab<3;++tab){c.box(112+tab*140,105,136,22,page==tab?0xff245978:0xff17394e);c.text(120+tab*140,111,tabs[tab],0xff69cae9,2);}
-    const char *names[]={"MOUSE MENU SELECTION","KEYBOARD / MOUSE PROMPTS","AMD FSR 1 (DX12)","FSR OUTPUT SCALE","OUTPUT RESOLUTION","MUTE AUDIO","MASTER VOLUME","RETURN TO GAME"};
+    const char *names[]={"MOUSE MENU SELECTION","KEYBOARD / MOUSE PROMPTS","UPSCALE REQUEST","FSR 1 OUTPUT SCALE","OUTPUT RESOLUTION","MUTE AUDIO","MASTER VOLUME","RETURN TO GAME"};
     const char *renderer_names[]={"SCENE RENDERER","GPU VERTEX PROGRAMS","PRESENTATION","VISUAL INTERPOLATION","TEXTURE RECONSTRUCTION","ANTI-ALIASING","NATIVE WIDESCREEN"};
     for(int i=0;i<row_count();++i) {
         const int y=row_y+i*row_step;
@@ -381,7 +413,7 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
             if(i==0)value=preferences.scene=="d3d12"?"DX12 GPU":preferences.scene=="d3d11"?"DX11 GPU":"CPU";
             if(i==1)value=gpu_available?(preferences.gpu_programs?"ON":"OFF"):"N/A";
             if(i==2)value=preferences.backend;
-            if(i==3)value=fsr_supported?(preferences.interpolation?std::to_string(preferences.interpolation):"OFF"):"N/A";
+            if(i==3)value=upscaler_available(BF_UPSCALER_FSR1)?(preferences.interpolation?std::to_string(preferences.interpolation):"OFF"):"N/A";
             if(i==4)value=gpu_available?(preferences.texture_scale==1?"OFF":std::to_string(preferences.texture_scale)+"X"):"N/A";
             if(i==5)value=preferences.antialiasing?"EDGE AA":"OFF";
             if(i==6)value=bf_aspect_available()?(preferences.native_widescreen?"16:9":"4:3"):"N/A";
@@ -390,13 +422,14 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
 #endif
             c.text(446,y+7,value,0xff79dbb7,2);continue;
         }
-        if(i<3)value=(i==0?mouse_menus:i==1?prompts_on:fsr)?"ON":"OFF";
-        if(i==3)value=scale_index?std::to_string(scales[scale_index])+"X":"AUTO";
+        if(i<2)value=(i==0?mouse_menus:prompts_on)?"ON":"OFF";
+        if(i==2)value=upscaler_name(bf_upscaler_mode());
+        if(i==3)value=bf_upscaler_mode()==BF_UPSCALER_FSR1&&upscaler_available(BF_UPSCALER_FSR1)?
+            (scale_index?std::to_string(scales[scale_index])+"X":"AUTO"):
+            "N/A";
         if(i==4)value=resolution_index?std::to_string(heights[resolution_index])+"P":"AUTO";
         if(i==5)value=muted?"ON":"OFF";
         if(i==6)value=std::to_string(volume)+"%";
-        if(i==2&&!fsr_supported)value="N/A";
-        if(i==3&&!fsr_supported)value="N/A";
         c.text(458,y+7,value,0xff79dbb7,2);
     }
     if(page==2) {
@@ -422,11 +455,26 @@ extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try
         c.text(122,335,"ACTIVE: "+active_scene,0xffd9efff);
         c.text(122,347,bf_aspect_available()?"ASPECT APPLIES TO SUPPORTED 3D FRAMES":"NATIVE 16:9 UNAVAILABLE ON THIS PATH",0xffe6b47e);
         c.text(122,359,"DEVICE CHANGES: NEXT LAUNCH / GAME: 30 FPS",0xff9bc0d5);
+    } else if(page==0) {
+        // Ninety-six 4-pixel glyph advances fit the available 406-pixel row.
+        // Make a truncated diagnostic visible instead of cutting off a word.
+        char status[97]{};bf_upscaler_status_copy(status,sizeof status);
+        if(std::strlen(status)==sizeof status-1)std::memcpy(status+sizeof status-4,"...",3);
+        c.text(122,359,status,0xff9bc0d5);
     }
     c.text(112,373,"MOUSE OR ARROWS / ENTER TO CHANGE",0xff9bc0d5);
     c.text(112,388,"TAB: PAGE   F1 / ESC: CLOSE",0xff9bc0d5);
     c.text(112,407,"OUTPUT SIZE / FSR: INTERNAL SOURCE 640X480",0xffe6b47e);
     c.text(112,419,settings_error.empty()?"CHEATS UNAVAILABLE":settings_error,0xffe6b47e);
+}
+}
+extern "C" void bf_ui_paint(uint32_t *pixels,unsigned width,unsigned height) try {
+    paint_ui(pixels,width,height,false);
 } catch(const std::exception &e) {
     std::fprintf(stderr,"[UI] Overlay frame skipped: %s\n",e.what());
+}
+extern "C" void bf_ui_paint_overlay(uint32_t *pixels,unsigned width,unsigned height) try {
+    paint_ui(pixels,width,height,true);
+} catch(const std::exception &e) {
+    std::fprintf(stderr,"[UI] Transparent UI frame skipped: %s\n",e.what());
 }

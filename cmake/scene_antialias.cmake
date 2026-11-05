@@ -1,7 +1,20 @@
 # Append only after the pinned executor overlays have authenticated their input.
+include("${CMAKE_CURRENT_LIST_DIR}/upscaler_state.cmake")
+bf_add_upscaler_state()
+add_library(bf_temporal_trace STATIC src/gpu/temporal_trace.cpp)
+target_include_directories(bf_temporal_trace PRIVATE src/gpu/runtime "${XBOXRECOMP_DIR}/src/kernel" "${XBOXRECOMP_DIR}/src")
+target_link_libraries(xbox_kernel PUBLIC bf_temporal_trace)
+target_link_libraries(bf_temporal_trace PUBLIC bf_upscaler_state)
 add_library(bf_scene_boundary STATIC src/ui/scene_boundary.cpp src/ui/scene_aa_state.cpp src/graphics/edge_aa.cpp)
 target_include_directories(bf_scene_boundary PRIVATE src "${XBOXRECOMP_DIR}/src" "${XBOXRECOMP_DIR}/src/kernel")
 target_link_libraries(xbox_kernel PUBLIC bf_scene_boundary)
+target_link_libraries(bf_scene_boundary PUBLIC bf_temporal_trace)
+add_executable(bf_temporal_motion_test tests/temporal_motion_test.cpp)
+target_include_directories(bf_temporal_motion_test PRIVATE src src/gpu/runtime "${XBOXRECOMP_DIR}/src/kernel" "${XBOXRECOMP_DIR}/src")
+target_link_libraries(bf_temporal_motion_test PRIVATE bf_scene_boundary)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME temporal_motion_contract COMMAND "${Python3_EXECUTABLE}"
+    "${PROJECT_SOURCE_DIR}/tests/check_temporal_motion.py" "$<TARGET_FILE:bf_temporal_motion_test>" "${CMAKE_BINARY_DIR}/temporal-motion-contract")
 target_link_libraries(xbox_kernel PUBLIC bf_aspect_state)
 add_executable(bf_scene_boundary_test tests/scene_boundary_test.cpp)
 target_include_directories(bf_scene_boundary_test PRIVATE src)
@@ -27,7 +40,17 @@ foreach(item IN LISTS sources)
         set(boundary [=[case NV097_NO_OPERATION:
 ]=])
         if(TARGET bf_scene_backend)
-            string(APPEND boundary [=[        if(param==BF_SCENE_WIDE_BEGIN||param==BF_SCENE_WIDE_END) {
+            string(APPEND boundary [=[        if(param==BF_MOTION_MARKER) {
+            /* A semantic submission scope cannot inherit an older pending
+             * batch. Both base and transformed queues precede its payload. */
+            xf_queue_flush();
+            if(backend_draws()) {
+                backend_flush(!s_xf_no_tex);
+                if(s_xbackend&&s_xbackend->draw)xbackend_flush();
+            }
+        }
+        if(bf_motion_command_word(param))return;
+        if(param==BF_SCENE_WIDE_BEGIN||param==BF_SCENE_WIDE_END) {
             /* Camera-scope commands must follow every preceding vertex and
              * draw, just like the existing native-UI boundary. */
             xf_queue_flush();
@@ -70,6 +93,7 @@ foreach(item IN LISTS sources)
         }
 ]=])
         string(PREPEND text "#include \"ui/scene_boundary.h\"\n")
+        string(PREPEND text "#include \"gpu/temporal_trace.h\"\n")
         if(TARGET bf_scene_backend)
             string(PREPEND text "extern void bf_aspect_command_scope(int);\nextern void bf_aspect_command_anchor(unsigned);\n")
         endif()

@@ -5,6 +5,32 @@ Windows/Linux/Android release.
 
 ## Latest player fixes and handoff
 
+### Temporal FSR engineering checkpoint - 4 November
+
+Gameplay temporal FSR3/4 is still unavailable. Actual AMD 3.1.6 and 4.1.2
+processor tests pass on the RX 7600 through a shared D3D11On12/native-D3D12
+device, real queues/fences and retained GPU output tickets. Separate native HUD
+and host layers, SDK-jitter/provider controls, append-only preferences and F1/
+launcher requests are implemented on the engineering branch. Requests and
+hardware capability never establish an active gameplay reconstruction.
+
+Actual-title captures established eight main actor parts per frame, matched
+seven held-depth/pre-HUD-color generations, and replayed 32,871 indexed title
+vertices on CPU/GPU. Static world ownership is unresolved: the final capture
+still has 302-388 untracked main world draws per frame. A retail synchronization
+word was incorrectly considered a pushbuffer size; that validation is withdrawn
+and static adapters now always reject temporal identity. The two allowed
+ownership repairs are exhausted; no third offset/layout repair was attempted.
+The independently tested GPU history/MRT component remains default-off and
+incomplete title sources never dispatch the SDK.
+
+No new player/launcher was installed and no new smoke confirmation or main push
+is claimed. The previously accepted widescreen player below remains installed.
+Private title captures, copied saves and projection evidence stay under
+`.local/temporal-fsr`; no retail data or SDK binaries are included in source.
+See [FSR integration notes](docs/FSR_TEMPORAL.md) for implemented surfaces,
+verification, the exact blocker and the next authorized investigation boundary.
+
 ### Local widescreen and HUD continuation - 4 November
 
 The launcher and F1 now share a reversible, default-off 16:9 request. The

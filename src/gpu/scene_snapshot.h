@@ -37,6 +37,21 @@ int bf_depth_probe_enabled(void);
 int bf_depth_probe_publish(ID3D11Device *,ID3D11DeviceContext *,
     ID3D11Texture2D *color,ID3D11Texture2D *depth,const BfSceneSnapshotInfo *,BfDepthProbeStage);
 void bf_depth_probe_shutdown(void);
+/* A separate GPU-only hold for depth about to be destroyed by a post-effect.
+ * Finishing may replace color with that same scene's later pre-UI color, only
+ * when source generation, view/context and the actual world-geometry serial
+ * are unchanged. This does not validate projection, motion or SDK readiness. */
+typedef struct BfSceneDepthHold BfSceneDepthHold;
+typedef struct {
+    BfSceneSnapshotInfo source;
+    uint32_t view,context;
+    uint64_t geometry_serial;
+} BfSceneDepthHoldInfo;
+int bf_scene_depth_hold_freeze(BfSceneDepthHold **,ID3D11Device *,ID3D11DeviceContext *,
+    ID3D11Texture2D *color,ID3D11Texture2D *depth,const BfSceneDepthHoldInfo *);
+const BfSceneSnapshot *bf_scene_depth_hold_finish(BfSceneDepthHold *,ID3D11DeviceContext *,
+    ID3D11Texture2D *pre_ui_color,const BfSceneDepthHoldInfo *);
+void bf_scene_depth_hold_destroy(BfSceneDepthHold *);
 #ifdef __cplusplus
 }
 #endif

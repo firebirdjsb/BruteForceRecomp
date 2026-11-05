@@ -1,4 +1,5 @@
 #include "scene_device.h"
+#include "graphics/dx12_device.h"
 #include <d3d11on12.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -15,6 +16,7 @@
 namespace {
 using Microsoft::WRL::ComPtr;
 struct SceneDevice {
+    std::shared_ptr<bf::graphics::Dx12DeviceContext> owner;
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12CommandQueue> translation_queue;
@@ -36,42 +38,23 @@ void access_trace(const char *stage,HRESULT result=S_OK) {
 }
 
 extern "C" HRESULT bf_scene_d3d12_create(int warp,ID3D11Device **device,
-        ID3D11DeviceContext **context,D3D_FEATURE_LEVEL *level) {
+        ID3D11DeviceContext **context,D3D_FEATURE_LEVEL *level) try {
     if(!device||!context||!level)return E_POINTER;
     *device=nullptr;*context=nullptr;
     if(scene)return E_UNEXPECTED;
     std::unique_ptr<SceneDevice> candidate(new(std::nothrow) SceneDevice);
     if(!candidate)return E_OUTOFMEMORY;
-    ComPtr<IDXGIFactory4> factory;
-    HRESULT result=CreateDXGIFactory1(IID_PPV_ARGS(&factory));
-    if(FAILED(result))return result;
-    DXGI_ADAPTER_DESC1 description{};
-    if(warp) {
-        ComPtr<IDXGIAdapter1> adapter;
-        result=factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter));
-        if(SUCCEEDED(result))result=D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&candidate->device));
-        if(SUCCEEDED(result))adapter->GetDesc1(&description);
-    } else {
-        for(UINT i=0;;++i) {
-            ComPtr<IDXGIAdapter1> adapter;
-            result=factory->EnumAdapters1(i,&adapter);
-            if(FAILED(result))break;
-            adapter->GetDesc1(&description);
-            if(description.Flags&DXGI_ADAPTER_FLAG_SOFTWARE)continue;
-            result=D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&candidate->device));
-            if(SUCCEEDED(result))break;
-        }
-    }
-    if(FAILED(result)||!candidate->device)return FAILED(result)?result:DXGI_ERROR_UNSUPPORTED;
+    candidate->owner=bf::graphics::acquire_dx12_device(warp!=0);
+    candidate->device=candidate->owner->device;
+    candidate->queue=candidate->owner->queue;
+    const auto &description=candidate->owner->adapter_description;
     D3D12_COMMAND_QUEUE_DESC queue{};queue.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;
-    result=candidate->device->CreateCommandQueue(&queue,IID_PPV_ARGS(&candidate->queue));
-    if(FAILED(result))return result;
     // Older 11On12 runtimes can enqueue an unwrap wait before their own signal
     // when the supplied native queue is the translation queue (Microsoft
     // D3D11On12 issue51). Keep the two queues on the same device and let the
     // documented unwrap/return fences carry their real cross-queue ownership.
     // https://github.com/microsoft/D3D11On12/issues/51
-    result=candidate->device->CreateCommandQueue(&queue,IID_PPV_ARGS(&candidate->translation_queue));
+    HRESULT result=candidate->device->CreateCommandQueue(&queue,IID_PPV_ARGS(&candidate->translation_queue));
     if(FAILED(result))return result;
     result=candidate->device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&candidate->fence));
     if(FAILED(result))return result;
@@ -92,7 +75,9 @@ extern "C" HRESULT bf_scene_d3d12_create(int warp,ID3D11Device **device,
     WideCharToMultiByte(CP_UTF8,0,description.Description,-1,name,sizeof name,nullptr,nullptr);
     std::fprintf(stderr,"[GPU-D3D12] %s: %s; scene draws use D3D11On12 and a D3D12 direct queue\n",warp?"WARP":"hardware",name);
     *device=api.Detach();*context=immediate.Detach();scene=candidate.release();return S_OK;
-}
+}catch(const std::bad_alloc &){return E_OUTOFMEMORY;}
+catch(const std::exception &error){std::fprintf(stderr,"[GPU-D3D12] device creation rejected: %s\n",error.what());return DXGI_ERROR_UNSUPPORTED;}
+catch(...){return E_FAIL;}
 
 extern "C" HRESULT bf_scene_d3d12_wait(ID3D11DeviceContext *context) {
     if(!scene||!context)return E_UNEXPECTED;

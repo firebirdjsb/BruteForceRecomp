@@ -1,4 +1,5 @@
 #include "scene_boundary.h"
+#include "../gpu/temporal_trace.h"
 #include "../graphics/edge_aa.h"
 #include <array>
 #include <cstring>
@@ -55,13 +56,34 @@ extern "C" int bf_ui_try_marker(uint32_t device,uint32_t marker) {
     // emits one DWORD method header followed by one DWORD parameter.
     uint32_t bounds[2]{};
     if((device&3)||!read(device,bounds,sizeof bounds)||!writable(device,4)||
-       (bounds[0]&3)||bounds[1]<bounds[0])return 0;
+       (bounds[0]&3)||!writable(bounds[0],4)||(bounds[1]&3)||!range(bounds[1],4))return 0;
+    // As in original 0036CD50, a valid cursor at/past the reservation
+    // watermark needs another original reserve call, rather than rejection.
     if(uint64_t(bounds[0])+8>bounds[1])return 2;
     const uint32_t command[2]={0x00040100u,marker},next=bounds[0]+8;
     if(!writable(bounds[0],sizeof command)||!write(bounds[0],command,sizeof command))return 0;
     return write(device,&next,4)?1:0;
 }
 extern "C" int bf_ui_try_scene_marker(uint32_t device) {return bf_ui_try_marker(device,BF_UI_SCENE_BOUNDARY);}
+extern "C" int bf_ui_try_motion_record(uint32_t device,const BFMotionRecord *record) {
+    if(!bf_motion_record_valid(record))return 0;
+    uint32_t bounds[2]{};
+    if((device&3)||!read(device,bounds,sizeof bounds)||!writable(device,4)||
+       (bounds[0]&3)||!writable(bounds[0],4)||(bounds[1]&3)||!range(bounds[1],4))return 0;
+    // Original 0036CD50 branches to reserve for cursor >= watermark. A valid
+    // cursor may pass this threshold while using the original 0x204 tail guard.
+    // 61 independent method/parameter pairs: one header marker and 60 data
+    // words. Publish the 488-byte reservation's cursor only after all bytes.
+    constexpr unsigned count=(BF_MOTION_WORDS+1)*2;
+    uint32_t commands[count]{};
+    if(uint64_t(bounds[0])+sizeof commands>bounds[1])return 2;
+    for(unsigned i=0;i<BF_MOTION_WORDS+1;++i) {
+        commands[i*2]=0x00040100u;commands[i*2+1]=i?record->words[i-1]:BF_MOTION_MARKER;
+    }
+    const uint32_t next=bounds[0]+sizeof commands;
+    if(!writable(bounds[0],sizeof commands)||!write(bounds[0],commands,sizeof commands))return 0;
+    return write(device,&next,4)?1:0;
+}
 extern "C" void bf_scene_aa_cpu(uint32_t va,uint32_t w,uint32_t h,uint32_t pitch,uint32_t bpp,uint32_t frame) try {
     struct Seen{uint32_t va{},frame{};bool valid{};};static std::array<Seen,32> seen{};
     Seen *slot=nullptr;

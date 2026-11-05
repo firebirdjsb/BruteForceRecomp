@@ -73,11 +73,22 @@ void App::command() {
         if(ImGui::Combo("Visual interpolation",&interpolation,"Off (original 30 FPS)\0 60 FPS visuals (experimental)\0 120 FPS visuals (experimental)\0")) {
             const unsigned rates[]={0,60,120};options.interpolation=rates[interpolation];changed=true;
         }
-        changed|=ImGui::Checkbox("AMD FSR 1 upscaling",&options.fsr1);
+        ImGui::EndDisabled();
+        unsigned upscaler_mode=options.temporal_fsr?options.temporal_fsr:
+            options.fsr1?1u:0u;
+        int upscaler=upscaler_mode==4?3:upscaler_mode==3?2:upscaler_mode==1?1:0;
+        if(ImGui::Combo("Upscaler request",&upscaler,"Off\0AMD FSR 1\0AMD FSR 3\0AMD FSR 4\0")) {
+            const unsigned modes[]={0,1,3,4};upscaler_mode=modes[upscaler];
+            options.fsr1=upscaler_mode==1;
+            options.temporal_fsr=upscaler_mode==3||upscaler_mode==4?upscaler_mode:0;
+            changed=true;
+        }
         const unsigned factors[]={0,2,4,8};int factor=0;
         for(int i=0;i<4;++i)if(options.scale==factors[i])factor=i;
+        ImGui::BeginDisabled(upscaler_mode!=1 || scene==0 || selected==2 || selected==3);
         if(ImGui::Combo("FSR output scale",&factor,"Match window\0 2x\0 4x\0 8x\0")){options.scale=factors[factor];changed=true;}
         ImGui::EndDisabled();
+        ImGui::TextWrapped("FSR 3/4 are runtime requests. The game reports the provider or fallback only after device probing; unsupported requests retain original presentation.");
 #else
         ImGui::TextUnformatted("CPU scene renderer / native SDL presentation");
 #endif

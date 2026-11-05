@@ -19,6 +19,7 @@ struct GraphicsOptions {
     unsigned texture_scale = 1;
     bool antialiasing = true;
     bool native_widescreen = false;
+    unsigned temporal_fsr = 0;
 };
 inline bool valid_graphics(const GraphicsOptions &o) {
     return (o.backend=="auto"||o.backend=="dx12"||o.backend=="dx11"||o.backend=="gdi") &&
@@ -28,7 +29,9 @@ inline bool valid_graphics(const GraphicsOptions &o) {
         o.volume>=0 && o.volume<=100 && std::isfinite(o.mouse_sensitivity) &&
         o.mouse_sensitivity>=0.1f && o.mouse_sensitivity<=10.0f &&
         o.frame_limit==30 && (o.interpolation==0||o.interpolation==60||o.interpolation==120) &&
-        (o.texture_scale==1||o.texture_scale==2||o.texture_scale==4);
+        (o.texture_scale==1||o.texture_scale==2||o.texture_scale==4) &&
+        (o.temporal_fsr==0||o.temporal_fsr==3||o.temporal_fsr==4) &&
+        !(o.fsr1&&o.temporal_fsr!=0);
 }
 inline GraphicsOptions load_graphics(const std::filesystem::path &path, GraphicsOptions fallback={}) {
     std::ifstream input(path);
@@ -59,6 +62,10 @@ inline GraphicsOptions load_graphics(const std::filesystem::path &path, Graphics
     // Append-only version-1 preference: old files retain original 4:3 behavior.
     input>>std::ws;
     if(input.peek()!=std::char_traits<char>::eof()&&!(input>>result.native_widescreen))return fallback;
+    input>>std::ws;
+    if(input.peek()!=std::char_traits<char>::eof()) {
+        if(!(input>>result.temporal_fsr)||!valid_graphics(result))return fallback;
+    }
     return result;
 }
 inline void save_graphics(const std::filesystem::path &path,const GraphicsOptions &o) {
@@ -67,7 +74,7 @@ inline void save_graphics(const std::filesystem::path &path,const GraphicsOption
     std::ofstream output(temporary,std::ios::trunc);
     output<<"BF_GRAPHICS 1\n"<<o.backend<<' '<<o.scene<<' '<<o.fsr1<<' '<<o.gpu_programs<<' '
           <<o.scale<<' '<<o.height<<' '<<o.mouse_menus<<' '<<o.prompts<<' '<<o.muted<<' '<<o.volume
-          <<' '<<o.mouse_sensitivity<<" 30 "<<o.interpolation<<' '<<o.texture_scale<<' '<<o.antialiasing<<' '<<o.native_widescreen<<'\n';
+          <<' '<<o.mouse_sensitivity<<" 30 "<<o.interpolation<<' '<<o.texture_scale<<' '<<o.antialiasing<<' '<<o.native_widescreen<<' '<<o.temporal_fsr<<'\n';
     output.close();
     if(!output)throw std::runtime_error("Cannot write graphics settings");
     // Windows rename cannot replace a file. Remove only this preference file,

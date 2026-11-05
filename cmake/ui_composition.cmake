@@ -1,0 +1,23 @@
+function(bf_add_ui_composition)
+    if(TARGET bf_ui_composition)
+        return()
+    endif()
+    add_library(bf_ui_composition STATIC "${PROJECT_SOURCE_DIR}/src/graphics/ui_composition.cpp")
+    target_include_directories(bf_ui_composition PUBLIC "${PROJECT_SOURCE_DIR}/src")
+    target_link_libraries(bf_ui_composition PUBLIC d3d11 dxgi)
+    if(MSVC)
+        target_compile_options(bf_ui_composition PRIVATE /W4)
+    endif()
+endfunction()
+
+function(bf_add_ui_composition_backend_tests)
+    if(NOT TARGET bf_gpu_scene_test)
+        return()
+    endif()
+    foreach(api d3d11 d3d12)
+        add_test(NAME native_ui_composition_${api} COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/check_ui_composition.py" "$<TARGET_FILE:bf_gpu_scene_test>"
+            "${XBOXRECOMP_DIR}/tools/conformance/test.xbe" "${CMAKE_BINARY_DIR}/ui-composition-${api}" ${api})
+        set_tests_properties(native_ui_composition_${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 120)
+    endforeach()
+endfunction()

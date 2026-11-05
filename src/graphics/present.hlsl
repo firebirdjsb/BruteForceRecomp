@@ -48,4 +48,7 @@ Vertex vertexMain(uint id : SV_VertexID) {
 float4 pixelMain(Vertex vertex) : SV_Target {
     return float4(source.Sample(linearClamp, vertex.uv).rgb, 1);
 }
+float4 pixelOverlay(Vertex vertex) : SV_Target {
+    return source.Sample(linearClamp, vertex.uv);
+}
 #endif
