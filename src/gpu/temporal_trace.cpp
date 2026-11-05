@@ -56,7 +56,7 @@ void seal(BFMotionRecord &r,unsigned kind) {
     if(kind!=BF_MOTION_PART_BEGIN)r.words[BF_MO_SEQUENCE]=sequence.fetch_add(1,std::memory_order_relaxed)+1;
     r.words[BF_MO_CHECKSUM]=checksum(r);
 }
-bool read(uint64_t va,void *out,size_t bytes) noexcept {
+bool read_guest(uint64_t va,void *out,size_t bytes) noexcept {
     const uint64_t ram=g_xbox_total_ram;
     if(va>UINT32_MAX||bytes>0x100000000ull-va)return false;
     if(!((va>=0x10000&&va<ram&&bytes<=ram-va)||
@@ -156,13 +156,13 @@ extern "C" void bf_motion_reservation_log(uint32_t device,uint32_t stack,uint32_
     uint32_t minimum,uint32_t preferred,int before,int after) {
     static std::atomic<unsigned> count{0};
     if(count.fetch_add(1,std::memory_order_relaxed)>=4&&after==1)return;
-    uint32_t bounds[3]{};const bool valid=read(device,bounds,sizeof bounds);
+    uint32_t bounds[3]{};const bool valid=read_guest(device,bounds,sizeof bounds);
     std::fprintf(stderr,"[MOTION-RESERVE] device=%08X stack=%08X original_bytes=%u minimum_bytes=%u preferred_bytes=%u before=%d after=%d mapped=%u cursor=%08X watermark=%08X device_flags=%08X\n",
         device,stack,original,minimum,preferred,before,after,unsigned(valid),bounds[0],bounds[1],bounds[2]);
 }
 extern "C" void bf_motion_lifetime(uint32_t object,int create) try {
     // Common 155340 ctor / 1553F0 dtor own the uint16 live slot at +22.
-    uint16_t slot=0;if(!read(uint64_t(object)+0x22,&slot,2)||slot>=lifetimes.size())return;
+    uint16_t slot=0;if(!read_guest(uint64_t(object)+0x22,&slot,2)||slot>=lifetimes.size())return;
     std::lock_guard<std::mutex> lock(lifetime_mutex);auto &l=lifetimes[slot];
     if(create) {
         if(l.live||l.generation==UINT32_MAX){bf_motion_trace_failure("lifetime_slot_collision_or_wrap");return;}
@@ -180,13 +180,13 @@ extern "C" void bf_motion_scene_lifetime(uint32_t object,int create) try {
     // Actual 1F45A0 ctor: original scene +1C is renderer context, +20 is the
     // level geometry resource. This plain 0x78-byte object has no actor slot.
     uint32_t context=0,resource=0;
-    if(!read(uint64_t(object)+0x1C,&context,4)||!read(uint64_t(object)+0x20,&resource,4)||!context||!resource)return;
+    if(!read_guest(uint64_t(object)+0x1C,&context,4)||!read_guest(uint64_t(object)+0x20,&resource,4)||!context||!resource)return;
     *found={object,context,resource,++scene_generation,true};
 } catch(...) {bf_motion_trace_failure("scene_lifetime_observation_exception");}
 extern "C" int bf_motion_record_scene(uint32_t stack,BFMotionRecord *r) {
     if(!r||!bf_motion_observer_enabled())return 0;*r=producer_depth?producer_stack[producer_depth-1]:BFMotionRecord{};
     uint32_t args[3]{},resource=0,geometry=0,raw_words[2]{};
-    if(!read(stack,args,sizeof args))return 0;
+    if(!read_guest(stack,args,sizeof args))return 0;
     const uint32_t object=args[1];uint32_t generation=0;
     {
         std::lock_guard<std::mutex> lock(lifetime_mutex);
@@ -198,9 +198,9 @@ extern "C" int bf_motion_record_scene(uint32_t stack,BFMotionRecord *r) {
     // span. Original 36FF10 uses resource+4 (scene+28) as Data; original 372150
     // passes resource+8 (scene+2C) into synchronization routine 371CE0. The
     // latter is NOT a proven Size, regardless of its value or alignment.
-    read(uint64_t(object)+0x20,&resource,4);
-    read(uint64_t(resource)+0x10,&geometry,4);
-    read(uint64_t(object)+0x28,raw_words,sizeof raw_words);
+    read_guest(uint64_t(object)+0x20,&resource,4);
+    read_guest(uint64_t(resource)+0x10,&geometry,4);
+    read_guest(uint64_t(object)+0x28,raw_words,sizeof raw_words);
     r->words[BF_MO_OBJECT]=object;r->words[BF_MO_GENERATION]=0;r->words[BF_MO_SLOT]=UINT32_MAX;
     r->words[BF_MO_RESOURCE]=resource;r->words[BF_MO_NODE]=geometry;
     r->words[BF_MO_STATIC_RAW_DATA]=raw_words[0];r->words[BF_MO_STATIC_RAW_SYNC]=raw_words[1];
@@ -211,13 +211,13 @@ extern "C" int bf_motion_record_scene(uint32_t stack,BFMotionRecord *r) {
 extern "C" int bf_motion_record_view(uint32_t stack,BFMotionRecord *r) {
     if(!r||!bf_motion_observer_enabled())return 0;*r={};uint32_t args[3]{};
     // Original D9F00 call frame: return PC, renderer context, view object.
-    if(!read(stack,args,sizeof args))return 0;
+    if(!read_guest(stack,args,sizeof args))return 0;
     if(args[0]!=0x0006FCE5u&&args[0]!=0x0006FE8Bu&&args[0]!=0x0006C64Bu)return 0;
     r->words[BF_MO_CONTEXT]=args[1];r->words[BF_MO_VIEW]=args[2];
     uint32_t projection=0;unsigned char flags=0;
-    bool valid=read(uint64_t(args[2])+0x50,&projection,4)&&read(uint64_t(args[2])+0x4C,&flags,1)&&
-        read(uint64_t(projection)+0x14,r->words+BF_MO_PROJECTION_WORDS,17*4)&&
-        read(uint64_t(args[2])+0x58,r->words+BF_MO_FRUSTUM,24*4);
+    bool valid=read_guest(uint64_t(args[2])+0x50,&projection,4)&&read_guest(uint64_t(args[2])+0x4C,&flags,1)&&
+        read_guest(uint64_t(projection)+0x14,r->words+BF_MO_PROJECTION_WORDS,17*4)&&
+        read_guest(uint64_t(args[2])+0x58,r->words+BF_MO_FRUSTUM,24*4);
     // These are observed scalar fields/planes, NOT a recovered 4x4 view matrix.
     if(valid)for(unsigned i=BF_MO_PROJECTION_WORDS;i<BF_MO_FRUSTUM+24;++i) {
         float n;std::memcpy(&n,r->words+i,4);if(!std::isfinite(n))valid=false;
@@ -230,19 +230,19 @@ extern "C" int bf_motion_record_model(uint32_t object,BFMotionRecord *r) {
     r->words[BF_MO_OBJECT]=object;r->words[BF_MO_GENERATION]=0;r->words[BF_MO_SLOT]=UINT32_MAX;
     std::memset(r->words+BF_MO_RESOURCE,0,5*4);
     uint16_t slot=0;
-    if(read(uint64_t(object)+0x22,&slot,2)&&slot<lifetimes.size()) {
+    if(read_guest(uint64_t(object)+0x22,&slot,2)&&slot<lifetimes.size()) {
         std::lock_guard<std::mutex> lock(lifetime_mutex);const auto &l=lifetimes[slot];
         if(l.live&&l.object==object){r->words[BF_MO_GENERATION]=l.generation;r->words[BF_MO_SLOT]=slot;}
     }
-    read(uint64_t(object)+0xC,r->words+BF_MO_RESOURCE,4);
-    read(uint64_t(object)+0x6C,r->words+BF_MO_NODE,4);
+    read_guest(uint64_t(object)+0xC,r->words+BF_MO_RESOURCE,4);
+    read_guest(uint64_t(object)+0x6C,r->words+BF_MO_NODE,4);
     r->words[BF_MO_DRAW_TARGET]=0x00157B70u;
     return push(*r,BF_MOTION_MODEL_BEGIN);
 }
 extern "C" int bf_motion_record_object(uint32_t object,uint32_t target,uint32_t callsite,BFMotionRecord *r) {
     if(!bf_motion_record_model(object,r))return 0;
     uint32_t table=0,actual=0;
-    if(!read(object,&table,4)||!read(uint64_t(table)+0x64,&actual,4)||actual!=target)
+    if(!read_guest(object,&table,4)||!read_guest(uint64_t(table)+0x64,&actual,4)||actual!=target)
         r->words[BF_MO_GENERATION]=0;
     r->words[BF_MO_DRAW_TARGET]=target;r->words[BF_MO_CALLSITE]=callsite;
     // record_model pushed the scope before these actual dispatch details were
@@ -255,7 +255,7 @@ extern "C" int bf_motion_record_part(uint32_t packet,uint32_t descriptor,uint32_
     // 157BBE sets packet+990=instance; 23C232 sets descriptor+0=node+14;
     // 23C30C sets descriptor+2C=original 44-byte mesh-part record. The
     // subdraw pointer is the original 48-byte record, before material +20.
-    const bool packet_read=read(uint64_t(packet)+0x990,&instance,4);
+    const bool packet_read=read_guest(uint64_t(packet)+0x990,&instance,4);
     // Generic actual virtual+64 scopes also cover derived renderers which do
     // not set packet+990. Such a zero must never manufacture a model instance;
     // the enclosing observed lifetime/dispatch provides ownership instead.
@@ -263,25 +263,25 @@ extern "C" int bf_motion_record_part(uint32_t packet,uint32_t descriptor,uint32_
     // observed lifetime. Do not borrow the parent's generation, or invent one.
     if(packet_read&&instance&&instance!=r->words[BF_MO_OBJECT]) {
         uint16_t slot=0;uint32_t attached_context=0;
-        if(read(uint64_t(instance)+0x22,&slot,2)&&slot<lifetimes.size()&&
-           read(uint64_t(instance)+8,&attached_context,4)&&attached_context==r->words[BF_MO_CONTEXT]) {
+        if(read_guest(uint64_t(instance)+0x22,&slot,2)&&slot<lifetimes.size()&&
+           read_guest(uint64_t(instance)+8,&attached_context,4)&&attached_context==r->words[BF_MO_CONTEXT]) {
             std::lock_guard<std::mutex> lock(lifetime_mutex);const auto &l=lifetimes[slot];
             if(l.live&&l.object==instance) {
                 r->words[BF_MO_OBJECT]=instance;r->words[BF_MO_GENERATION]=l.generation;r->words[BF_MO_SLOT]=slot;
-                read(uint64_t(instance)+0xC,r->words+BF_MO_RESOURCE,4);
+                read_guest(uint64_t(instance)+0xC,r->words+BF_MO_RESOURCE,4);
             }
         }
     }
     const bool owner=r->words[BF_MO_OBJECT]&&r->words[BF_MO_GENERATION]&&r->words[BF_MO_DRAW_TARGET];
-    const bool envelope=read(uint64_t(packet)+0x80,&context,4)&&read(uint64_t(packet)+0x8C,&view,4)&&
+    const bool envelope=read_guest(uint64_t(packet)+0x80,&context,4)&&read_guest(uint64_t(packet)+0x8C,&view,4)&&
         context==r->words[BF_MO_CONTEXT]&&view==r->words[BF_MO_VIEW];
-    const bool descriptor_ok=read(descriptor,&transform,4)&&transform>=0x10014u&&
-        read(uint64_t(descriptor)+0x2C,&part,4);
+    const bool descriptor_ok=read_guest(descriptor,&transform,4)&&transform>=0x10014u&&
+        read_guest(uint64_t(descriptor)+0x2C,&part,4);
     const bool good=packet_read&&owner&&envelope&&descriptor_ok&&(!instance||instance==r->words[BF_MO_OBJECT]);
     r->words[BF_MO_NODE]=descriptor_ok?transform-0x14:0;r->words[BF_MO_PART]=descriptor_ok?part:0;
     r->words[BF_MO_SUBDRAW]=descriptor_ok?subdraw:0;
     if(!good)r->words[BF_MO_GENERATION]=0;
-    read(uint64_t(descriptor)+0x18,r->words+BF_MO_MATERIAL,4);
+    read_guest(uint64_t(descriptor)+0x18,r->words+BF_MO_MATERIAL,4);
     r->words[BF_MO_PACKET_INSTANCE]=instance;
     return push(*r,BF_MOTION_PART_BEGIN);
 }

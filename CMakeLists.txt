@@ -209,6 +209,7 @@ include(cmake/desktop_input.cmake)
 include(cmake/physics_trace.cmake)
 include(cmake/frame_timing_probe.cmake)
 include(cmake/native_aspect.cmake)
+include(cmake/temporal_motion.cmake)
 add_executable(bruteforce_recomp src/main.cpp src/boot_trace.cpp src/file_hash.cpp
     src/native_media.cpp src/instruction_services.cpp src/startup_sampler.cpp
     src/gpu_completion.cpp src/gpu_pushbuffer_fixups.cpp src/host_input.cpp src/host_audio.cpp src/guest_failure.cpp "${BF_RECOVERED_DIR}/recomp_recovered.c" "${BF_RECOVERED_DIR}/recomp_gameplay.c" ${BF_GENERATED})

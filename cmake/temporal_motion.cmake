@@ -1,5 +1,7 @@
 # No original game bytes are checked in. Authenticate the complete canonical
 # translated chunks before inserting observation-only lifetime/submission calls.
+# These wrappers are used by the shared guest adapter on every host platform;
+# keep this overlay independent of the Windows-only native-aspect integration.
 set(motion_matches 0)
 foreach(file IN LISTS BF_GENERATED)
     file(READ "${file}" text)

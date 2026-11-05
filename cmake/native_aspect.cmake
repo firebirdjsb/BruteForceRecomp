@@ -82,7 +82,6 @@ file(WRITE "${BF_ASPECT_COPY}.in" "${BF_ASPECT_PATCHED}")
 configure_file("${BF_ASPECT_COPY}.in" "${BF_ASPECT_COPY}" COPYONLY)
 list(APPEND BF_ASPECT_SOURCES "${BF_ASPECT_ROOT}/src/graphics/native_aspect.cpp")
 set(BF_GENERATED "${BF_ASPECT_SOURCES}")
-include("${BF_ASPECT_ROOT}/cmake/temporal_motion.cmake")
 # Source-local include paths preserve compilation flags for every other chunk.
 set_source_files_properties("${BF_ASPECT_COPY}" PROPERTIES INCLUDE_DIRECTORIES "${BF_ASPECT_ROOT}/src")
 set_source_files_properties("${BF_ASPECT_ROOT}/src/graphics/native_aspect.cpp" PROPERTIES
