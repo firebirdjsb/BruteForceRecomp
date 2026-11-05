@@ -11,7 +11,7 @@ Gameplay temporal FSR3/4 is still unavailable. Actual AMD 3.1.6 and 4.1.2
 processor tests pass on the RX 7600 through a shared D3D11On12/native-D3D12
 device, real queues/fences and retained GPU output tickets. Separate native HUD
 and host layers, SDK-jitter/provider controls, append-only preferences and F1/
-launcher requests are implemented on the engineering branch. Requests and
+launcher requests are implemented in the consolidated source. Requests and
 hardware capability never establish an active gameplay reconstruction.
 
 Actual-title captures established eight main actor parts per frame, matched
@@ -24,8 +24,10 @@ ownership repairs are exhausted; no third offset/layout repair was attempted.
 The independently tested GPU history/MRT component remains default-off and
 incomplete title sources never dispatch the SDK.
 
-No new player/launcher was installed and no new smoke confirmation or main push
-is claimed. The previously accepted widescreen player below remains installed.
+The user explicitly requested consolidating all branch work into main after
+the checkpoint. Every local/remote branch tip is included without discarded
+commits. This does not enable gameplay FSR or provide new smoke acceptance.
+No new player/launcher was installed; the accepted widescreen player below remains.
 Private title captures, copied saves and projection evidence stay under
 `.local/temporal-fsr`; no retail data or SDK binaries are included in source.
 See [FSR integration notes](docs/FSR_TEMPORAL.md) for implemented surfaces,

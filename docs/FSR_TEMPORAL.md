@@ -1,11 +1,12 @@
 # AMD FSR temporal integration checkpoint — 4 November 2026
 
-**Gameplay temporal FSR remains unavailable.** The engineering branch now has
+**Gameplay temporal FSR remains unavailable.** The consolidated source now has
 real AMD FSR 3.1.6/4.1.2 processing, shared-device GPU presentation, separate
 HUD/host layers, SDK-jitter control, and request/settings plumbing. These are
 not evidence of a completed Brute Force temporal source. No candidate from this
-work has replaced the installed player or launcher, and main has not received
-this unfinished integration. Native 16:9/HUD work was separately accepted by
+work has replaced the installed player or launcher. This incomplete checkpoint
+was consolidated into main at the user's explicit request; source publication
+is not gameplay acceptance. Native 16:9/HUD work was separately accepted by
 the user; DLSS and gameplay temporal frame generation remain unfinished.
 
 ## Native integration continuation

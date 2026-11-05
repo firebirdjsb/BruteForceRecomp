@@ -2,11 +2,14 @@
 
 ## Stop state and authorization
 
-The user explicitly stopped progress and requested a commit checkpoint with an
-agent handoff. Do not continue implementation in this run. This checkpoint is
-local on `codex/temporal-fsr-integration`; it has not been pushed or merged.
-The preceding branch commit is `08a52c9` (two-queue interop fix). Main remains
-`c8b1f272705eecb787dcdb882d995757050c7e84`.
+The user stopped implementation and requested the checkpoint and handoff,
+committed as `f9e08aa` on `codex/temporal-fsr-integration`. The user subsequently
+explicitly requested merging all branches and keeping their work on main.
+Main was fast-forwarded to include this checkpoint and every other local/remote
+branch tip, with no conflicts or discarded commits. The existing stash's
+texture work was already included; the stash and untracked DLC ZIP are retained.
+This source consolidation does not resume unfinished FSR implementation or
+promote the private executable to the installed application.
 
 The requested outcome is genuine in-game temporal FSR3/4. **It is not achieved.**
 The real SDK processor and guarded rendering components work, but complete
@@ -17,8 +20,10 @@ The user's pasted AGENTS instructions cap repairs of the same issue at two.
 Both ownership repair attempts were used. Functional ownership work stopped;
 the disproven static validation was withdrawn, not replaced with another guess.
 A further ownership repair needs a newly authorized bounded cycle. The user
-also requires their confirmed gameplay smoke test before new changes go to
-main. The earlier widescreen smoke acceptance does not approve this FSR work.
+also requires gameplay smoke acceptance for candidate promotion. Their later
+explicit branch-consolidation request authorizes publishing this incomplete
+source checkpoint to main; it is not a new FSR gameplay acceptance. The earlier
+widescreen smoke acceptance does not establish working gameplay FSR.
 
 ## Installed application: preserve it
 
@@ -156,8 +161,9 @@ Early ALL builds exposed missing standalone link dependencies. These were fixed
 before the final green runs: the optional prepare-present callback stays in
 `Nv2aBackendExt`; the decoder owns `bf_motion_parameter_va`; every host-UI target
 links the shared upscaler state. Earlier not-run failures are not the final
-verification result. No new CI was run for this local checkpoint. The older
-`08a52c9` CI run was green and does not cover the new local commit.
+verification result. These are the checkpoint's local results. The older
+`08a52c9` CI run was green but does not cover this checkpoint; use the new main
+consolidation's Actions run for its current hosted result.
 
 ## Local build/evidence paths for resumption
 
